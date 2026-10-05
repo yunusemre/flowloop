@@ -55,7 +55,9 @@ export function provenance(s: RunSummary): string[] {
     .map((r) => `${r}: ${[...byRole.get(r)!].join(" + ")}`);
   const versions = toolVersions();
   return [
-    `🤖 *Claude ile hazırlandı* — kgflow ${versions.kgflow} (Claude Agent SDK ${versions.sdk})`,
+    s.backend === "cursor"
+      ? `🤖 *Cursor ile hazırlandı* — kgflow ${versions.kgflow} (Cursor CLI)`
+      : `🤖 *Claude ile hazırlandı* — kgflow ${versions.kgflow} (Claude Agent SDK ${versions.sdk})`,
     `- *Modeller:* ${roles.length ? roles.join(" · ") : "bilinmiyor"}`,
     s.initiator ? `- *Başlatan:* ${s.initiator}` : "",
     `- *Akış:* analist → developer ⇄ reviewer (${s.iterations} tur) → committer`,
@@ -88,6 +90,8 @@ export interface RunOptions {
   planApproval?: boolean;
   dryRun?: boolean;
   agent: AgentRunner;
+  /** Ajanları çalıştıran araç (Jira imzası ve rapor için) */
+  backend?: "claude" | "cursor";
   log: Logger;
   confirm?: (question: string) => Promise<boolean>;
   now?: () => Date;
@@ -116,6 +120,7 @@ interface PhaseCost {
 export interface RunSummary {
   status: "success" | "failed" | "dry-run";
   id: string;
+  backend?: "claude" | "cursor";
   baseBranch?: string;
   baseRef?: string;
   branch?: string;
@@ -302,6 +307,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   Object.assign(summary, { baseBranch, baseRef, baseSha, branch });
   const who = [git(["config", "user.name"], root).stdout.trim(), git(["config", "user.email"], root).stdout.trim()].filter(Boolean);
   summary.initiator = who.length === 2 ? `${who[0]} <${who[1]}>` : who[0];
+  summary.backend = opts.backend ?? "claude";
 
   const workBase = workDirFor(cfg, root);
   const runDir = path.join(workBase, id);
@@ -390,6 +396,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   }
   const X = cfg.linkDirs; // git işlemlerinde hariç tutulacak symlink'ler
   ensureExcluded(root, X);
+  if (opts.backend === "cursor") ensureExcluded(root, [".cursor/hooks.json", ".cursor/cli.json"]); // kgflow'un geçici yetki dosyaları
   if (statusPorcelain(wt, X).length) fail("Kurulum izlenen dosyaları değiştirdi (ör. lock dosyası).");
 
   const { text: rulesText, docs } = composeRules(cfg, root, baseWt, home);
@@ -628,6 +635,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   if (!fs.existsSync(jsonPath)) throw new KgflowError(`Çalıştırma bulunamadı: ${opts.resume} (kgflow runs ile listele)`);
   const summary = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as RunSummary;
   summary.warnings = summary.warnings ?? [];
+  if (opts.backend) summary.backend = opts.backend;
   if (summary.status === "success") throw new KgflowError("Bu çalıştırma zaten başarıyla bitmiş.");
   const wt = path.join(runDir, "wt");
   const baseWt = path.join(runDir, "base");
@@ -642,6 +650,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
 
   const X = cfg.linkDirs;
   ensureExcluded(root, X);
+  if (opts.backend === "cursor") ensureExcluded(root, [".cursor/hooks.json", ".cursor/cli.json"]); // kgflow'un geçici yetki dosyaları
   if (headSha(wt) !== baseSha) gitOk(["reset", "-q", "--soft", baseSha], wt); // yarım kalmış commit'leri geri al, dosyalar aynen kalır
   gitOk(["reset", "-q"], wt); // stage'i temizle
   const current = workingTreeHash(wt, X);

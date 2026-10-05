@@ -3,7 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { parseArgs } from "node:util";
-import { SdkAgentRunner } from "./agent.js";
+import { SdkAgentRunner, type AgentRunner } from "./agent.js";
+import { BackendError, chooseBackend, createRunner, type Backend } from "./backend.js";
+import type { MutantContext } from "./cursor.js";
+import { MutantSandbox } from "./mutant.js";
 import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, KGFLOW_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor } from "./config.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { mergeConfig } from "./configmerge.js";
@@ -26,9 +29,11 @@ Kullanım:
       --refresh                  Görev dosyası varsa bile Jira'dan yeniden çek
       --no-push                  Bu çalıştırmada push yapma (kgflow.yaml'daki push: true'yu ezer)
       --plan-onayi               Plan yazıldıktan sonra onay ister
+      --agent claude|cursor      Ajan aracını seç (varsayılan: kgflow.yaml → agent: auto)
       --dry-run                  Ajan çalıştırmadan prompt ve yetkileri gösterir
       -v, --verbose              Ajanların çıktısını canlı gösterir
-  kgflow resume <id> [-v]          Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
+  kgflow resume <id> [-v] [--agent claude|cursor]
+                                   Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
   kgflow runs                      Bu repo için yapılan çalıştırmaları listeler
   kgflow clean [--all]             Merge edilmiş (ya da --all ile tüm) çalıştırmaların worktree'lerini siler
 `;
@@ -106,6 +111,20 @@ async function ensureJiraTask(root: string, key: string, refresh = false): Promi
   return rel;
 }
 
+/** Claude ya da Cursor: ayara, --agent'a ve erişime göre seçer */
+function pickRunner(root: string, override: string | undefined, dryRun = false): { runner: AgentRunner; backend: Backend } {
+  if (override && !["auto", "claude", "cursor"].includes(override)) throw new KgflowError(`--agent claude | cursor | auto olmalı (verilen: ${override})`);
+  try {
+    const r = createRunner(loadConfig(root), override);
+    console.log(color.dim(`Ajan: ${r.backend === "cursor" ? "Cursor CLI" : "Claude (Agent SDK)"} — ${r.reason}`));
+    return r;
+  } catch (e) {
+    if (dryRun && e instanceof BackendError) return { runner: new SdkAgentRunner(), backend: "claude" };
+    if (e instanceof BackendError) throw new KgflowError(e.message);
+    throw e;
+  }
+}
+
 async function cmdRun(root: string, args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
@@ -116,6 +135,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
       verbose: { type: "boolean", short: "v", default: false },
       refresh: { type: "boolean", default: false },
       "no-push": { type: "boolean", default: false },
+      agent: { type: "string" },
     },
   });
   if (positionals.length !== 1) throw new KgflowError("Kullanım: kgflow run <görev.md | JIRA-123>");
@@ -128,13 +148,15 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     rl.close();
     return /^[eEyY]$/.test(a.trim());
   };
+  const r = pickRunner(root, values.agent, values["dry-run"]);
   const s = await runTask({
     root,
     taskFile,
     planApproval: values["plan-onayi"],
     noPush: values["no-push"],
     dryRun: values["dry-run"],
-    agent: new SdkAgentRunner(),
+    agent: r.runner,
+    backend: r.backend,
     log,
     confirm,
   });
@@ -148,7 +170,7 @@ function printDone(root: string, s: RunSummary, log: ReturnType<typeof consoleLo
   for (const c of s.commits) console.log(`  ${c}`);
   console.log(`
   Branch  : ${s.branch}
-  Maliyet : $${s.totalCostUsd.toFixed(2)} · ${s.iterations} tur · ${s.denials.length} reddedilen işlem
+  Maliyet : ${s.backend === "cursor" ? "Cursor aboneliği (maliyet bildirilmez)" : "$" + s.totalCostUsd.toFixed(2)} · ${s.iterations} tur · ${s.denials.length} reddedilen işlem
   Kayıt   : ${path.join(s.runDir!, "run.json")}
 
   Push    : ${s.pushed ? `origin/${s.branch} ✓` : `yapılmadı → git push -u origin ${s.branch}`}${s.prUrl ? `\n  PR aç   : ${s.prUrl}` : ""}${s.jiraCommentUrl ? `\n  Jira    : ${s.jiraCommentUrl}` : ""}
@@ -215,6 +237,12 @@ async function main(): Promise<number> {
       cfg.mcp.servers = expandServerNames(cfg.mcp.servers, root);
       console.log(color.green(`✓ ${CONFIG_FILE} geçerli`) + color.dim(`  (stack: ${cfg.stack}, izolasyon: ${cfg.isolation ? "açık" : "KAPALI"})`));
       if (cfg.tech.trim()) console.log(color.dim(cfg.tech.trim()));
+      try {
+        const b = chooseBackend(cfg);
+        console.log(`  ajan     : ${b.backend === "cursor" ? `Cursor CLI (${b.cursorBin})` : "Claude (Agent SDK)"} — ${b.reason}`);
+      } catch (e) {
+        console.log(color.yellow(`  ajan     : ${(e as Error).message}`));
+      }
       const roles = loadRoles(root, cfg);
       for (const r of Object.values(roles)) {
         console.log(`\n${color.bold(r.name)} ${color.dim(`(${r.source}${r.model ? ", model: " + r.model : ""})`)}`);
@@ -247,11 +275,31 @@ async function main(): Promise<number> {
     }
     case "run":
       return cmdRun(root, rest);
+    case "__mutant": {
+      // Cursor reviewer'ının mutasyon komutu (iç kullanım)
+      const [action, ctxFile] = rest;
+      const ctx = JSON.parse(fs.readFileSync(ctxFile, "utf8")) as MutantContext;
+      const sb = new MutantSandbox(ctx.repoRoot, ctx.dir, () => ctx.testCmd, ctx.linkDirs, ctx.timeoutSec);
+      if (action === "reset") {
+        const r = sb.reset();
+        console.log(`Kopya hazır: ${ctx.dir} (${r.files} dosya)`);
+        return 0;
+      }
+      if (action === "test") {
+        const r = sb.test();
+        console.log(`exit=${r.code}\n${r.output}`);
+        return 0;
+      }
+      throw new KgflowError("Kullanım: mutant reset | test");
+    }
     case "resume": {
-      const id = rest.find((a) => !a.startsWith("-"));
+      const id = rest.find((a, i) => !a.startsWith("-") && rest[i - 1] !== "--agent");
       if (!id) throw new KgflowError("Kullanım: kgflow resume <çalıştırma-id>  (kgflow runs ile listele)");
       const log = consoleLogger(rest.includes("-v") || rest.includes("--verbose"));
-      const s = await resumeRun({ root, resume: id, taskFile: "", agent: new SdkAgentRunner(), log, noPush: rest.includes("--no-push") });
+      const ai = rest.findIndex((a) => a === "--agent" || a.startsWith("--agent="));
+      const agentOpt = ai < 0 ? undefined : rest[ai].includes("=") ? rest[ai].split("=")[1] : rest[ai + 1];
+      const r = pickRunner(root, agentOpt);
+      const s = await resumeRun({ root, resume: id, taskFile: "", agent: r.runner, backend: r.backend, log, noPush: rest.includes("--no-push") });
       printDone(root, s, log);
       return 0;
     }

@@ -232,5 +232,14 @@ maxIterations: 3
 model: ""                        # boş = Claude Code varsayılanı
 roles: {}                        # ör. reviewer: { model: opus }
 isolation: true                  # kullanıcı plugin/skill/MCP'leri yüklenmez
+
+# Ajan aracı: auto = Claude erişimi varsa Claude, yoksa Cursor CLI. claude | cursor ile sabitlenebilir.
+# Tek seferlik: kgflow run IDT-1234 --agent cursor
+agent: auto
+cursor:
+  bin: ""                         # boş = cursor-agent, yoksa agent
+  model: ""                       # boş = Cursor varsayılanı (cursor-agent --list-models)
+  timeoutMin: 30                  # rol başına süre sınırı (Cursor maliyet bildirmez)
+  extraArgs: []
 `;
 }

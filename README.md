@@ -45,6 +45,8 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 
 Ayrıntılı kılavuz: **[KULLANIM.md](KULLANIM.md)**
 
+Ajanlar Claude Agent SDK ile çalışır; Claude erişimi yoksa otomatik olarak Cursor CLI kullanılır (`agent: auto | claude | cursor`). İki durumda da rol yetkileri kodla zorlanır.
+
 ```bash
 ./install.sh                              # Node 20+ yoksa en güncel LTS'i kurar, kgflow komutunu ekler
 cd <proje> && kgflow init && kgflow check # proje başına bir kez
@@ -77,6 +79,5 @@ sorun / yapılan / neden bu yaklaşım / nasıl test edildi (committer yazar) + 
 ## Geliştirme
 
 ```bash
-npm test   # 69 test: politika, kabuk ayrıştırıcı, odaklı kontroller ve sahte ajanla uçtan uca akış
+npm test   # 76 test: politika, kabuk ayrıştırıcı, odaklı kontroller ve sahte ajanla uçtan uca akış
 ```
-# flowloop

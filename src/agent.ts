@@ -44,7 +44,7 @@ export interface AgentRunner {
   run(req: AgentRequest): Promise<AgentResult>;
 }
 
-const ROLE_GUARDRAIL = `
+export const ROLE_GUARDRAIL = `
 Bu oturum otomatik bir ekip akışının parçası; soru soracak bir insan yok.
 Yetkilerin kodla sınırlandırıldı. Reddedilen bir işlemi başka bir yoldan
 (farklı araç, farklı komut biçimi, dolaylı script) yapmaya ÇALIŞMA; reddi ve

@@ -129,6 +129,26 @@ export const configSchema = z
       .default({}),
     /** true: kullanıcının Claude ayarları, plugin, skill ve MCP'leri yüklenmez (önerilen). */
     isolation: z.boolean().default(true),
+    /**
+     * Ajanları çalıştıran araç:
+     *   auto   → Claude erişimi varsa Claude (Agent SDK), yoksa Cursor CLI
+     *   claude → Claude Agent SDK
+     *   cursor → Cursor CLI (agent / cursor-agent)
+     */
+    agent: z.enum(["auto", "claude", "cursor"]).default("auto"),
+    cursor: z
+      .object({
+        /** Boş = PATH'te cursor-agent, yoksa agent */
+        bin: z.string().default(""),
+        /** Boş = Cursor'un varsayılan modeli. roles.<rol>.model de kullanılabilir. */
+        model: z.string().default(""),
+        /** Rol başına süre sınırı (Cursor maliyet bildirmediği için bütçe yerine süre sınırlanır) */
+        timeoutMin: z.number().positive().default(30),
+        /** Cursor CLI'ye eklenecek ek argümanlar */
+        extraArgs: z.array(z.string()).default([]),
+      })
+      .strict()
+      .default({ bin: "", model: "", timeoutMin: 30, extraArgs: [] }),
     /** Worktree ve çalıştırma dosyalarının yeri. Boş = ~/.kgflow/work */
     workDir: z.string().default(""),
   })

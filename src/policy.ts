@@ -55,7 +55,8 @@ export function rewriteAliasPaths(ctx: PolicyContext, input: Record<string, unkn
 
 export type Decision = { allow: true } | { allow: false; reason: string };
 
-const ALWAYS_EDIT_DENY = [".git/**", ".git", ".kgflow/**"];
+// .cursor/hooks.json ve .cursor/cli.json: Cursor kullanılırken yetki kurallarını taşır; ajan değiştiremez
+const ALWAYS_EDIT_DENY = [".git/**", ".git", ".kgflow/**", ".cursor/hooks.json", ".cursor/cli.json"];
 const FILE_TOOLS_EDIT = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
 function realish(p: string): string {

@@ -78,9 +78,19 @@ fi
 ok "npm $(npm -v)"
 
 # ───────────── 3) Claude ve Jira erişimi (sadece kontrol) ─────────────
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then ok "Claude: ANTHROPIC_API_KEY tanımlı"
-elif [[ -d "$HOME/.claude" ]] || command -v claude >/dev/null 2>&1; then ok "Claude: Claude Code girişi kullanılacak"
-else warn "Claude kimliği bulunamadı: Claude Code'a giriş yap (claude → /login) ya da ANTHROPIC_API_KEY tanımla"; fi
+HAS_AGENT=0
+if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then ok "Claude: ANTHROPIC_API_KEY tanımlı"; HAS_AGENT=1
+elif [[ -f "$HOME/.claude/.credentials.json" ]] || grep -q '"oauthAccount"' "$HOME/.claude.json" 2>/dev/null; then ok "Claude: Claude Code girişi bulundu"; HAS_AGENT=1
+else warn "Claude girişi bulunamadı"; fi
+CURSOR_BIN="$(command -v cursor-agent 2>/dev/null || true)"
+if [[ -z "$CURSOR_BIN" ]] && command -v agent >/dev/null 2>&1 && agent --help 2>&1 | grep -qi cursor; then CURSOR_BIN="$(command -v agent)"; fi
+if [[ -n "$CURSOR_BIN" ]]; then ok "Cursor CLI: $CURSOR_BIN (Claude yoksa kullanılır)"; HAS_AGENT=1
+else warn "Cursor CLI bulunamadı"; fi
+if (( ! HAS_AGENT )); then
+  err "Ajan çalıştıracak bir araç yok. Birini kur:"
+  echo "   Claude: Claude Code'a giriş yap (claude → /login) ya da ANTHROPIC_API_KEY tanımla"
+  echo "   Cursor: curl https://cursor.com/install -fsS | bash  &&  cursor-agent login"
+fi
 
 if [[ -n "${JIRA_EMAIL:-}" && -n "${JIRA_API_TOKEN:-}" ]]; then ok "Jira: JIRA_EMAIL ve JIRA_API_TOKEN tanımlı"
 else warn "Jira: JIRA_EMAIL / JIRA_API_TOKEN tanımlı değil (kgflow run IDT-xxxx için gerekli; KULLANIM.md → Jira)"; fi
