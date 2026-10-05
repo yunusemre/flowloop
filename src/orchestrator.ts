@@ -94,6 +94,12 @@ export interface RunOptions {
   backend?: "claude" | "cursor";
   log: Logger;
   confirm?: (question: string) => Promise<boolean>;
+  /**
+   * Plan onayı: onayla / yorum yaz (analist planı yorumla günceller) / iptal.
+   * Yoksa confirm ile evet-hayır sorulur. reused=true ise plan önceki bir çalıştırmadan gelmiştir
+   * ve "baştan analiz" seçeneği de sunulabilir.
+   */
+  reviewPlan?: (plan: string, ctx: { round: number; reused: boolean }) => Promise<PlanDecision>;
   now?: () => Date;
   /** Testlerde kontrol komutlarını taklit etmek için */
   checkRunner?: CheckRunner;
@@ -117,9 +123,20 @@ interface PhaseCost {
   models?: string[];
 }
 
+export type PlanDecision = { action: "approve" } | { action: "revise"; comment: string } | { action: "cancel" } | { action: "restart" };
+
+/** Plan turunda en fazla kaç kez yorumla yenileme yapılır */
+export const MAX_PLAN_ROUNDS = 5;
+
 export interface RunSummary {
   status: "success" | "failed" | "dry-run";
   id: string;
+  /** Görevin kimliği (Jira anahtarı ya da görev adı): aynı görevin önceki planını bulmak için */
+  taskKey?: string;
+  /** Plan onayında verilen yorumlar */
+  planFeedback?: { round: number; comment: string }[];
+  /** Plan önceki bir çalıştırmadan alındıysa onun kimliği */
+  planFrom?: string;
   backend?: "claude" | "cursor";
   baseBranch?: string;
   baseRef?: string;
@@ -270,6 +287,31 @@ export function ensureExcluded(root: string, dirs: string[]): void {
   fs.appendFileSync(file, `${current && !current.endsWith("\n") ? "\n" : ""}# kgflow: yok sayılan yollar\n${add.join("\n")}\n`);
 }
 
+/** Aynı görevin (Jira anahtarı ya da görev adı) en son yazılmış ama geliştirmeye geçmemiş planı */
+export function findPreviousPlan(cfg: ReturnType<typeof loadConfig>, root: string, taskKey: string, currentId: string): { id: string; plan: string; baseSha?: string } | undefined {
+  const found: { id: string; plan: string; baseSha?: string; mtime: number }[] = [];
+  for (const base of workDirsFor(cfg, root)) {
+    for (const id of fs.readdirSync(base)) {
+      if (id === currentId) continue;
+      const plan = path.join(base, id, "run", "plan.md");
+      const json = path.join(base, id, "run.json");
+      if (!fs.existsSync(plan) || !fs.existsSync(json)) continue;
+      try {
+        const s = JSON.parse(fs.readFileSync(json, "utf8")) as RunSummary;
+        const key = s.taskKey ?? s.jiraKey;
+        // sadece plan aşamasında kalmış çalıştırmalar: geliştirmeye geçmiş olanın planı onaylanmış ve kullanılmıştır
+        const developed = s.phases?.some((p) => p.role === "developer");
+        if (key === taskKey && s.status === "failed" && !developed && fs.readFileSync(plan, "utf8").trim()) {
+          found.push({ id, plan, baseSha: s.baseSha, mtime: fs.statSync(plan).mtimeMs });
+        }
+      } catch {
+        /* bozuk kayıt */
+      }
+    }
+  }
+  return found.sort((a, b) => b.mtime - a.mtime)[0];
+}
+
 export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const { root, log, agent } = opts;
   const now = opts.now ?? (() => new Date());
@@ -308,6 +350,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const who = [git(["config", "user.name"], root).stdout.trim(), git(["config", "user.email"], root).stdout.trim()].filter(Boolean);
   summary.initiator = who.length === 2 ? `${who[0]} <${who[1]}>` : who[0];
   summary.backend = opts.backend ?? "claude";
+  summary.taskKey = jira || slug;
 
   const workBase = workDirFor(cfg, root);
   const runDir = path.join(workBase, id);
@@ -447,17 +490,68 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
   // ───────────── 1) ANALİST ─────────────
   log.step("1/3 ANALİST  (okur, plan yazar — kod değiştiremez)");
-  const h0 = workingTreeHash(wt, X);
-  await call(roles.analist, "analist", cfg.budgets.analist);
-  if (workingTreeHash(wt, X) !== h0) fail("Analist kod değiştirdi! Rol ihlali.");
-  if (!fs.existsSync(files.plan) || !fs.readFileSync(files.plan, "utf8").trim()) fail("Analist plan yazmadı.");
-  log.ok("Plan hazır, kod değişmedi.");
-  const planText = fs.readFileSync(files.plan, "utf8");
-  if (PLAN_SMELLS.test(planText)) log.warn("Plan rollerle çelişen talimat içeriyor (commit/push ya da dış skill). Developer bunları uygulayamaz.");
+  summary.planFeedback = [];
+  let analistBudget = cfg.budgets.analist;
+  const runAnalist = async (feedback = "") => {
+    const h0 = workingTreeHash(wt, X);
+    const before = fs.existsSync(files.plan) ? fs.readFileSync(files.plan, "utf8") : "";
+    const res = await call(roles.analist, "analist", analistBudget, { planFeedback: feedback });
+    analistBudget = Math.max(0.05, analistBudget - res.costUsd);
+    if (workingTreeHash(wt, X) !== h0) fail("Analist kod değiştirdi! Rol ihlali.");
+    if (!fs.existsSync(files.plan) || !fs.readFileSync(files.plan, "utf8").trim()) fail("Analist plan yazmadı.");
+    if (feedback && fs.readFileSync(files.plan, "utf8") === before) log.warn("Analist planı değiştirmedi; gerekçesi aşağıda.");
+    return res;
+  };
+
+  // Aynı görevin önceki bir çalıştırmasında yazılmış plan varsa analizi boşa harcama
+  const prev = opts.planApproval && (opts.reviewPlan || opts.confirm) ? findPreviousPlan(cfg, root, summary.taskKey!, id) : undefined;
+  let reused = false;
+  if (prev) {
+    fs.copyFileSync(prev.plan, files.plan);
+    summary.planFrom = prev.id;
+    reused = true;
+    log.ok(`Önceki çalıştırmanın planı kullanılıyor: ${prev.id}${prev.baseSha && prev.baseSha !== baseSha ? ` (o zamanki base ${prev.baseSha.slice(0, 7)}, şimdiki ${baseSha.slice(0, 7)})` : ""}`);
+  } else {
+    await runAnalist();
+    log.ok("Plan hazır, kod değişmedi.");
+  }
+
   if (opts.planApproval) {
-    log.info("\n──── PLAN ────\n" + planText + "\n──────────────");
-    const yes = opts.confirm ? await opts.confirm("Plan uygun mu, geliştirmeye geçilsin mi?") : false;
-    if (!yes) fail(`Plan onaylanmadı. Plan: ${files.plan}`);
+    for (let round = 1; ; round++) {
+      const planText = fs.readFileSync(files.plan, "utf8");
+      if (PLAN_SMELLS.test(planText)) log.warn("Plan rollerle çelişen talimat içeriyor (commit/push ya da dış skill). Developer bunları uygulayamaz.");
+      log.info("\n──── PLAN" + (round > 1 ? ` (${round}. sürüm)` : reused ? " (önceki çalıştırmadan)" : "") + " ────\n" + planText + "\n──────────────");
+      const d: PlanDecision = opts.reviewPlan
+        ? await opts.reviewPlan(planText, { round, reused })
+        : (await opts.confirm?.("Plan uygun mu, geliştirmeye geçilsin mi?")) ? { action: "approve" } : { action: "cancel" };
+      if (d.action === "approve") break;
+      if (d.action === "cancel") {
+        saveSummary();
+        fail(`Plan onaylanmadı. Plan saklandı; aynı görevi yeniden çalıştırınca bu plandan devam edilir.\n  Plan: ${files.plan}`);
+      }
+      if (d.action === "restart") {
+        reused = false;
+        summary.planFrom = undefined;
+        fs.rmSync(files.plan, { force: true });
+        log.step("ANALİST  (baştan analiz)");
+        await runAnalist();
+        continue;
+      }
+      if (d.action !== "revise") continue;
+      // yorum: analist planı yorumla birlikte yeniden değerlendirir
+      if (round >= MAX_PLAN_ROUNDS) fail(`Plan ${MAX_PLAN_ROUNDS} kez yenilendi ama onaylanmadı. Plan: ${files.plan}`);
+      const comment = d.comment.trim();
+      if (!comment) continue;
+      summary.planFeedback.push({ round, comment });
+      fs.appendFileSync(path.join(runRoot, "plan-feedback.md"), `## ${round}. tur yorumu\n${comment}\n\n`);
+      saveSummary();
+      log.step(`ANALİST  (yorumunla planı güncelliyor — ${round}. tur)`);
+      const history = summary.planFeedback.length > 1
+        ? "Önceki turlardaki yorumlar (hâlâ geçerli):\n" + summary.planFeedback.slice(0, -1).map((f) => `- ${f.comment.replace(/\n/g, "\n  ")}`).join("\n") + "\n\nSon yorum:\n"
+        : "";
+      const res = await runAnalist(history + comment);
+      if (res.text.trim()) log.info("\nAnalist: " + res.text.trim().split("\n").slice(-8).join("\n"));
+    }
   }
 
   // ───────────── 2) DEVELOPER ⇄ (KONTROLLER) ⇄ REVIEWER ─────────────

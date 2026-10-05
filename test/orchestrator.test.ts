@@ -7,7 +7,7 @@ import type { AgentRequest, AgentResult, AgentRunner } from "../src/agent.js";
 import { gitOk, sh } from "../src/git.js";
 import { silentLogger } from "../src/log.js";
 import { MutantSandbox } from "../src/mutant.js";
-import { KgflowError, runTask } from "../src/orchestrator.js";
+import { KgflowError, runTask, type PlanDecision } from "../src/orchestrator.js";
 import type { RoleName } from "../src/roles.js";
 
 // ───────────── küçük örnek repo ─────────────
@@ -41,6 +41,9 @@ ${extraCfg}`,
   );
   const g = (...a: string[]) => gitOk(a, root);
   g("init", "-q", "-b", "main");
+  // testler makinenin global git ayarına bağlı olmasın ("Başlatan" bilgisi buradan okunur)
+  g("config", "user.name", "Test Kişi");
+  g("config", "user.email", "test@kolaygelsin.com");
   g("-c", "user.name=t", "-c", "user.email=t@t", "add", "-A");
   g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "chore: init");
   return root;
@@ -389,4 +392,72 @@ test("resume: onay alınamamış iş, analist/developer tekrar çalışmadan rev
   const s = await resumeRun({ root: first.root, resume: id, taskFile: "", agent, log: silentLogger(), noPush: true });
   assert.equal(s.status, "success");
   assert.deepEqual(agent.calls.map((c) => c.role), ["reviewer", "committer"]);
+});
+
+test("plan onayı: yorum analiste gider, plan güncellenir, onaydan sonra geliştirme devam eder", async () => {
+  const root = makeRepo("");
+  const agent = new FakeAgent({
+    ...good,
+    analist: (req) => {
+      if (/BU BİR PLAN REVİZYONU/.test(req.prompt)) {
+        assert.match(req.prompt, /indirim de olsun/, "yorum analistin prompt'unda");
+        assert.match(fs.readFileSync(planFile(req), "utf8"), /sürüm 1/, "analist önceki planı görüyor");
+        fs.writeFileSync(planFile(req), "# Plan sürüm 2\nAK-1: ekspres +50\nAK-2: indirim\n");
+        return "AK-2 eklendi";
+      }
+      fs.writeFileSync(planFile(req), "# Plan sürüm 1\nAK-1: ekspres +50\n");
+    },
+  });
+  const seen: string[] = [];
+  const decisions: PlanDecision[] = [{ action: "revise", comment: "indirim de olsun" }, { action: "approve" }];
+  const s = await runTask({
+    root, taskFile: ".kgflow/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, planApproval: true,
+    reviewPlan: async (plan) => (seen.push(plan), decisions.shift()!),
+  });
+  assert.equal(s.status, "success");
+  assert.deepEqual(agent.calls.map((c) => c.role).slice(0, 3), ["analist", "analist", "developer"]);
+  assert.match(seen[1], /sürüm 2/);
+  assert.deepEqual(s.planFeedback, [{ round: 1, comment: "indirim de olsun" }]);
+  assert.match(fs.readFileSync(path.join(s.runDir!, "run", "plan-feedback.md"), "utf8"), /indirim de olsun/);
+});
+
+test("plan iptal edilirse saklanır; görev yeniden çalışınca analiz tekrarlanmadan aynı plan sunulur", async () => {
+  const root = makeRepo("");
+  const a1 = new FakeAgent({ ...good, analist: (req) => void fs.writeFileSync(planFile(req), "# Önceki plan\nAK-1: ekspres\n") });
+  await assert.rejects(
+    runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, planApproval: true, reviewPlan: async () => ({ action: "cancel" }), now: () => new Date(2026, 9, 3, 12, 0, 0) }),
+    /Plan onaylanmadı. Plan saklandı/,
+  );
+  const a2 = new FakeAgent(good);
+  let ctxSeen: { reused: boolean } | undefined;
+  const s = await runTask({
+    root, taskFile: ".kgflow/tasks/ekspres.md", agent: a2, log: silentLogger(), noFetch: true, planApproval: true,
+    reviewPlan: async (plan, ctx) => {
+      ctxSeen = ctx;
+      assert.match(plan, /Önceki plan/);
+      return { action: "approve" };
+    },
+    now: () => new Date(2026, 9, 3, 13, 0, 0),
+  });
+  assert.equal(s.status, "success");
+  assert.equal(ctxSeen?.reused, true);
+  assert.ok(!a2.calls.some((c) => c.role === "analist"), "analist tekrar çalışmadı");
+  assert.ok(s.planFrom);
+});
+
+test("önceki plan istenmezse baştan analiz edilir", async () => {
+  const root = makeRepo("");
+  const a1 = new FakeAgent({ ...good, analist: (req) => void fs.writeFileSync(planFile(req), "# Eski\n") });
+  await assert.rejects(runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, planApproval: true, reviewPlan: async () => ({ action: "cancel" }), now: () => new Date(2026, 9, 3, 12, 0, 0) }));
+  const a2 = new FakeAgent({ ...good, analist: (req) => void fs.writeFileSync(planFile(req), "# Yeni\nAK-1\n") });
+  const decisions: PlanDecision[] = [{ action: "restart" }, { action: "approve" }];
+  const plans: string[] = [];
+  const s = await runTask({
+    root, taskFile: ".kgflow/tasks/ekspres.md", agent: a2, log: silentLogger(), noFetch: true, planApproval: true,
+    reviewPlan: async (p) => (plans.push(p), decisions.shift()!), now: () => new Date(2026, 9, 3, 13, 0, 0),
+  });
+  assert.equal(s.status, "success");
+  assert.match(plans[0], /Eski/);
+  assert.match(plans[1], /Yeni/);
+  assert.equal(a2.calls.filter((c) => c.role === "analist").length, 1);
 });

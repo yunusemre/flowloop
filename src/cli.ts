@@ -17,7 +17,7 @@ import { detectMemoryServers, expandServerNames, loadMcpServers, userClaudeMdPat
 
 import { git } from "./git.js";
 import { color, consoleLogger } from "./log.js";
-import { KgflowError, ensureExcluded, resumeRun, runTask, type RunSummary } from "./orchestrator.js";
+import { KgflowError, ensureExcluded, resumeRun, runTask, type PlanDecision, type RunSummary } from "./orchestrator.js";
 import { PACKAGE_ROOT, loadRoles } from "./roles.js";
 import { JIRA_KEY, JiraError, fetchIssue, issueToTask } from "./jira.js";
 
@@ -154,6 +154,47 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     rl.close();
     return /^[eEyY]$/.test(a.trim());
   };
+  if (values["plan-onayi"] && !values["dry-run"] && !process.stdin.isTTY) throw new KgflowError("--plan-onayi etkileşimli bir terminal ister.");
+  const ask = async (q: string) => {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const a = await rl.question(q);
+    rl.close();
+    return a;
+  };
+  const readComment = async (): Promise<string> => {
+    console.log(color.dim("Yorumunu yaz. Birden fazla satır olabilir; bitirmek için boş bir satırda Enter'a bas."));
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "> " });
+    const lines: string[] = [];
+    rl.prompt();
+    for await (const line of rl) {
+      if (!line.trim()) break;
+      lines.push(line);
+      rl.prompt();
+    }
+    rl.close();
+    return lines.join("\n");
+  };
+  const reviewPlan = async (_plan: string, ctx: { round: number; reused: boolean }): Promise<PlanDecision> => {
+    const options = [
+      "  [e] Onayla, geliştirmeye geç",
+      "  [y] Yorum yaz — analist yorumunu değerlendirip planı güncellesin",
+      ...(ctx.reused ? ["  [b] Bu planı kullanma, baştan analiz et"] : []),
+      "  [h] İptal (plan saklanır; görevi yeniden çalıştırınca bu plandan devam edilir)",
+    ];
+    for (;;) {
+      console.log(color.bold("\nPlan uygun mu?") + "\n" + options.join("\n"));
+      const a = (await ask(`Seçimin [e/y${ctx.reused ? "/b" : ""}/h]: `)).trim().toLowerCase();
+      if (a === "e" || a === "evet") return { action: "approve" };
+      if (a === "y" || a === "yorum") {
+        const comment = await readComment();
+        if (comment.trim()) return { action: "revise", comment };
+        console.log(color.yellow("Yorum boş; tekrar seç."));
+        continue;
+      }
+      if (a === "b" && ctx.reused) return { action: "restart" };
+      if (a === "h" || a === "hayır" || a === "hayir" || a === "iptal") return { action: "cancel" };
+    }
+  };
   const r = pickRunner(root, values.agent, values["dry-run"]);
   const s = await runTask({
     root,
@@ -165,6 +206,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     backend: r.backend,
     log,
     confirm,
+    reviewPlan,
   });
   if (s.status === "dry-run") return 0;
   printDone(root, s, log);

@@ -20,7 +20,7 @@ git clone git@bitbucket.org:sendeotech/kgflow.git ~/.kgflow/src && ~/.kgflow/src
 cd ~/Desktop/WORK/KG/kgs-app
 kgflow init && kgflow check
 
-# 3) Jira görevini çalıştır
+# 3) Jira görevini çalıştır (--plan-onayi: planı onayla, yorumla güncellet ya da iptal et)
 kgflow run IDT-1234 --plan-onayi -v
 ```
 
@@ -93,5 +93,5 @@ kgflow'un kendisi üzerinde çalışacaksan istediğin bir klasöre clone'layıp
 
 ```bash
 git clone git@bitbucket.org:sendeotech/kgflow.git && cd kgflow && ./install.sh
-npm test   # 86 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
+npm test   # 89 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
 ```
