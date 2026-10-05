@@ -120,7 +120,7 @@ export function runUpdate(home = os.homedir(), log: (s: string) => void = consol
   const before = currentVersion();
   if (!info) {
     log("Kurulum kaydı bulunamadı (~/.kgflow/install.json). kgflow'u install.sh ile bir kez yeniden kur:");
-    log("  git clone git@bitbucket.org:sendeotech/kgflow.git ~/.kgflow/src && ~/.kgflow/src/install.sh");
+    log("  git clone https://github.com/yunusemre/flowloop.git ~/.kgflow/src && ~/.kgflow/src/install.sh");
     log("  (kgflow'u kendi klasörüne clone'ladıysan, o klasörde: ./install.sh)");
     return 1;
   }

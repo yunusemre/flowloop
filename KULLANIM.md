@@ -34,17 +34,17 @@ Bu kurallar prompt'la değil kodla zorlanır: bir rol yetkisi dışında bir şe
 
 ### a) Tek komut (önerilen)
 
-Bitbucket'a SSH erişimin olmalı (`ssh -T git@bitbucket.org` ile kontrol edebilirsin):
+Sadece git yeterli (repo herkese açık, giriş gerekmez):
 
 ```bash
-git clone git@bitbucket.org:sendeotech/kgflow.git ~/.kgflow/src && ~/.kgflow/src/install.sh
+git clone https://github.com/yunusemre/flowloop.git ~/.kgflow/src && ~/.kgflow/src/install.sh
 ```
 
 Bu komut kgflow'u gizli bir klasöre (`~/.kgflow/src`) indirir ve oradan kurar; senin çalışma klasörlerinde hiçbir şey oluşmaz. Node.js yoksa kurulur, sonunda `kgflow setup` başlar. Güncellemeler `kgflow update` ile bu klasöre çekilir.
 
 `~/.kgflow/src` zaten varsa (daha önce kurduysan) tekrar clone'lamaya gerek yok; `kgflow update` yeterli.
 
-Farklı bir dal için: `git clone -b develop git@bitbucket.org:sendeotech/kgflow.git ~/.kgflow/src && ~/.kgflow/src/install.sh`
+Farklı bir dal için: `git clone -b develop https://github.com/yunusemre/flowloop.git ~/.kgflow/src && ~/.kgflow/src/install.sh`
 
 ### b) Hazır paketten (.tgz)
 
@@ -59,7 +59,7 @@ Bu yolda `kgflow setup`'ı kendin çalıştırman gerekir; güncellemek için ye
 ### c) Kendi klasörüne (kgflow'u geliştirenler için)
 
 ```bash
-git clone git@bitbucket.org:sendeotech/kgflow.git && cd kgflow && ./install.sh
+git clone https://github.com/yunusemre/flowloop.git && cd flowloop && ./install.sh
 ```
 
 a) yolundan tek farkı klasörün yeri: kgflow doğrudan bu klasörden çalışır (`npm link`), klasördeki değişiklikler derlendiği anda geçerli olur.

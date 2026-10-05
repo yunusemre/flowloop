@@ -17,7 +17,7 @@ Ayrıntılı kılavuz: **[KULLANIM.md](KULLANIM.md)**
 
 ```bash
 # 1) Kur: repoyu ~/.kgflow/src'ye indirir, Node yoksa kurar, kgflow komutunu ekler ve hesap kurulumunu başlatır
-git clone git@bitbucket.org:sendeotech/kgflow.git ~/.kgflow/src && ~/.kgflow/src/install.sh
+git clone https://github.com/yunusemre/flowloop.git ~/.kgflow/src && ~/.kgflow/src/install.sh
 
 # 2) Projeye ekle (proje başına bir kez)
 cd ~/Desktop/WORK/KG/kgs-app
@@ -34,7 +34,7 @@ kgflow run IDT-1234 --plan-onayi -v
 | `kgflow runs` / `kgflow resume <id>` | Çalıştırmaları listeler / yarım kalanı sürdürür |
 | `kgflow --version` | Sürümü ve kurulum kaynağını gösterir |
 
-Gereksinimler: macOS ya da Linux, git ve Bitbucket SSH erişimi. Node.js 20+ yoksa kurulum betiği kurar.
+Gereksinimler: macOS ya da Linux ve git. Node.js 20+ yoksa kurulum betiği kurar. Push için projenin kendi reposuna (ör. Bitbucket) erişimin olmalı.
 
 ## Roller
 
@@ -95,7 +95,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 kgflow'un kendisi üzerinde çalışacaksan istediğin bir klasöre clone'layıp oradan kur; komut doğrudan o klasörü kullanır:
 
 ```bash
-git clone git@bitbucket.org:sendeotech/kgflow.git && cd kgflow && ./install.sh
+git clone https://github.com/yunusemre/flowloop.git && cd flowloop && ./install.sh
 npm test   # 93 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
 ```
 

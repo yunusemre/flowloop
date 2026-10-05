@@ -8,7 +8,7 @@
 #   KGFLOW_SKIP_SETUP=1 ...      Kurulum sonunda hesap sorularını sorma (kgflow setup ile sonra yapılır)
 #
 # Önerilen kurulum (tek komut):
-#   git clone git@bitbucket.org:sendeotech/kgflow.git ~/.kgflow/src && ~/.kgflow/src/install.sh
+#   git clone https://github.com/yunusemre/flowloop.git ~/.kgflow/src && ~/.kgflow/src/install.sh
 # Başka bir kaynaktan:
 #   KGFLOW_SOURCE=<kaynak> bash install.sh    kaynak: git+ssh://...git, .tgz yolu ya da adresi
 # Git kaynağı ~/.kgflow/src klasörüne (gizli, sana ait) çekilip oradan kurulur; .tgz ise npm ile kurulur.
@@ -22,8 +22,8 @@ NODE_CHANNEL="${KGFLOW_NODE:-lts}"   # lts | latest
 CHECK_ONLY=0
 [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
 
-# Şirket reposu (SSH anahtarınla erişilir). Farklıysa KGFLOW_SOURCE ile değiştir.
-DEFAULT_SOURCE="git+ssh://git@bitbucket.org/sendeotech/kgflow.git"
+# kgflow reposu. Farklıysa KGFLOW_SOURCE ile değiştir.
+DEFAULT_SOURCE="git+https://github.com/yunusemre/flowloop.git"
 
 # Repo klasöründen mi çalışıyoruz, yoksa curl | bash ile mi geldik?
 DIR=""
