@@ -7,8 +7,9 @@
 #   ./install.sh --check         Hiçbir şey kurmadan sadece ortamı kontrol eder
 #   KGFLOW_SKIP_SETUP=1 ...      Kurulum sonunda hesap sorularını sorma (kgflow setup ile sonra yapılır)
 #
-# Repoyu indirmeden (tek komut):
-#   curl -fsSL <install.sh adresi> | bash
+# Önerilen kurulum (tek komut):
+#   git clone git@bitbucket.org:sendeotech/kgflow.git ~/.kgflow/src && ~/.kgflow/src/install.sh
+# Başka bir kaynaktan:
 #   KGFLOW_SOURCE=<kaynak> bash install.sh    kaynak: git+ssh://...git, .tgz yolu ya da adresi
 # Git kaynağı ~/.kgflow/src klasörüne (gizli, sana ait) çekilip oradan kurulur; .tgz ise npm ile kurulur.
 # Güncelleme: kgflow update
