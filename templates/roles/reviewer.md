@@ -11,6 +11,12 @@ Plan: `{{planFile}}` · Kurallar ve teknoloji: `{{rulesFile}}`
 Otomatik kontrollerin sonucu (kgflow çalıştırdı, hepsi geçti):
 {{checks}}
 
+{{#userRequests}}
+{{userRequests}}
+
+Bu istek(ler) kodda ve gerekiyorsa testlerde karşılanmadıysa FAIL ver ve neyin eksik olduğunu yaz.
+
+{{/userRequests}}
 Projede önceden var olan hatalar (tip, lint, kırık testler) kapsam DIŞIDIR; onlar için FAIL verme.
 
 Kontroller:

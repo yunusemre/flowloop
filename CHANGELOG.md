@@ -6,6 +6,9 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 
 ## Yayınlanmadı
 
+### Yeni
+- **İş bitince commit'ten önce kullanıcı onayı:** değişen dosyalar ve fark gösterilir; `[e]` onayla, `[y]` değişiklik iste (developer uygular, reviewer isteği de kontrol eder), `[h]` beklet (`kgflow resume` ile sonra onaylanır). `--onaysiz` ile atlanır.
+
 ### Değişen
 - **Jira adresi dışarıdan alınır:** kodda sabit adres yok. `kgflow setup` sorar (`~/.kgflow/config.json`); öncelik: `kgflow.yaml` → `JIRA_BASE_URL` → setup ayarı.
 - Adres bir kez girildikten sonra görevler sadece anahtarla çalışır (`kgflow run IDT-1234`); yapıştırılan bağlantıdan da anahtar alınır.

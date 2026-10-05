@@ -4,7 +4,7 @@ import picomatch from "picomatch";
 import type { AgentRequest, AgentResult, AgentRunner, Denial } from "./agent.js";
 import { ScopedChecks, renderReport, type CheckResult, type CheckRunner } from "./checks.js";
 import { KGFLOW_DIR, jiraBaseUrl, loadConfig, workDirFor, workDirsFor } from "./config.js";
-import { changedExisting, changedPaths, fillFiles, git, gitOk, headSha, runConfigured, statusPorcelain, workingTreeHash } from "./git.js";
+import { changedExisting, changedPaths, diffAgainst, fillFiles, git, gitOk, headSha, runConfigured, statusPorcelain, workingTreeHash } from "./git.js";
 import type { Logger } from "./log.js";
 import { MutantSandbox } from "./mutant.js";
 import { DEFAULT_FORBIDDEN_FLAGS, type PolicyContext } from "./policy.js";
@@ -100,6 +100,11 @@ export interface RunOptions {
    * ve "baştan analiz" seçeneği de sunulabilir.
    */
   reviewPlan?: (plan: string, ctx: { round: number; reused: boolean }) => Promise<PlanDecision>;
+  /**
+   * İş bitince (reviewer PASS, commit'ten ÖNCE) kullanıcıya sorulur: onayla / değişiklik iste / iptal.
+   * Verilmezse onay beklenmeden commit'e geçilir (etkileşimsiz kullanım).
+   */
+  reviewChanges?: (info: ChangeReviewInfo) => Promise<ChangeDecision>;
   now?: () => Date;
   /** Testlerde kontrol komutlarını taklit etmek için */
   checkRunner?: CheckRunner;
@@ -123,6 +128,21 @@ interface PhaseCost {
   models?: string[];
 }
 
+/** İş bittikten sonra (reviewer PASS) kullanıcının kararı */
+export type ChangeDecision = { action: "approve" } | { action: "revise"; comment: string } | { action: "cancel" };
+export interface ChangeReviewInfo {
+  round: number;
+  /** git diff --stat */
+  diffStat: string;
+  /** Farkın tamamı (renkli) */
+  diff: () => string;
+  /** Reviewer'ın son değerlendirmesi */
+  reviewerNote: string;
+  worktree: string;
+  /** false ise sadece onay/iptal sunulur (ör. resume'da) */
+  canRevise: boolean;
+}
+
 export type PlanDecision = { action: "approve" } | { action: "revise"; comment: string } | { action: "cancel" } | { action: "restart" };
 
 /** Plan turunda en fazla kaç kez yorumla yenileme yapılır */
@@ -137,6 +157,10 @@ export interface RunSummary {
   planFeedback?: { round: number; comment: string }[];
   /** Plan önceki bir çalıştırmadan alındıysa onun kimliği */
   planFrom?: string;
+  /** İş bittikten sonra kullanıcının istediği değişiklikler */
+  changeRequests?: { round: number; comment: string }[];
+  /** Kullanıcı değişiklikleri inceleyip onayladı mı (reviewChanges kullanıldıysa) */
+  userApproved?: boolean;
   backend?: "claude" | "cursor";
   baseBranch?: string;
   baseRef?: string;
@@ -562,57 +586,102 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     const outside = changedPaths(wt, X).filter((p) => !editMatch(p));
     if (outside.length) fail(`${who} izinli yollar dışında değişiklik yaptı: ${outside.join(", ")}`);
   };
-  let feedback = "";
-  let passed = false;
-  let gelistirSpent = 0;
-  for (let i = 1; i <= cfg.maxIterations; i++) {
-    summary.iterations = i;
-    log.info(`\n· Tur ${i}/${cfg.maxIterations}`);
-    const d = await call(roles.developer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { feedback }, i);
-    gelistirSpent += d.costUsd;
-    assertDevScope("Developer");
+  summary.changeRequests = [];
+  let lastReviewerNote = "";
+  let turn = 0;
+  /** developer ⇄ kontroller ⇄ reviewer; reviewer PASS verince true */
+  const developLoop = async (initialFeedback: string, userRequests: string): Promise<boolean> => {
+    let feedback = initialFeedback;
+    let gelistirSpent = 0;
+    for (let i = 1; i <= cfg.maxIterations; i++) {
+      turn++;
+      summary.iterations = turn;
+      log.info(`\n· Tur ${i}/${cfg.maxIterations}${summary.changeRequests!.length ? ` (${summary.changeRequests!.length}. değişiklik isteği)` : ""}`);
+      const d = await call(roles.developer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { feedback }, turn);
+      gelistirSpent += d.costUsd;
+      assertDevScope("Developer");
 
-    // Deterministik, işe odaklı kontroller
-    const files_ = changed();
-    if (files_.length === 0) {
-      feedback = "Hiçbir dosya değişmedi. Görevi uygula.";
-      log.warn("Developer hiçbir şey değiştirmedi.");
-      continue;
-    }
-    const results: CheckResult[] = [checks.format(files_)];
-    assertDevScope("Formatter");
-    const after = changed();
-    results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
-    summary.checks.push(results);
-    const report = renderReport(results);
-    for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
-    if (results.some((r) => r.status === "fail")) {
-      feedback = `OTOMATİK KONTROLLER başarısız (reviewer'a gidilmedi). Sadece bu işle gelen sorunlar:\n${report}`;
-      appendLessons(root, slug, results.filter((r) => r.status === "fail").map((r) => `❌ ${r.name}: ${r.summary}`), now());
-      saveSummary();
-      continue;
-    }
+      // Deterministik, işe odaklı kontroller
+      const files_ = changed();
+      if (files_.length === 0) {
+        feedback = "Hiçbir dosya değişmedi. Görevi uygula.";
+        log.warn("Developer hiçbir şey değiştirmedi.");
+        continue;
+      }
+      const results: CheckResult[] = [checks.format(files_)];
+      assertDevScope("Formatter");
+      const after = changed();
+      results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
+      summary.checks.push(results);
+      const report = renderReport(results);
+      for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
+      if (results.some((r) => r.status === "fail")) {
+        feedback = `OTOMATİK KONTROLLER başarısız (reviewer'a gidilmedi). Sadece bu işle gelen sorunlar:\n${report}` + (userRequests ? `\n\n${userRequests}` : "");
+        appendLessons(root, slug, results.filter((r) => r.status === "fail").map((r) => `❌ ${r.name}: ${r.summary}`), now());
+        saveSummary();
+        continue;
+      }
 
-    const beforeReview = workingTreeHash(wt, X);
-    const r = await call(roles.reviewer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { checks: report }, i);
-    gelistirSpent += r.costUsd;
-    if (workingTreeHash(wt, X) !== beforeReview) fail("Reviewer gerçek dosyaları değiştirdi! Rol ihlali.");
-    if (headSha(wt) !== baseSha) fail("Reviewer commit attı! Rol ihlali.");
+      const beforeReview = workingTreeHash(wt, X);
+      const r = await call(roles.reviewer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { checks: report, userRequests }, turn);
+      gelistirSpent += r.costUsd;
+      if (workingTreeHash(wt, X) !== beforeReview) fail("Reviewer gerçek dosyaları değiştirdi! Rol ihlali.");
+      if (headSha(wt) !== baseSha) fail("Reviewer commit attı! Rol ihlali.");
 
-    const v = parseVerdict(r.text);
-    summary.phases[summary.phases.length - 1].verdict = v.verdict;
-    if (v.verdict === "PASS") {
-      passed = true;
-      log.ok(`Reviewer PASS (tur ${i})`);
-      break;
+      const v = parseVerdict(r.text);
+      summary.phases[summary.phases.length - 1].verdict = v.verdict;
+      if (v.verdict === "PASS") {
+        lastReviewerNote = r.text;
+        log.ok(`Reviewer PASS (tur ${i})`);
+        return true;
+      }
+      log.warn(`Reviewer FAIL (tur ${i})${v.explicit ? "" : " — VERDICT satırı yok"}`);
+      log.detail(v.feedback);
+      feedback = v.feedback + (userRequests ? `\n\n${userRequests}` : "");
+      appendLessons(root, slug, extractLessons(v.feedback), now());
     }
-    log.warn(`Reviewer FAIL (tur ${i})${v.explicit ? "" : " — VERDICT satırı yok"}`);
-    log.detail(v.feedback);
-    feedback = v.feedback;
-    appendLessons(root, slug, extractLessons(v.feedback), now());
-  }
-  if (!passed) fail(`${cfg.maxIterations} turda onay alınamadı. Son geri bildirim run.json ve ${LESSONS_FILE} içinde.`);
+    return false;
+  };
+
+  if (!(await developLoop("", ""))) fail(`${cfg.maxIterations} turda onay alınamadı. Son geri bildirim run.json ve ${LESSONS_FILE} içinde.`);
   if (statusPorcelain(wt, X).length === 0) fail("Onay geldi ama hiçbir değişiklik yok.");
+
+  // ───────────── KULLANICI ONAYI (commit'ten önce) ─────────────
+  if (opts.reviewChanges) {
+    for (let round = 1; ; round++) {
+      summary.approvedTree = workingTreeHash(wt, X); // iptal edilirse resume bu içerikten devam eder
+      saveSummary();
+      const d = await opts.reviewChanges({
+        round,
+        diffStat: diffAgainst(wt, baseSha, X, { stat: true }),
+        diff: () => diffAgainst(wt, baseSha, X, { color: true }),
+        reviewerNote: lastReviewerNote,
+        worktree: wt,
+        canRevise: true,
+      });
+      if (d.action === "approve") {
+        summary.userApproved = true;
+        break;
+      }
+      if (d.action === "cancel") {
+        fail(`Değişiklikler onaylanmadı; commit yapılmadı. Çalışma alanını inceleyebilir ya da sonra onaylayıp tamamlayabilirsin:\n  kgflow resume ${summary.id}`);
+      }
+      if (d.action !== "revise") continue;
+      const comment = d.comment.trim();
+      if (!comment) continue;
+      summary.changeRequests.push({ round, comment });
+      fs.appendFileSync(path.join(runRoot, "change-requests.md"), `## ${round}. değişiklik isteği\n${comment}\n\n`);
+      saveSummary();
+      const earlier = summary.changeRequests.slice(0, -1).map((c) => `- ${c.comment.replace(/\n/g, "\n  ")}`);
+      const userRequests =
+        "KULLANICININ DEĞİŞİKLİK İSTEĞİ (kullanıcı çalışmayı inceledi; bu istek önceliklidir):\n" +
+        comment +
+        (earlier.length ? `\n\nÖnceki istekler (hâlâ geçerli):\n${earlier.join("\n")}` : "");
+      log.step(`DEVELOPER ⇄ REVIEWER  (değişiklik isteğin uygulanıyor — ${round}. istek)`);
+      const instruction = `${userRequests}\n\nBu isteği mevcut çalışmanın üzerine uygula. Plandaki kabul kriterlerini ve mevcut testleri koru; gerekiyorsa test ekle.`;
+      if (!(await developLoop(instruction, userRequests))) fail(`Değişiklik isteği ${cfg.maxIterations} turda tamamlanamadı. Çalışma alanı: ${wt}`);
+    }
+  }
   const approved = workingTreeHash(wt, X);
   log.ok(`Onaylanan içerik: ${approved.slice(0, 12)}`);
 
@@ -829,6 +898,23 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     saveSummary();
   }
   log.ok(`Sürdürülüyor: ${summary.id} · branch ${branch} · onaylanan içerik ${approved.slice(0, 12)}`);
+  if (opts.reviewChanges && !summary.userApproved) {
+    const d = await opts.reviewChanges({
+      round: (summary.changeRequests?.length ?? 0) + 1,
+      diffStat: diffAgainst(wt, baseSha, X, { stat: true }),
+      diff: () => diffAgainst(wt, baseSha, X, { color: true }),
+      reviewerNote: "",
+      worktree: wt,
+      canRevise: false,
+    });
+    if (d.action !== "approve") {
+      fail(d.action === "revise"
+        ? "Sürdürmede değişiklik isteği desteklenmiyor. İsteğini görev dosyasına ekleyip görevi yeniden çalıştır: kgflow run <görev> --plan-onayi"
+        : `Değişiklikler onaylanmadı; commit yapılmadı. Sonra tekrar: kgflow resume ${summary.id}`);
+    }
+    summary.userApproved = true;
+    saveSummary();
+  }
   const taskFile = path.join(runRoot, "task.md");
   const taskText = fs.existsSync(taskFile) ? fs.readFileSync(taskFile, "utf8") : "";
   return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira: summary.jiraKey ?? "", X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText });

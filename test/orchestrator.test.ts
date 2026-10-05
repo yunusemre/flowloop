@@ -7,7 +7,7 @@ import type { AgentRequest, AgentResult, AgentRunner } from "../src/agent.js";
 import { gitOk, sh } from "../src/git.js";
 import { silentLogger } from "../src/log.js";
 import { MutantSandbox } from "../src/mutant.js";
-import { KgflowError, runTask, type PlanDecision } from "../src/orchestrator.js";
+import { KgflowError, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision } from "../src/orchestrator.js";
 import type { RoleName } from "../src/roles.js";
 
 // ───────────── küçük örnek repo ─────────────
@@ -460,4 +460,57 @@ test("önceki plan istenmezse baştan analiz edilir", async () => {
   assert.match(plans[0], /Eski/);
   assert.match(plans[1], /Yeni/);
   assert.equal(a2.calls.filter((c) => c.role === "analist").length, 1);
+});
+
+test("iş bitince kullanıcı değişiklik ister: yorum developer'a ve reviewer'a gider, onaydan sonra commit", async () => {
+  const root = makeRepo("");
+  const agent = new FakeAgent({
+    ...good,
+    developer: (req, n) => {
+      good.developer!(req, n);
+      if (/KULLANICININ DEĞİŞİKLİK İSTEĞİ/.test(req.prompt)) {
+        assert.match(req.prompt, /ekspres ücreti 60 olsun/);
+        W(req, "src/fiyat.js", 'export function fiyat(kg, ekspres = false) {\n  const n = kg <= 5 ? 90 : 140;\n  return ekspres ? n + 60 : n;\n}\n');
+        W(req, "test/ekspres.test.js", 'import { test } from "node:test";\nimport assert from "node:assert/strict";\nimport { fiyat } from "../src/fiyat.js";\ntest("ekspres", () => assert.equal(fiyat(3, true), 150));\n');
+      }
+    },
+    reviewer: (req) => {
+      if (/KULLANICININ DEĞİŞİKLİK İSTEĞİ/.test(req.prompt)) assert.match(req.prompt, /karşılanmadıysa FAIL/);
+      return "VERDICT: PASS";
+    },
+  });
+  const infos: (ChangeReviewInfo & { fullDiff: string })[] = [];
+  const decisions: ChangeDecision[] = [{ action: "revise", comment: "ekspres ücreti 60 olsun" }, { action: "approve" }];
+  const s = await runTask({
+    root, taskFile: ".kgflow/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true,
+    reviewChanges: async (info) => (infos.push({ ...info, fullDiff: info.diff() }), decisions.shift()!),
+  });
+  assert.equal(s.status, "success");
+  assert.equal(s.userApproved, true);
+  assert.deepEqual(s.changeRequests, [{ round: 1, comment: "ekspres ücreti 60 olsun" }]);
+  assert.deepEqual(agent.calls.map((c) => c.role), ["analist", "developer", "reviewer", "developer", "reviewer", "committer"]);
+  assert.match(infos[0].diffStat, /src\/fiyat\.js/);
+  assert.match(infos[0].diffStat, /test\/ekspres\.test\.js/, "yeni dosyalar da farkta görünür");
+  assert.match(infos[1].fullDiff, /n \+ 60/);
+  assert.equal(gitOk(["show", `${s.branch}:src/fiyat.js`], root).includes("n + 60"), true, "commit'lenen içerik isteği içeriyor");
+});
+
+test("kullanıcı onaylamazsa commit yapılmaz; resume ile onaylanıp tamamlanır", async () => {
+  const root = makeRepo("");
+  const a1 = new FakeAgent(good);
+  let err = "";
+  try {
+    await runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, reviewChanges: async () => ({ action: "cancel" }) });
+  } catch (e) {
+    err = (e as Error).message;
+  }
+  assert.match(err, /Değişiklikler onaylanmadı; commit yapılmadı/);
+  assert.ok(!a1.calls.some((c) => c.role === "committer"), "committer çalışmadı");
+  const id = /kgflow resume (\S+)/.exec(err)![1];
+  const a2 = new FakeAgent(good);
+  let asked = 0;
+  const s = await resumeRun({ root, resume: id, taskFile: "", agent: a2, log: silentLogger(), noPush: true, reviewChanges: async (i) => (asked++, assert.equal(i.canRevise, false), { action: "approve" }) });
+  assert.equal(asked, 1);
+  assert.equal(s.status, "success");
+  assert.deepEqual(a2.calls.map((c) => c.role), ["committer"]);
 });

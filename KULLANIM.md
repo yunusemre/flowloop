@@ -116,7 +116,7 @@ kgflow setup --check    # soru sormadan durumu gösterir (Jira ve Bitbucket'a ba
 |---|---|---|---|
 | 1. Kimlik | Ad soyad, iş e-postan | Zaten `git config`'te varsa sorulmaz | Commit'lerde ve Jira yorumunda "Başlatan" olarak görünür |
 | 2. AI erişimi | Üç seçenekten biri (aşağıda) | — | Claude Code girişi varsa sorulmaz |
-| 3. Jira | Atlassian e-postan ve API token | https://id.atlassian.com/manage-profile/security/api-tokens → **Create API token** | Jira'ya bağlanılır, adın gösterilir ("Jira doğrulandı: Yunus Emre Tatar") |
+| 3. Jira | Jira adresi, Atlassian e-postan ve API token | https://id.atlassian.com/manage-profile/security/api-tokens → **Create API token** | Jira'ya bağlanılır, adın gösterilir ("Jira doğrulandı: Yunus Emre Tatar") |
 | 4. Bitbucket | Bir şey sorulmaz, SSH erişimi denenir | Yoksa SSH anahtarı oluşturulur, panoya kopyalanır ve https://bitbucket.org/account/settings/ssh-keys/ açılır | `ssh -T git@bitbucket.org` |
 
 **AI erişimi seçenekleri:**
@@ -139,7 +139,19 @@ Bilgisayarında Claude Code'a zaten giriş yaptıysan (`claude` → `/login`) bu
 - Ortam değişkeni tanımlıysa (ör. eskiden `~/.zshrc`'ye yazılmış `JIRA_API_TOKEN`) önce o kullanılır. `kgflow setup` ile kaydettikten sonra `~/.zshrc`'deki satırları silebilirsin.
 - Bir bilgiyi silmek için: macOS'ta Keychain Access → "kgflow" kayıtlarını sil; Linux'ta `~/.kgflow/credentials.json`.
 
-Jira adresi (`https://kolaygelsin.atlassian.net`) varsayılan olarak tanımlı; ayrıca ayarlamaya gerek yok.
+### Jira adresi
+
+Jira adresi kodun içinde sabit değildir; `kgflow setup` Jira adımında sorar (öneri olarak `https://kolaygelsin.atlassian.net` gelir, Enter ile kabul edilir). `kolaygelsin`, `kolaygelsin.atlassian.net` ya da tarayıcıdan kopyalanmış bir kayıt bağlantısı da yazılabilir; tam adrese çevrilir. Adres `~/.kgflow/config.json` dosyasına kaydedilir ve bütün projelerde kullanılır.
+
+Öncelik sırası:
+
+1. Projenin `.kgflow/kgflow.yaml` dosyasındaki `jira.baseUrl` (o projeye özel adres)
+2. `JIRA_BASE_URL` ortam değişkeni
+3. `kgflow setup`'ta girilen adres
+
+Değiştirmek için `kgflow setup --force`.
+
+Adres bir kez girildikten sonra görevler sadece anahtarla çalıştırılır: `kgflow run IDT-24057`. Tarayıcıdan kopyaladığın bağlantıyı yapıştırırsan da çalışır; anahtar bağlantıdan alınır.
 
 ## 4. Bir projeye eklemek (proje başına bir kez)
 
@@ -176,17 +188,19 @@ kgflow run IDT-24057 --plan-onayi -v
 | `--no-push` | Bu seferlik push yapmaz |
 | `--agent claude\|cursor` | Ajan aracını bu seferlik seç |
 | `--dry-run` | Ajan çalıştırmadan prompt'ları ve yetkileri gösterir (ücretsiz) |
+| `--onaysiz` | İş bitince değişiklikleri sormadan commit/push eder (önerilmez) |
 
 Akış:
 
 1. **Görev:** Jira kaydı `.kgflow/tasks/IDT-24057.md` dosyasına çekilir. Bu dosyayı düzenleyip tekrar çalıştırabilirsin; `--refresh` vermedikçe üzerine yazılmaz.
 2. **Çalışma alanı:** base branch'ten temiz bir kopya (git worktree) açılır. Senin çalışma klasörüne hiç dokunulmaz.
-3. **Plan:** analist planı yazar. `--plan-onayi` verdiysen planı okuyup onaylarsın.
+3. **Plan:** analist planı yazar. `--plan-onayi` verdiysen planı okursun; onaylayabilir, yorum yazıp güncelletebilir ya da iptal edebilirsin (bkz. [Plan onayı](#plan-onayı)).
 4. **Geliştirme döngüsü** (en fazla 3 tur):
    - Developer kodu yazar.
    - kgflow değişen dosyaları formatlar ve otomatik kontrolleri çalıştırır: bu işin testleri, **yeni** tip hataları, **yeni** lint hataları. Projede zaten var olan hatalar sayılmaz.
    - Kontroller geçerse reviewer inceler. FAIL verirse geri bildirimi developer'a döner ve yeni tur başlar.
-5. **Teslim:** reviewer PASS verince committer commit'ler. Branch push'lanır, PR bağlantısı verilir ve Jira kaydına özet yorum düşer.
+5. **Senin onayın:** reviewer PASS verince iş **commit'lenmeden önce** sana gösterilir; onaylayabilir, değişiklik isteyebilir ya da bekletebilirsin (bkz. [Değişiklik onayı](#değişiklik-onayı)).
+6. **Teslim:** onay verince committer commit'ler. Branch push'lanır, PR bağlantısı verilir ve Jira kaydına özet yorum düşer.
 
 Bittiğinde ekranda şunlar görünür:
 
@@ -203,6 +217,49 @@ Bittiğinde ekranda şunlar görünür:
 ```
 
 Sonra PR'ı açıp normal kod incelemesini yaparsın.
+
+### Plan onayı
+
+`--plan-onayi` ile çalıştırdığında analist planı yazınca şu soru gelir:
+
+```
+Plan uygun mu?
+  [e] Onayla, geliştirmeye geç
+  [y] Yorum yaz — analist yorumunu değerlendirip planı güncellesin
+  [h] İptal (plan saklanır; görevi yeniden çalıştırınca bu plandan devam edilir)
+```
+
+- **[y] Yorum:** istediğin kadar satır yazabilirsin, bitirmek için boş bir satırda Enter'a basarsın. Analist yorumunu ve mevcut planı birlikte değerlendirir, planı günceller ve neyi değiştirdiğini özetler. Katılmadığı ya da uygulanamayan bir nokta varsa (ör. developer'ın değiştiremeyeceği bir dosya) planı değiştirmez, "Geri bildirime yanıt" başlığıyla nedenini yazar. Güncel plan tekrar sana sorulur. Önceki turların yorumları da analiste hatırlatılır; en fazla 5 tur yenilenebilir.
+- **[h] İptal:** analiz boşa gitmez. Plan saklanır; aynı görevi tekrar `kgflow run IDT-1234 --plan-onayi` ile çalıştırdığında analist yeniden çalışmaz, aynı plan karşına gelir. O zaman ek olarak **[b] Bu planı kullanma, baştan analiz et** seçeneği de çıkar.
+- Verdiğin yorumlar çalıştırma kaydında (`run.json` → `planFeedback`) ve `run/plan-feedback.md` dosyasında durur.
+
+### Değişiklik onayı
+
+Reviewer işi onayladıktan sonra hiçbir şey commit'lenmeden, push'lanmadan ve Jira'ya yazılmadan önce şunu görürsün:
+
+```
+━━ İŞ TAMAMLANDI — commit'ten önce senin onayın gerekiyor ━━
+Reviewer: (değerlendirmenin özeti)
+
+Değişen dosyalar:
+ src/screens/Map/MapScreen.tsx      | 42 +++++++++----
+ src/screens/Map/MapScreen.test.tsx | 88 ++++++++++++++++++++++++
+
+Kodu editöründe de açabilirsin: ~/.kgflow/work/kgs-app/<çalıştırma>/wt
+
+Değişiklikler uygun mu?
+  [e] Onayla — commit, push ve Jira yorumu
+  [d] Farkın tamamını göster
+  [y] Değişiklik iste — yorumun developer'a gider, testler ve reviewer tekrar çalışır
+  [h] Şimdilik onaylama — commit yapılmaz, sonra: kgflow resume
+```
+
+- **[d] Fark:** bütün değişiklikler satır satır gösterilir (yeni dosyalar dahil). Gösterilen yol editörde de açılabilir.
+- **[y] Değişiklik iste:** birden fazla satır yazabilirsin, bitirmek için boş satırda Enter. Yorumun developer'a öncelikli istek olarak gider; developer mevcut çalışmanın üzerine uygular, otomatik kontroller çalışır ve reviewer isteğinin karşılanıp karşılanmadığını da kontrol eder. Sonuç sana tekrar sorulur. Önceki isteklerin de hatırlatılır.
+- **[h] Şimdilik onaylama:** commit yapılmaz, çalışma alanı olduğu gibi kalır. İncelemeyi bitirince `kgflow resume <id>` aynı soruyu tekrar sorar ve onay verirsen commit/push/Jira yapılır. (Sürdürmede değişiklik isteği yoktur; o durumda isteği görev dosyasına ekleyip görevi yeniden çalıştır.)
+- Değişiklik isteklerin `run.json` (`changeRequests`) ve `run/change-requests.md` içinde durur.
+
+Soru sadece etkileşimli bir terminalde sorulur. Sormadan commit'lemek için `--onaysiz` verilir.
 
 ### Jira'ya düşen yorum
 

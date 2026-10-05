@@ -92,6 +92,26 @@ export function workingTreeHash(cwd: string, exclude: string[] = []): string {
   }
 }
 
+/**
+ * Çalışma ağacının (untracked dahil) base'e göre farkı; gerçek index'e dokunmadan.
+ * stat=true → dosya bazlı özet (git diff --stat)
+ */
+export function diffAgainst(cwd: string, base: string, exclude: string[] = [], opts: { stat?: boolean; color?: boolean } = {}): string {
+  const gitDir = gitOk(["rev-parse", "--absolute-git-dir"], cwd);
+  const tmp = path.join(os.tmpdir(), `kgflow-diff-${process.pid}-${Date.now()}`);
+  try {
+    const realIndex = path.join(gitDir, "index");
+    if (fs.existsSync(realIndex)) fs.copyFileSync(realIndex, tmp);
+    const env = { ...process.env, GIT_INDEX_FILE: tmp };
+    const ex = exclude.filter((d) => git(["check-ignore", "-q", d], cwd).code !== 0);
+    sh("git", ["add", "-A", ...excludeSpec(ex)], cwd, { env });
+    const args = ["diff", "--cached", ...(opts.color ? ["--color=always"] : ["--no-color"]), ...(opts.stat ? ["--stat=100"] : []), base];
+    return sh("git", args, cwd, { env }).stdout;
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
+}
+
 export function isIgnored(cwd: string, rel: string): boolean {
   return git(["check-ignore", "-q", rel], cwd).code === 0;
 }

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline/promises";
@@ -17,7 +18,7 @@ import { detectMemoryServers, expandServerNames, loadMcpServers, userClaudeMdPat
 
 import { git } from "./git.js";
 import { color, consoleLogger } from "./log.js";
-import { KgflowError, ensureExcluded, resumeRun, runTask, type PlanDecision, type RunSummary } from "./orchestrator.js";
+import { KgflowError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type RunSummary } from "./orchestrator.js";
 import { PACKAGE_ROOT, loadRoles } from "./roles.js";
 import { JIRA_KEY, JiraError, fetchIssue, issueToTask } from "./jira.js";
 
@@ -32,9 +33,10 @@ Kullanım:
       --no-push                  Bu çalıştırmada push yapma (kgflow.yaml'daki push: true'yu ezer)
       --plan-onayi               Plan yazıldıktan sonra onay ister
       --agent claude|cursor      Ajan aracını seç (varsayılan: kgflow.yaml → agent: auto)
+      --onaysiz                  İş bitince değişiklikleri sormadan commit/push et
       --dry-run                  Ajan çalıştırmadan prompt ve yetkileri gösterir
       -v, --verbose              Ajanların çıktısını canlı gösterir
-  kgflow resume <id> [-v] [--agent claude|cursor]
+  kgflow resume <id> [-v] [--agent claude|cursor] [--onaysiz]
                                    Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
   kgflow runs                      Bu repo için yapılan çalıştırmaları listeler
   kgflow setup [--force]           Hesap bilgilerini (Claude/Cursor, Jira, git, Bitbucket) adım adım kurar
@@ -131,6 +133,63 @@ function pickRunner(root: string, override: string | undefined, dryRun = false):
   }
 }
 
+/** Etkileşimli sorular (plan onayı, değişiklik onayı) */
+const ask = async (q: string) => {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const a = await rl.question(q);
+  rl.close();
+  return a;
+};
+const readComment = async (): Promise<string> => {
+  console.log(color.dim("Yorumunu yaz. Birden fazla satır olabilir; bitirmek için boş bir satırda Enter'a bas."));
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "> " });
+  const lines: string[] = [];
+  rl.prompt();
+  for await (const line of rl) {
+    if (!line.trim()) break;
+    lines.push(line);
+    rl.prompt();
+  }
+  rl.close();
+  return lines.join("\n");
+};
+
+/** İş bitince, commit'ten önce: değişiklikleri göster ve kullanıcıya sor */
+async function reviewChangesPrompt(info: ChangeReviewInfo): Promise<ChangeDecision> {
+  console.log("\n" + color.bold("━━ İŞ TAMAMLANDI — commit'ten önce senin onayın gerekiyor ━━"));
+  if (info.reviewerNote.trim()) {
+    const note = info.reviewerNote.trim().split("\n").filter((l) => !/^VERDICT:/i.test(l.trim())).slice(0, 15).join("\n");
+    if (note) console.log(color.dim("Reviewer:\n" + note));
+  }
+  console.log("\nDeğişen dosyalar:\n" + (info.diffStat.trim() || "(fark yok)"));
+  console.log(color.dim(`\nKodu editöründe de açabilirsin: ${info.worktree}`));
+  const options = [
+    "  [e] Onayla — commit, push ve Jira yorumu",
+    "  [d] Farkın tamamını göster",
+    ...(info.canRevise ? ["  [y] Değişiklik iste — yorumun developer'a gider, testler ve reviewer tekrar çalışır"] : []),
+    "  [h] Şimdilik onaylama — commit yapılmaz, sonra: kgflow resume",
+  ];
+  for (;;) {
+    console.log(color.bold("\nDeğişiklikler uygun mu?") + "\n" + options.join("\n"));
+    const a = (await ask(`Seçimin [e/d${info.canRevise ? "/y" : ""}/h]: `)).trim().toLowerCase();
+    if (a === "e" || a === "evet") return { action: "approve" };
+    if (a === "d") {
+      const diff = info.diff();
+      // uzun farklar için sayfalayıcı (less) varsa onu kullan
+      const pager = spawnSync("less", ["-R", "-F", "-X"], { input: diff, stdio: ["pipe", "inherit", "inherit"] });
+      if (pager.status !== 0) console.log(diff);
+      continue;
+    }
+    if ((a === "y" || a === "yorum") && info.canRevise) {
+      const comment = await readComment();
+      if (comment.trim()) return { action: "revise", comment };
+      console.log(color.yellow("Yorum boş; tekrar seç."));
+      continue;
+    }
+    if (a === "h" || a === "hayır" || a === "hayir" || a === "iptal") return { action: "cancel" };
+  }
+}
+
 async function cmdRun(root: string, args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
     args,
@@ -142,6 +201,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
       refresh: { type: "boolean", default: false },
       "no-push": { type: "boolean", default: false },
       agent: { type: "string" },
+      onaysiz: { type: "boolean", default: false },
     },
   });
   if (positionals.length !== 1) throw new KgflowError("Kullanım: kgflow run <görev.md | JIRA-123>");
@@ -157,25 +217,6 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     return /^[eEyY]$/.test(a.trim());
   };
   if (values["plan-onayi"] && !values["dry-run"] && !process.stdin.isTTY) throw new KgflowError("--plan-onayi etkileşimli bir terminal ister.");
-  const ask = async (q: string) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const a = await rl.question(q);
-    rl.close();
-    return a;
-  };
-  const readComment = async (): Promise<string> => {
-    console.log(color.dim("Yorumunu yaz. Birden fazla satır olabilir; bitirmek için boş bir satırda Enter'a bas."));
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "> " });
-    const lines: string[] = [];
-    rl.prompt();
-    for await (const line of rl) {
-      if (!line.trim()) break;
-      lines.push(line);
-      rl.prompt();
-    }
-    rl.close();
-    return lines.join("\n");
-  };
   const reviewPlan = async (_plan: string, ctx: { round: number; reused: boolean }): Promise<PlanDecision> => {
     const options = [
       "  [e] Onayla, geliştirmeye geç",
@@ -209,6 +250,8 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     log,
     confirm,
     reviewPlan,
+    // etkileşimli terminalde iş bitince commit'ten önce sorulur; --onaysiz ile atlanır
+    reviewChanges: !values["dry-run"] && !values.onaysiz && process.stdin.isTTY ? reviewChangesPrompt : undefined,
   });
   if (s.status === "dry-run") return 0;
   printDone(root, s, log);
@@ -369,7 +412,10 @@ async function main(): Promise<number> {
       const ai = rest.findIndex((a) => a === "--agent" || a.startsWith("--agent="));
       const agentOpt = ai < 0 ? undefined : rest[ai].includes("=") ? rest[ai].split("=")[1] : rest[ai + 1];
       const r = pickRunner(root, agentOpt);
-      const s = await resumeRun({ root, resume: id, taskFile: "", agent: r.runner, backend: r.backend, log, noPush: rest.includes("--no-push") });
+      const s = await resumeRun({
+        root, resume: id, taskFile: "", agent: r.runner, backend: r.backend, log, noPush: rest.includes("--no-push"),
+        reviewChanges: !rest.includes("--onaysiz") && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+      });
       printDone(root, s, log);
       return 0;
     }
