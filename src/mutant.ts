@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { gitOk, runConfigured } from "./git.js";
+import { currentVersion } from "./update.js";
 
 /** Kopyada çalıştırılacak test komutunu (ilgili testler) üretir. */
 export type TestCommandFn = () => string;
@@ -56,7 +57,7 @@ export async function createMutantServer(sandbox: MutantSandbox) {
   const { createSdkMcpServer, tool } = await import("@anthropic-ai/claude-agent-sdk");
   return createSdkMcpServer({
     name: "kgflow",
-    version: "0.1.0",
+    version: currentVersion(),
     tools: [
       tool(
         "mutant_reset",

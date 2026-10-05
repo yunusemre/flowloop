@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { claudeAvailable, findCursorBin } from "./backend.js";
-import { DEFAULT_JIRA_BASE } from "./config.js";
+import { DEFAULT_JIRA_BASE, globalJiraBase, normalizeJiraBase, writeUserConfig } from "./config.js";
 import { color } from "./log.js";
 import { defaultStore, getCredential, mask, type SecretStore } from "./secrets.js";
 
@@ -41,7 +41,10 @@ export interface SetupDeps {
   /** Komutu çalıştırır; interactive=true ise terminali komuta bırakır */
   run(cmd: string, args: string[], opts?: { interactive?: boolean; timeoutMs?: number }): CmdResult;
   which(bin: string): string | undefined;
+  /** Kayıtlı Jira adresi ("" = henüz girilmedi) */
   jiraBase: string;
+  /** Jira adresini kullanıcı ayarına yazar (~/.kgflow/config.json) */
+  saveJiraBase(base: string): void;
 }
 
 export const LINKS = {
@@ -128,7 +131,8 @@ export async function printStatus(deps: SetupDeps, io: Pick<SetupIO, "log">, opt
   if (s.ai.claude) io.log(ok(`Claude: ${s.ai.claudeVia}${s.ai.claudeAccount ? ` (${s.ai.claudeAccount})` : ""}`));
   else io.log(warn("Claude erişimi yok"));
   io.log(s.ai.cursor ? ok(`Cursor CLI: ${s.ai.cursor}`) : color.dim("  Cursor CLI: kurulu değil (isteğe bağlı)"));
-  if (s.jira.email && s.jira.token) {
+  io.log(deps.jiraBase ? ok(`Jira adresi: ${deps.jiraBase}`) : warn("Jira adresi tanımlı değil (kgflow setup)"));
+  if (s.jira.email && s.jira.token && deps.jiraBase) {
     if (opts.network) {
       const w = await jiraWhoAmI(deps, s.jira.email, s.jira.token);
       io.log(w.ok ? ok(`Jira: ${w.name} <${s.jira.email}>`) : warn(`Jira: token geçersiz (HTTP ${w.status || "bağlantı yok"}) — kgflow setup`));
@@ -139,7 +143,7 @@ export async function printStatus(deps: SetupDeps, io: Pick<SetupIO, "log">, opt
     io.log(ssh.ok ? ok(`Bitbucket SSH${ssh.user ? `: ${ssh.user}` : ""}`) : warn("Bitbucket SSH erişimi yok (push için gerekli)"));
   }
   io.log(color.dim(`  Gizli bilgilerin saklandığı yer: ${deps.store.kind}`));
-  return !!(s.git.email && (s.ai.claude || s.ai.cursor) && s.jira.token);
+  return !!(s.git.email && (s.ai.claude || s.ai.cursor) && s.jira.token && deps.jiraBase);
 }
 
 export async function runSetup(io: SetupIO, deps: SetupDeps, opts: { force?: boolean } = {}): Promise<void> {
@@ -170,7 +174,8 @@ export async function runSetup(io: SetupIO, deps: SetupDeps, opts: { force?: boo
 
   // ───────────── 3) Jira ─────────────
   io.log(head("3/4 Jira"));
-  io.log(color.dim(`Görevi Jira'dan çekmek ve iş bitince yorum yazmak için (${deps.jiraBase}).`));
+  io.log(color.dim("Görevi Jira'dan çekmek ve iş bitince yorum yazmak için."));
+  await setupJiraBase(io, deps, opts.force);
   await setupJira(io, deps, email, opts.force);
 
   // ───────────── 4) Bitbucket SSH ─────────────
@@ -243,7 +248,24 @@ async function setupAi(io: SetupIO, deps: SetupDeps): Promise<void> {
   }
 }
 
+async function setupJiraBase(io: SetupIO, deps: SetupDeps, force?: boolean): Promise<void> {
+  if (deps.jiraBase && !force) return io.log(ok(`Jira adresi: ${deps.jiraBase}`));
+  io.log(color.dim("  Tarayıcıda Jira'yı açtığında adres çubuğundaki adres (ör. https://sirket.atlassian.net). Bir kayıt bağlantısı da yapıştırabilirsin."));
+  for (let i = 0; i < 3; i++) {
+    const raw = await io.ask("Jira adresi", deps.jiraBase || DEFAULT_JIRA_BASE);
+    const base = normalizeJiraBase(raw);
+    if (!base) {
+      io.log(warn("Geçerli bir adres değil. Örnek: https://sirket.atlassian.net"));
+      continue;
+    }
+    deps.jiraBase = base;
+    deps.saveJiraBase(base);
+    return io.log(ok(`Jira adresi: ${base}`));
+  }
+}
+
 async function setupJira(io: SetupIO, deps: SetupDeps, defaultEmail: string | undefined, force?: boolean): Promise<void> {
+  if (!deps.jiraBase) return io.log(warn("Jira adresi girilmediği için Jira adımı atlandı."));
   const curEmail = getCredential("JIRA_EMAIL", deps.store);
   const curToken = getCredential("JIRA_API_TOKEN", deps.store);
   if (curEmail && curToken && !force) {
@@ -300,11 +322,12 @@ async function setupSsh(io: SetupIO, deps: SetupDeps): Promise<void> {
 
 // ───────────── gerçek terminal ve sistem ─────────────
 
-export function systemDeps(jiraBase = DEFAULT_JIRA_BASE): SetupDeps {
+export function systemDeps(jiraBase = globalJiraBase()): SetupDeps {
   return {
     store: defaultStore(),
     home: os.homedir(),
     jiraBase: jiraBase.replace(/\/+$/, ""),
+    saveJiraBase: (base) => writeUserConfig({ jiraBaseUrl: base }),
     fetchFn: (u, i) => fetch(u, i) as any,
     run: (cmd, args, o = {}) => {
       const r = spawnSync(cmd, args, { encoding: "utf8", stdio: o.interactive ? "inherit" : "pipe", timeout: o.timeoutMs });

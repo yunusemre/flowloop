@@ -36,10 +36,12 @@ function fakeDeps(home: string, over: Partial<SetupDeps> = {}) {
   const store = new FileStore(path.join(home, ".kgflow", "credentials.json"));
   const gitCfg: Record<string, string> = {};
   const calls: string[] = [];
+  const saved: { jiraBase?: string } = {};
   const deps: SetupDeps = {
     store,
     home,
     jiraBase: "https://kolaygelsin.atlassian.net",
+    saveJiraBase: (b) => void (saved.jiraBase = b),
     fetchFn: async (url, init) => {
       if (url.endsWith("/rest/api/3/myself")) {
         const ok = init.headers.Authorization === "Basic " + Buffer.from("yunus@kolaygelsin.com:dogru-token").toString("base64");
@@ -61,7 +63,7 @@ function fakeDeps(home: string, over: Partial<SetupDeps> = {}) {
     which: () => undefined,
     ...over,
   };
-  return { deps, store, gitCfg, calls };
+  return { deps, store, gitCfg, calls, saved };
 }
 
 test("setup: sıfırdan kimlik + API anahtarı + Jira; yanlış token tekrar sorulur, gizliler saklanır", async () => {
@@ -179,4 +181,17 @@ test("ajan ve test komutları gizli bilgileri görmez", () => {
     if (saved === undefined) delete process.env.JIRA_API_TOKEN;
     else process.env.JIRA_API_TOKEN = saved;
   }
+});
+
+test("setup: Jira adresi yoksa sorulur, kısa yazım tam adrese çevrilir ve kaydedilir", async () => {
+  const home = tmp();
+  const { deps, store, gitCfg, saved } = fakeDeps(home, { jiraBase: "" });
+  gitCfg["user.name"] = "Y";
+  gitCfg["user.email"] = "yunus@kolaygelsin.com";
+  fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "y@k.com" } }));
+  const { io, out } = scriptedIO(["bu bir adres değil!", "kolaygelsin", "yunus@kolaygelsin.com", "dogru-token"]);
+  await runSetup(io, deps);
+  assert.equal(saved.jiraBase, "https://kolaygelsin.atlassian.net");
+  assert.equal(store.get("JIRA_API_TOKEN"), "dogru-token");
+  assert.match(out.join("\n"), /Geçerli bir adres değil/);
 });

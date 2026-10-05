@@ -35,18 +35,6 @@ test("Jira şablon metni kabul kriteri sayılmaz", () => {
 });
 
 import { DEFAULT_JIRA_BASE, jiraBaseUrl } from "../src/config.js";
-test("Jira adresi: kgflow.yaml → JIRA_BASE_URL → şirket varsayılanı", () => {
-  const saved = process.env.JIRA_BASE_URL;
-  delete process.env.JIRA_BASE_URL;
-  assert.equal(jiraBaseUrl({ jira: { baseUrl: "" } }), DEFAULT_JIRA_BASE);
-  assert.equal(DEFAULT_JIRA_BASE, "https://kolaygelsin.atlassian.net");
-  process.env.JIRA_BASE_URL = "https://baska.atlassian.net/";
-  assert.equal(jiraBaseUrl({ jira: { baseUrl: "" } }), "https://baska.atlassian.net");
-  assert.equal(jiraBaseUrl({ jira: { baseUrl: "https://proje.atlassian.net" } }), "https://proje.atlassian.net");
-  if (saved === undefined) delete process.env.JIRA_BASE_URL;
-  else process.env.JIRA_BASE_URL = saved;
-});
-
 test("eski .ekip klasörü .kgflow'a taşınır", async () => {
   const { migrateLegacyProject } = await import("../src/config.js");
   const fs = await import("node:fs");
@@ -81,4 +69,37 @@ test(".gitignore: yoksa oluşturur, varsa ekler, eski .ekip satırını güncell
   assert.equal(fs.readFileSync(gi, "utf8"), "node_modules/\n.kgflow/\n.env\n");
   fs.writeFileSync(gi, "/.kgflow\n");
   assert.equal(ensureGitignore(d), "exists");
+});
+
+test("Jira adresi: yazım biçimleri ve kayıt bağlantısı ayrıştırılır", async () => {
+  const { normalizeJiraBase, parseJiraLink } = await import("../src/config.js");
+  assert.equal(normalizeJiraBase("kolaygelsin"), "https://kolaygelsin.atlassian.net");
+  assert.equal(normalizeJiraBase("kolaygelsin.atlassian.net/"), "https://kolaygelsin.atlassian.net");
+  assert.equal(normalizeJiraBase("https://kolaygelsin.atlassian.net/browse/IDT-1"), "https://kolaygelsin.atlassian.net");
+  assert.equal(normalizeJiraBase("https://jira.sirket.com.tr"), "https://jira.sirket.com.tr");
+  assert.equal(normalizeJiraBase("bu bir adres değil!"), "");
+  assert.deepEqual(parseJiraLink("https://kolaygelsin.atlassian.net/browse/IDT-24057"), { base: "https://kolaygelsin.atlassian.net", key: "IDT-24057" });
+  assert.deepEqual(parseJiraLink("https://kolaygelsin.atlassian.net/jira/software/projects/IDT/boards/1?selectedIssue=IDT-7"), { base: "https://kolaygelsin.atlassian.net", key: "IDT-7" });
+  assert.equal(parseJiraLink("IDT-1"), undefined);
+});
+
+test("Jira adresi önceliği: kgflow.yaml → JIRA_BASE_URL → kgflow setup ayarı", async () => {
+  const { jiraBaseUrl, writeUserConfig } = await import("../src/config.js");
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-uc-"));
+  const saved = process.env.JIRA_BASE_URL;
+  delete process.env.JIRA_BASE_URL;
+  try {
+    assert.equal(jiraBaseUrl({ jira: { baseUrl: "" } }, home), "", "hiçbiri yoksa boş: kodda sabit adres yok");
+    writeUserConfig({ jiraBaseUrl: "https://a.atlassian.net" }, home);
+    assert.equal(jiraBaseUrl({ jira: { baseUrl: "" } }, home), "https://a.atlassian.net");
+    process.env.JIRA_BASE_URL = "https://b.atlassian.net";
+    assert.equal(jiraBaseUrl({ jira: { baseUrl: "" } }, home), "https://b.atlassian.net");
+    assert.equal(jiraBaseUrl({ jira: { baseUrl: "https://c.atlassian.net/" } }, home), "https://c.atlassian.net");
+  } finally {
+    if (saved === undefined) delete process.env.JIRA_BASE_URL;
+    else process.env.JIRA_BASE_URL = saved;
+  }
 });

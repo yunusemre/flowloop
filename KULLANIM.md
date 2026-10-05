@@ -181,7 +181,7 @@ Akış:
 
 1. **Görev:** Jira kaydı `.kgflow/tasks/IDT-24057.md` dosyasına çekilir. Bu dosyayı düzenleyip tekrar çalıştırabilirsin; `--refresh` vermedikçe üzerine yazılmaz.
 2. **Çalışma alanı:** base branch'ten temiz bir kopya (git worktree) açılır. Senin çalışma klasörüne hiç dokunulmaz.
-3. **Plan:** analist planı yazar. `--plan-onayi` verdiysen planı okursun; onaylayabilir, yorum yazıp güncelletebilir ya da iptal edebilirsin (bkz. [Plan onayı](#plan-onayı)).
+3. **Plan:** analist planı yazar. `--plan-onayi` verdiysen planı okuyup onaylarsın.
 4. **Geliştirme döngüsü** (en fazla 3 tur):
    - Developer kodu yazar.
    - kgflow değişen dosyaları formatlar ve otomatik kontrolleri çalıştırır: bu işin testleri, **yeni** tip hataları, **yeni** lint hataları. Projede zaten var olan hatalar sayılmaz.
@@ -203,21 +203,6 @@ Bittiğinde ekranda şunlar görünür:
 ```
 
 Sonra PR'ı açıp normal kod incelemesini yaparsın.
-
-### Plan onayı
-
-`--plan-onayi` ile çalıştırdığında analist planı yazınca şu soru gelir:
-
-```
-Plan uygun mu?
-  [e] Onayla, geliştirmeye geç
-  [y] Yorum yaz — analist yorumunu değerlendirip planı güncellesin
-  [h] İptal (plan saklanır; görevi yeniden çalıştırınca bu plandan devam edilir)
-```
-
-- **[y] Yorum:** istediğin kadar satır yazabilirsin, bitirmek için boş bir satırda Enter'a basarsın. Analist yorumunu ve mevcut planı birlikte değerlendirir, planı günceller ve neyi değiştirdiğini özetler. Katılmadığı ya da uygulanamayan bir nokta varsa (ör. developer'ın değiştiremeyeceği bir dosya) planı değiştirmez, "Geri bildirime yanıt" başlığıyla nedenini yazar. Güncel plan tekrar sana sorulur. Önceki turların yorumları da analiste hatırlatılır; en fazla 5 tur yenilenebilir.
-- **[h] İptal:** analiz boşa gitmez. Plan saklanır; aynı görevi tekrar `kgflow run IDT-1234 --plan-onayi` ile çalıştırdığında analist yeniden çalışmaz, aynı plan karşına gelir. O zaman ek olarak **[b] Bu planı kullanma, baştan analiz et** seçeneği de çıkar.
-- Verdiğin yorumlar çalıştırma kaydında (`run.json` → `planFeedback`) ve `run/plan-feedback.md` dosyasında durur.
 
 ### Jira'ya düşen yorum
 

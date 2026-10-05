@@ -137,7 +137,7 @@ export async function fetchIssue(key: string, baseUrl: string, opts: { email?: s
   if (!JIRA_KEY.test(key)) throw new JiraError(`Geçersiz Jira anahtarı: ${key}`);
   const email = opts.email ?? getCredential("JIRA_EMAIL");
   const token = opts.token ?? getCredential("JIRA_API_TOKEN");
-  if (!baseUrl) throw new JiraError("Jira adresi yok: kgflow.yaml → jira.baseUrl ya da export JIRA_BASE_URL=https://sirket.atlassian.net");
+  if (!baseUrl) throw new JiraError("Jira adresi tanımlı değil. Girmek için: kgflow setup  (ya da kgflow.yaml → jira.baseUrl)");
   if (!email || !token) {
     throw new JiraError(
       "Jira kimlik bilgisi yok (JIRA_EMAIL / JIRA_API_TOKEN). Kurmak için: kgflow setup",

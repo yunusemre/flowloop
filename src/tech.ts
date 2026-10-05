@@ -186,7 +186,7 @@ branchName: ${q(branchName)}     # {{jira}} görev dosyasından okunur; yoksa kg
 fetch: true                      # başlamadan önce origin'den base'i çek
 push: true                       # iş bitince branch origin'e push'lanır (force push asla yapılmaz)
 jira:
-  baseUrl: ${q(jiraBase)}                    # boş = https://kolaygelsin.atlassian.net (şirket varsayılanı)
+  baseUrl: ${q(jiraBase)}                    # boş = kgflow setup'ta girilen adres (~/.kgflow/config.json) ya da JIRA_BASE_URL
   comment: true                  # iş bitince Jira'ya kısa özet yorumu (sorun / yapılan / neden + branch, PR)
                                  # kimlik: kgflow setup (anahtar zincirinde saklanır)
 

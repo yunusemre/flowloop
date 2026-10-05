@@ -5,12 +5,75 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 export const KGFLOW_DIR = ".kgflow";
-/** Şirket Jira adresi (varsayılan). kgflow.yaml'daki jira.baseUrl ya da JIRA_BASE_URL ile değiştirilebilir. */
+/** kgflow setup'ta önerilen Jira adresi (sadece öneri; kodun içinde sabit kullanılmaz). */
 export const DEFAULT_JIRA_BASE = "https://kolaygelsin.atlassian.net";
 
-/** Kullanılacak Jira adresi: kgflow.yaml → JIRA_BASE_URL → şirket varsayılanı */
-export function jiraBaseUrl(cfg: { jira: { baseUrl: string } }): string {
-  return (cfg.jira.baseUrl || process.env.JIRA_BASE_URL || DEFAULT_JIRA_BASE).trim().replace(/\/+$/, "");
+/** Kullanıcı ayarları (tüm projeler için): ~/.kgflow/config.json — kgflow setup yazar */
+export interface UserConfig {
+  jiraBaseUrl?: string;
+}
+export function userConfigFile(home = os.homedir()): string {
+  return path.join(home, ".kgflow", "config.json");
+}
+export function readUserConfig(home = os.homedir()): UserConfig {
+  try {
+    return JSON.parse(fs.readFileSync(userConfigFile(home), "utf8")) as UserConfig;
+  } catch {
+    return {};
+  }
+}
+export function writeUserConfig(patch: UserConfig, home = os.homedir()): void {
+  const f = userConfigFile(home);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify({ ...readUserConfig(home), ...patch }, null, 2) + "\n");
+}
+
+/**
+ * Kullanıcının yazdığını Jira adresine çevirir:
+ *   "kolaygelsin"                                   → https://kolaygelsin.atlassian.net
+ *   "kolaygelsin.atlassian.net"                     → https://kolaygelsin.atlassian.net
+ *   "https://kolaygelsin.atlassian.net/browse/X-1"  → https://kolaygelsin.atlassian.net
+ * Geçersizse "" döner.
+ */
+export function normalizeJiraBase(input: string): string {
+  let s = input.trim();
+  if (!s) return "";
+  if (/^[a-z0-9][a-z0-9-]*$/i.test(s)) s = `${s}.atlassian.net`;
+  if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
+  try {
+    const u = new URL(s);
+    return u.hostname.includes(".") ? `${u.protocol}//${u.host}` : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Jira kayıt bağlantısından adres ve anahtar: .../browse/IDT-1, ...?selectedIssue=IDT-1 */
+export function parseJiraLink(s: string): { base: string; key: string } | undefined {
+  if (!/^https?:\/\//i.test(s.trim())) return undefined;
+  let u: URL;
+  try {
+    u = new URL(s.trim());
+  } catch {
+    return undefined;
+  }
+  const key = /\/browse\/([A-Z][A-Z0-9]+-\d+)/.exec(u.pathname)?.[1] ?? u.searchParams.get("selectedIssue") ?? /\/issues\/([A-Z][A-Z0-9]+-\d+)/.exec(u.pathname)?.[1];
+  if (!key || !/^[A-Z][A-Z0-9]+-\d+$/.test(key)) return undefined;
+  return { base: `${u.protocol}//${u.host}`, key };
+}
+
+/**
+ * Kullanılacak Jira adresi: kgflow.yaml (jira.baseUrl) → JIRA_BASE_URL → kgflow setup'ta girilen adres.
+ * Hiçbiri yoksa "" (kgflow setup ile girilmesi istenir).
+ */
+export function jiraBaseUrl(cfg: { jira: { baseUrl: string } }, home = os.homedir()): string {
+  const v = cfg.jira.baseUrl || process.env.JIRA_BASE_URL || readUserConfig(home).jiraBaseUrl || "";
+  return normalizeJiraBase(v) || v.trim().replace(/\/+$/, "");
+}
+
+/** Projeden bağımsız Jira adresi (setup için): JIRA_BASE_URL → kullanıcı ayarı */
+export function globalJiraBase(home = os.homedir()): string {
+  return normalizeJiraBase(process.env.JIRA_BASE_URL || readUserConfig(home).jiraBaseUrl || "");
 }
 export const DEFAULT_PROJECT_DOCS = ["CLAUDE.md", "AGENTS.md", ".cursorrules", ".cursor/rules/*.mdc", ".github/copilot-instructions.md", ".windsurfrules"];
 export const CONFIG_FILE = path.join(KGFLOW_DIR, "kgflow.yaml");
@@ -42,7 +105,7 @@ export const configSchema = z
     /** Jira entegrasyonu: `kgflow run IDT-1234` görev dosyasını Jira'dan üretir. */
     jira: z
       .object({
-        /** Boş = JIRA_BASE_URL, o da yoksa şirket varsayılanı (DEFAULT_JIRA_BASE) */
+        /** Boş = JIRA_BASE_URL, o da yoksa kgflow setup'ta girilen adres (~/.kgflow/config.json) */
         baseUrl: z.string().default(""),
         /** İş bitince Jira kaydına kısa özet yorumu ekle (sorun / yapılan / neden + branch, commit, PR). */
         comment: z.boolean().default(true),

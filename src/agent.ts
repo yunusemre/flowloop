@@ -3,6 +3,7 @@ import { createMutantServer, type MutantSandbox } from "./mutant.js";
 import { evaluate, rewriteAliasPaths, type PolicyContext, type RolePermissions } from "./policy.js";
 import type { RoleName } from "./roles.js";
 import { getCredential, scrubEnv } from "./secrets.js";
+import { currentVersion } from "./update.js";
 
 export interface AgentRequest {
   role: RoleName;
@@ -98,7 +99,7 @@ export class SdkAgentRunner implements AgentRunner {
           ANTHROPIC_API_KEY: getCredential("ANTHROPIC_API_KEY"),
           CLAUDE_CODE_OAUTH_TOKEN: getCredential("CLAUDE_CODE_OAUTH_TOKEN"),
           ...(process.env.CLAUDE_CODE_USE_BEDROCK ? Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith("AWS_"))) : {}),
-          CLAUDE_AGENT_SDK_CLIENT_APP: "kgflow/0.1.0",
+          CLAUDE_AGENT_SDK_CLIENT_APP: `kgflow/${currentVersion()}`,
         }),
         // 1. katman: HER araç çağrısı (okuma dahil) buradan geçer
         hooks: {

@@ -1,14 +1,15 @@
 {
   "name": "kgflow",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Rol bazlı AI geliştirme ekibi: analist → developer ⇄ reviewer → committer. Claude Agent SDK üzerinde, yetkileri kodla zorlanan iş akışı.",
   "type": "module",
   "bin": { "kgflow": "dist/src/cli.js" },
-  "files": ["dist/src", "templates", "install.sh", "KULLANIM.md", "README.md"],
+  "files": ["dist/src", "templates", "install.sh", "KULLANIM.md", "README.md", "CHANGELOG.md"],
   "scripts": {
     "build": "tsc -p . && chmod +x dist/src/cli.js",
     "test": "npm run build && node --test dist/test/*.test.js",
-    "prepare": "npm run build"
+    "prepare": "npm run build",
+    "release": "npm test && npm version"
   },
   "engines": { "node": ">=20" },
   "dependencies": {

@@ -9,7 +9,7 @@ import type { MutantContext } from "./cursor.js";
 import { MutantSandbox } from "./mutant.js";
 import { currentVersion, readInstallInfo, runUpdate, updateNotice } from "./update.js";
 import { printStatus, runSetup, systemDeps, terminalIO } from "./setup.js";
-import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, KGFLOW_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor , DEFAULT_JIRA_BASE } from "./config.js";
+import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, KGFLOW_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor , globalJiraBase, parseJiraLink } from "./config.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { mergeConfig } from "./configmerge.js";
 import { detectBaseBranch, detectProject, renderConfig } from "./tech.js";
@@ -27,7 +27,7 @@ Kullanım:
   kgflow init [--force]            Projenin teknolojilerini algılar, .kgflow/kgflow.yaml oluşturur
   kgflow check                     Yapılandırmayı doğrular, rollerin yetkilerini gösterir
   kgflow task <JIRA-123>           Jira kaydından .kgflow/tasks/JIRA-123.md görev dosyasını üretir
-  kgflow run <görev.md | JIRA-123> [seçenek]  Görevi ekiple çalıştırır (Jira anahtarı verilirse önce görevi çeker)
+  kgflow run <görev.md | JIRA-123 | Jira bağlantısı> [seçenek]  Görevi ekiple çalıştırır (Jira anahtarı verilirse önce görevi çeker)
       --refresh                  Görev dosyası varsa bile Jira'dan yeniden çek
       --no-push                  Bu çalıştırmada push yapma (kgflow.yaml'daki push: true'yu ezer)
       --plan-onayi               Plan yazıldıktan sonra onay ister
@@ -58,7 +58,7 @@ function cmdInit(root: string, force: boolean): void {
   const branchName = guessBranchPattern(root);
   fs.mkdirSync(path.join(root, KGFLOW_DIR, "tasks"), { recursive: true });
   const memory = detectMemoryServers(root);
-  let text = renderConfig(d, base, branchName, memory, guessJiraBase(root));
+  let text = renderConfig(d, base, branchName, memory, guessJiraBase(root) || globalJiraBase());
   let kept: string[] = [];
   if (fs.existsSync(cfgPath)) ({ text, kept } = mergeConfig(text, fs.readFileSync(cfgPath, "utf8")));
   fs.writeFileSync(cfgPath, text);
@@ -100,14 +100,14 @@ function guessBranchPattern(root: string): string {
 }
 
 /** .kgflow/tasks/<KEY>.md yoksa (ya da --refresh) Jira'dan üretir; varsa olduğu gibi kullanır (elle düzenlenmiş olabilir). */
-async function ensureJiraTask(root: string, key: string, refresh = false): Promise<string> {
+async function ensureJiraTask(root: string, key: string, refresh = false, baseOverride?: string): Promise<string> {
   const rel = path.join(KGFLOW_DIR, "tasks", `${key}.md`);
   const abs = path.join(root, rel);
   if (fs.existsSync(abs) && !refresh) {
     console.log(color.dim(`Görev dosyası mevcut, o kullanılıyor: ${rel} (Jira'dan yeniden çekmek için --refresh)`));
     return rel;
   }
-  const baseUrl = jiraBaseUrl(loadConfig(root));
+  const baseUrl = baseOverride || jiraBaseUrl(loadConfig(root));
   console.log(`Jira'dan çekiliyor: ${key}`);
   const issue = await fetchIssue(key, baseUrl);
   fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -146,7 +146,9 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
   });
   if (positionals.length !== 1) throw new KgflowError("Kullanım: kgflow run <görev.md | JIRA-123>");
   let taskFile = positionals[0];
-  if (JIRA_KEY.test(taskFile)) taskFile = await ensureJiraTask(root, taskFile, values.refresh);
+  const link = parseJiraLink(taskFile); // https://sirket.atlassian.net/browse/IDT-1234 de verilebilir
+  if (link) taskFile = await ensureJiraTask(root, link.key, values.refresh, link.base);
+  else if (JIRA_KEY.test(taskFile)) taskFile = await ensureJiraTask(root, taskFile, values.refresh);
   const log = consoleLogger(values.verbose || values["dry-run"]);
   const confirm = async (q: string) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -280,7 +282,7 @@ async function main(): Promise<number> {
   }
   if (cmd === "update") return runUpdate();
   if (cmd === "setup") {
-    const deps = systemDeps(process.env.JIRA_BASE_URL || DEFAULT_JIRA_BASE);
+    const deps = systemDeps();
     if (rest.includes("--check")) return (await printStatus(deps, { log: console.log }, { network: true })) ? 0 : 1;
     if (!process.stdin.isTTY) throw new KgflowError("kgflow setup etkileşimli bir terminal ister (durum için: kgflow setup --check)");
     await runSetup(terminalIO(), deps, { force: rest.includes("--force") });
@@ -333,9 +335,11 @@ async function main(): Promise<number> {
       return 0;
     }
     case "task": {
-      const key = rest.find((a) => !a.startsWith("-"));
-      if (!key || !JIRA_KEY.test(key)) throw new KgflowError("Kullanım: kgflow task <JIRA-123> [--refresh]");
-      const rel = await ensureJiraTask(root, key, rest.includes("--refresh"));
+      const arg = rest.find((a) => !a.startsWith("-"));
+      const link = arg ? parseJiraLink(arg) : undefined;
+      const key = link?.key ?? arg;
+      if (!key || !JIRA_KEY.test(key)) throw new KgflowError("Kullanım: kgflow task <JIRA-123 | Jira bağlantısı> [--refresh]");
+      const rel = await ensureJiraTask(root, key, rest.includes("--refresh"), link?.base);
       console.log(`İncele/düzenle: ${rel}  →  kgflow run ${key} --plan-onayi -v`);
       return 0;
     }
