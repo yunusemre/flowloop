@@ -6,6 +6,12 @@
 #   KGFLOW_FORCE_NVM=1 ./install.sh   Node kurulu olsa bile nvm ile (sudo'suz) kurar
 #   ./install.sh --check         Hiçbir şey kurmadan sadece ortamı kontrol eder
 #
+# Repoyu indirmeden (tek komut):
+#   curl -fsSL <install.sh adresi> | bash
+#   KGFLOW_SOURCE=<kaynak> bash install.sh    kaynak: git+ssh://...git, .tgz yolu ya da adresi
+# Git kaynağı ~/.kgflow/src klasörüne (gizli, sana ait) çekilip oradan kurulur; .tgz ise npm ile kurulur.
+# Güncelleme: kgflow update
+#
 # Tekrar çalıştırmak güvenlidir: kurulu olanı atlar, sadece eksikleri tamamlar.
 set -euo pipefail
 
@@ -14,8 +20,19 @@ NODE_CHANNEL="${KGFLOW_NODE:-lts}"   # lts | latest
 CHECK_ONLY=0
 [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$DIR"
+# Şirket reposu (SSH anahtarınla erişilir). Farklıysa KGFLOW_SOURCE ile değiştir.
+DEFAULT_SOURCE="git+ssh://git@bitbucket.org/sendeotech/kgflow.git"
+
+# Repo klasöründen mi çalışıyoruz, yoksa curl | bash ile mi geldik?
+DIR=""
+if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
+  DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  grep -q '"name": "kgflow"' "$DIR/package.json" 2>/dev/null || DIR=""
+fi
+SOURCE="${KGFLOW_SOURCE:-}"
+if [[ -n "$SOURCE" ]]; then MODE=remote; elif [[ -n "$DIR" ]]; then MODE=local; else MODE=remote; SOURCE="$DEFAULT_SOURCE"; fi
+SRC_DIR="${KGFLOW_HOME:-$HOME/.kgflow}/src"
+[[ "$MODE" == local ]] && cd "$DIR"
 
 if [[ -t 1 ]]; then G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'; else G='' Y='' R='' N=''; fi
 ok()   { echo "${G}✓${N} $*"; }
@@ -99,20 +116,63 @@ else warn "Jira: JIRA_EMAIL / JIRA_API_TOKEN tanımlı değil (kgflow run IDT-xx
 
 # ───────────── 4) kgflow ─────────────
 step "kgflow kuruluyor"
-if [[ -f package-lock.json ]]; then npm ci --no-audit --no-fund --loglevel=error; else npm install --no-audit --no-fund --loglevel=error; fi
-npm run build --silent
-ok "Derlendi"
-
-if ! npm link --loglevel=error 2>/dev/null; then
-  err "npm link yetki hatası verdi (global npm klasörü yazılabilir değil)."
-  echo "   Çözüm: Node'u nvm ile kur (sudo gerekmez):  KGFLOW_FORCE_NVM=1 ./install.sh"
-  echo "   ya da tek seferlik:                          sudo npm link"
+link_fail() {
+  err "Global npm klasörüne yazılamadı (yetki)."
+  echo "   Çözüm: Node'u nvm ile kur (sudo gerekmez):  KGFLOW_FORCE_NVM=1 bash install.sh"
   exit 1
+}
+if [[ "$MODE" == local ]]; then
+  if [[ -f package-lock.json ]]; then npm ci --no-audit --no-fund --loglevel=error; else npm install --no-audit --no-fund --loglevel=error; fi
+  npm run build --silent
+  ok "Derlendi"
+  npm link --loglevel=error >/dev/null 2>&1 || link_fail
+  INSTALLED_FROM="$DIR"
+  COMMIT="$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)"
+elif [[ "$SOURCE" == *.tgz || "$SOURCE" == *.tar.gz ]]; then
+  # hazır derlenmiş paket: derleme gerekmez
+  echo "Kaynak: $SOURCE"
+  npm install -g --no-audit --no-fund --loglevel=error "$SOURCE" || link_fail
+  INSTALLED_FROM="$SOURCE"
+  COMMIT=""
+else
+  # git kaynağı: ~/.kgflow/src'ye çek (sığ kopya), oradan kur
+  url="${SOURCE#git+}"; ref=""
+  [[ "$url" == *#* ]] && { ref="${url##*#}"; url="${url%%#*}"; }
+  echo "Kaynak: $url${ref:+ ($ref)}"
+  if [[ -d "$SRC_DIR/.git" ]]; then
+    git -C "$SRC_DIR" remote set-url origin "$url"
+    git -C "$SRC_DIR" fetch --quiet --depth 1 origin "${ref:-HEAD}" || { err "Kaynağa erişilemedi: $url"; [[ "$url" == *bitbucket* ]] && echo "   SSH erişimini dene: ssh -T git@bitbucket.org"; exit 1; }
+    git -C "$SRC_DIR" reset --quiet --hard FETCH_HEAD
+  else
+    mkdir -p "$(dirname "$SRC_DIR")"
+    git clone --quiet --depth 1 ${ref:+--branch "$ref"} "$url" "$SRC_DIR" || { err "Kaynağa erişilemedi: $url"; [[ "$url" == *bitbucket* ]] && echo "   SSH erişimini dene: ssh -T git@bitbucket.org"; exit 1; }
+  fi
+  (
+    cd "$SRC_DIR"
+    if [[ -f package-lock.json ]]; then npm ci --no-audit --no-fund --loglevel=error; else npm install --no-audit --no-fund --loglevel=error; fi
+    npm run build --silent
+    npm link --loglevel=error >/dev/null 2>&1
+  ) || link_fail
+  ok "Derlendi"
+  INSTALLED_FROM="$SOURCE"
+  COMMIT="$(git -C "$SRC_DIR" rev-parse HEAD)"
+  MODE=managed
 fi
+# kgflow update bu kaydı kullanır
+mkdir -p "$HOME/.kgflow"
+VERSION="$(node -p "require('$(npm root -g)/kgflow/package.json').version" 2>/dev/null || echo "?")"
+cat > "$HOME/.kgflow/install.json" <<JSON
+{ "mode": "$MODE", "source": "$INSTALLED_FROM", "dir": "${SRC_DIR}", "commit": "$COMMIT", "version": "$VERSION", "installedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)" }
+JSON
+ok "kgflow $VERSION kuruldu ($MODE)"
+
 hash -r
 if command -v kgflow >/dev/null 2>&1; then ok "kgflow komutu hazır: $(command -v kgflow)"; else
   warn "kgflow kuruldu ama PATH'te görünmüyor. Yeni bir terminal aç ya da: export PATH=\"$(npm prefix -g)/bin:\$PATH\""; fi
 
+[[ -n "${KGFLOW_UPDATING:-}" ]] && exit 0
+echo
+echo "Güncellemek için: kgflow update"
 echo
 echo "Sıradaki adım (projende):"
 echo "  cd <proje> && kgflow init && kgflow check"

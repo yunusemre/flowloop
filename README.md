@@ -48,7 +48,8 @@ Ayrıntılı kılavuz: **[KULLANIM.md](KULLANIM.md)**
 Ajanlar Claude Agent SDK ile çalışır; Claude erişimi yoksa otomatik olarak Cursor CLI kullanılır (`agent: auto | claude | cursor`). İki durumda da rol yetkileri kodla zorlanır.
 
 ```bash
-./install.sh                              # Node 20+ yoksa en güncel LTS'i kurar, kgflow komutunu ekler
+curl -fsSL <install.sh adresi> | bash     # repoyu indirmeden (ya da repo klasöründe: ./install.sh)
+kgflow update                             # güncelleme
 cd <proje> && kgflow init && kgflow check # proje başına bir kez
 kgflow run IDT-1234 --plan-onayi -v       # Jira görevini çalıştır
 ```
@@ -79,5 +80,5 @@ sorun / yapılan / neden bu yaklaşım / nasıl test edildi (committer yazar) + 
 ## Geliştirme
 
 ```bash
-npm test   # 76 test: politika, kabuk ayrıştırıcı, odaklı kontroller ve sahte ajanla uçtan uca akış
+npm test   # 79 test: politika, kabuk ayrıştırıcı, odaklı kontroller ve sahte ajanla uçtan uca akış
 ```

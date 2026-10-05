@@ -32,33 +32,96 @@ Bu kurallar prompt'la değil kodla zorlanır: bir rol yetkisi dışında bir şe
 
 ## 2. Kurulum
 
+Üç yol var; hepsi aynı `install.sh` betiğini kullanır ve sonunda aynı `kgflow` komutu kurulur.
+
+### a) Tek komut, repoyu indirmeden (önerilen)
+
+Bitbucket'a SSH erişimin varsa (`ssh -T git@bitbucket.org` ile kontrol edebilirsin):
+
+```bash
+curl -fsSL <install.sh adresi> | bash
+```
+
+`<install.sh adresi>`, betiğin ekipçe erişilebilir olduğu adrestir; bkz. [Betiği paylaşmak](#betiği-paylaşmak). Betik, kgflow'u şirket reposundan (`git@bitbucket.org:sendeotech/kgflow.git`) kendi gizli klasörüne (`~/.kgflow/src`) çeker, derler ve komutu kurar. Senin çalışma klasörlerinde hiçbir şey oluşmaz.
+
+Betik adresi henüz yoksa, aynı işi curl'süz tek komutla da yapabilirsin:
+
+```bash
+git clone -q --depth 1 git@bitbucket.org:sendeotech/kgflow.git ~/.kgflow/src && KGFLOW_SOURCE=git@bitbucket.org:sendeotech/kgflow.git bash ~/.kgflow/src/install.sh
+```
+
+Farklı bir repo ya da dal için kaynağı `KGFLOW_SOURCE` ile ver:
+
+```bash
+curl -fsSL <install.sh adresi> | KGFLOW_SOURCE="git+ssh://git@bitbucket.org/sendeotech/kgflow.git#develop" bash
+```
+
+### b) Hazır paketten (.tgz)
+
+Derlenmiş paket (`npm pack` ile üretilir) bir dosya ya da adres olarak paylaşılabilir. Derleme gerekmediği için en hızlısıdır:
+
+```bash
+curl -fsSL <install.sh adresi> | KGFLOW_SOURCE=https://.../kgflow-0.2.0.tgz bash
+# ya da Node kuruluysa doğrudan:
+npm install -g ./kgflow-0.2.0.tgz
+```
+
+### c) Repo klasöründen (kgflow'u geliştirenler için)
+
 ```bash
 cd ~/Desktop/kgflow
 ./install.sh
 ```
 
-Betik sırasıyla şunları yapar:
+Bu yolda kgflow doğrudan bu klasörden çalışır (`npm link`); klasördeki değişiklikler derlendiği anda geçerli olur.
+
+### Betik ne yapar
 
 1. git'i kontrol eder.
 2. Node.js'i kontrol eder. Yoksa ya da v20'den eskiyse **en güncel LTS** sürümünü [nvm](https://github.com/nvm-sh/nvm) ile kurar. nvm sudo istemez ve kendini `~/.zshrc` dosyasına ekler.
 3. Claude, Cursor ve Jira erişimini kontrol eder (sadece uyarır, bir şey kurmaz).
-4. Bağımlılıkları kurar, derler ve `kgflow` komutunu sisteme ekler (`npm link`).
+4. kgflow'u kurar ve nereden kurulduğunu `~/.kgflow/install.json` dosyasına yazar. `kgflow update` bu kaydı kullanır.
 
-Seçenekler:
+Seçenekler (curl ile kullanırken `| bash -s -- --check` biçiminde):
 
 ```bash
 ./install.sh --check                  # hiçbir şey kurmadan ortamı kontrol et
 KGFLOW_NODE=latest ./install.sh       # LTS yerine en güncel (Current) Node sürümünü kur
-KGFLOW_FORCE_NVM=1 ./install.sh       # Node kurulu olsa bile nvm ile kur (npm link yetki hatası verirse)
+KGFLOW_FORCE_NVM=1 ./install.sh       # Node kurulu olsa bile nvm ile kur (npm yetki hatası verirse)
 ```
-
-Betiği tekrar çalıştırmak güvenlidir; kurulu olanları atlar. kgflow'un yeni bir sürümünü aldığında da aynı komutu çalıştır.
 
 Kurulumu doğrula:
 
 ```bash
-kgflow --help
+kgflow --version     # sürüm ve kurulum kaynağı
 ```
+
+### Güncelleme
+
+```bash
+kgflow update
+```
+
+kgflow kurulduğu kaynağa göre güncellenir:
+
+| Nasıl kuruldu | `kgflow update` ne yapar |
+|---|---|
+| Tek komut (git kaynağı) | Kaynaktan en son hâli çeker, yeniden derler ve kurar |
+| Hazır paket (.tgz) | Aynı adresten paketi yeniden kurar |
+| Repo klasöründen | Klasörde `git pull` yapar, sonra `install.sh` çalıştırır |
+
+Yeni bir sürüm çıktığında `kgflow run`, `check` ve `init` komutları ekranın başında haber verir. Bu kontrol günde en fazla bir kez yapılır, birkaç saniyeden uzun sürmez ve ağ yoksa sessizce atlanır. Kapatmak için `export KGFLOW_NO_UPDATE_CHECK=1`.
+
+Projelerdeki `.kgflow/` ayarları ve dersler güncellemeden etkilenmez. Yeni sürüm yeni ayarlar getirdiyse `kgflow init --force` mevcut değerlerini koruyarak şablonu yeniler.
+
+### Betiği paylaşmak
+
+Tek komutlu kurulum için `install.sh`'ın ekipçe erişilebilir bir adreste durması gerekir. Betikte gizli bilgi yoktur; kgflow'un kendisi yine SSH ile, sadece erişimi olanlara indirilir. Seçenekler:
+
+- **Bitbucket (repo gizliyse):** API token ile ham dosya adresi:
+  `curl -fsSL -u <e-posta>:<api-token> https://api.bitbucket.org/2.0/repositories/sendeotech/kgflow/src/main/install.sh | bash`
+- **Şirket içi bir web sunucusu ya da wiki eki:** `install.sh`'ı oraya koy, adresini paylaş.
+- **Hazır paket:** `npm pack` ile üretilen `.tgz`'yi aynı yere koy; en hızlı kurulum budur.
 
 ## 3. Jira erişimi
 
@@ -219,9 +282,11 @@ Reviewer'ın ve kontrollerin reddettiği konular `.kgflow/lessons.md` dosyasına
 
 | Belirti | Çözüm |
 |---|---|
-| `zsh: command not found: kgflow` | `./install.sh` çalıştır, sonra yeni bir terminal aç |
+| `zsh: command not found: kgflow` | Kurulumu tekrar çalıştır, sonra yeni bir terminal aç |
+| `Kurulum kaydı bulunamadı` (`kgflow update`) | kgflow eski yöntemle kurulmuş; kurulumu bir kez yeniden çalıştır |
+| `Kaynağa erişilemedi` | Bitbucket SSH erişimini kontrol et: `ssh -T git@bitbucket.org` |
 | `zsh: permission denied: kgflow` | `cd ~/Desktop/kgflow && npm run build` |
-| `npm link` yetki hatası | `KGFLOW_FORCE_NVM=1 ./install.sh` (sudo'suz Node kurulumu) |
+| npm yetki hatası (`EACCES`) | `KGFLOW_FORCE_NVM=1` ile kur (sudo'suz Node kurulumu) |
 | `Jira yetki hatası (401)` | `JIRA_EMAIL` / `JIRA_API_TOKEN` değerlerini kontrol et; kayda erişimin olmalı |
 | `N turda onay alınamadı` | Son geri bildirim `kgflow runs` ile bulunan klasördeki `run.json` dosyasında. Kontroller düzeldiyse `kgflow resume <id> -v` |
 | `YENİ lint hatası` sürekli çıkıyor | Projede Prettier ile ESLint kuralları çakışıyor olabilir. `.eslintrc`'de `extends` listesinin sonuna `'prettier'` ekle |

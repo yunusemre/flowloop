@@ -7,6 +7,7 @@ import { SdkAgentRunner, type AgentRunner } from "./agent.js";
 import { BackendError, chooseBackend, createRunner, type Backend } from "./backend.js";
 import type { MutantContext } from "./cursor.js";
 import { MutantSandbox } from "./mutant.js";
+import { currentVersion, readInstallInfo, runUpdate, updateNotice } from "./update.js";
 import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, KGFLOW_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor } from "./config.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { mergeConfig } from "./configmerge.js";
@@ -35,6 +36,8 @@ Kullanım:
   kgflow resume <id> [-v] [--agent claude|cursor]
                                    Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
   kgflow runs                      Bu repo için yapılan çalıştırmaları listeler
+  kgflow update                    kgflow'u kurulduğu kaynaktan günceller
+  kgflow --version                 Sürümü ve kurulum kaynağını gösterir
   kgflow clean [--all]             Merge edilmiş (ya da --all ile tüm) çalıştırmaların worktree'lerini siler
 `;
 
@@ -224,6 +227,16 @@ async function main(): Promise<number> {
   if (!cmd || cmd === "-h" || cmd === "--help") {
     console.log(HELP);
     return 0;
+  }
+  if (cmd === "--version" || cmd === "-V" || cmd === "version") {
+    const i = readInstallInfo();
+    console.log(`kgflow ${currentVersion()}${i ? color.dim(`  (${i.mode === "local" ? "yerel repo" : "kaynak"}: ${i.source}${i.commit ? " @ " + i.commit.slice(0, 7) : ""})`) : ""}`);
+    return 0;
+  }
+  if (cmd === "update") return runUpdate();
+  if (cmd === "run" || cmd === "check" || cmd === "init") {
+    const notice = updateNotice();
+    if (notice) console.log(color.yellow(`! ${notice}`));
   }
   const root = repoRoot();
   if (migrateLegacyProject(root)) console.log(color.yellow(`Eski .ekip klasörü ${KGFLOW_DIR}/ olarak taşındı (ekip.yaml → kgflow.yaml).`));
