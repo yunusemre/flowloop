@@ -189,9 +189,11 @@ test("setup: Jira adresi yoksa sorulur, kısa yazım tam adrese çevrilir ve kay
   gitCfg["user.name"] = "Y";
   gitCfg["user.email"] = "yunus@kolaygelsin.com";
   fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "y@k.com" } }));
-  const { io, out } = scriptedIO(["bu bir adres değil!", "kolaygelsin", "yunus@kolaygelsin.com", "dogru-token"]);
+  const { io, out } = scriptedIO(["", "bu bir adres değil!", "kolaygelsin", "yunus@kolaygelsin.com", "dogru-token"]);
   await runSetup(io, deps);
   assert.equal(saved.jiraBase, "https://kolaygelsin.atlassian.net");
   assert.equal(store.get("JIRA_API_TOKEN"), "dogru-token");
   assert.match(out.join("\n"), /Geçerli bir adres değil/);
+  assert.match(out.join("\n"), /Jira adresi zorunlu/, "boş bırakılınca ilerlemez");
+  assert.ok(!out.join("\n").includes("kolaygelsin.atlassian.net]"), "hazır adres önerilmez");
 });

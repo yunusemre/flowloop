@@ -5,8 +5,6 @@ import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
 export const FLOWLOOP_DIR = ".flowloop";
-/** flowloop setup'ta önerilen Jira adresi (sadece öneri; kodun içinde sabit kullanılmaz). */
-export const DEFAULT_JIRA_BASE = "https://kolaygelsin.atlassian.net";
 
 /** Kullanıcı ayarları (tüm projeler için): ~/.flowloop/config.json — flowloop setup yazar */
 export interface UserConfig {

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { claudeAvailable, findCursorBin } from "./backend.js";
-import { DEFAULT_JIRA_BASE, globalJiraBase, normalizeJiraBase, writeUserConfig } from "./config.js";
+import { globalJiraBase, normalizeJiraBase, writeUserConfig } from "./config.js";
 import { color } from "./log.js";
 import { defaultStore, getCredential, mask, type SecretStore } from "./secrets.js";
 
@@ -250,9 +250,15 @@ async function setupAi(io: SetupIO, deps: SetupDeps): Promise<void> {
 
 async function setupJiraBase(io: SetupIO, deps: SetupDeps, force?: boolean): Promise<void> {
   if (deps.jiraBase && !force) return io.log(ok(`Jira adresi: ${deps.jiraBase}`));
-  io.log(color.dim("  Tarayıcıda Jira'yı açtığında adres çubuğundaki adres (ör. https://sirket.atlassian.net). Bir kayıt bağlantısı da yapıştırabilirsin."));
-  for (let i = 0; i < 3; i++) {
-    const raw = await io.ask("Jira adresi", deps.jiraBase || DEFAULT_JIRA_BASE);
+  io.log(color.dim("  Tarayıcıda Jira'yı açtığında adres çubuğundaki adres. Bir kayıt bağlantısı da yapıştırabilirsin."));
+  if (deps.jiraBase) io.log(color.dim(`  Mevcut adres: ${deps.jiraBase} (aynı kalsın diye Enter'a basabilirsin)`));
+  // Jira adresi zorunlu: girilmeden sonraki adıma geçilmez (çıkmak için Ctrl+C)
+  for (;;) {
+    const raw = (await io.ask("Jira adresi (ör. https://sirket.atlassian.net)", deps.jiraBase || undefined)).trim();
+    if (!raw) {
+      io.log(warn("Jira adresi zorunlu. Adresi yaz ya da çıkmak için Ctrl+C."));
+      continue;
+    }
     const base = normalizeJiraBase(raw);
     if (!base) {
       io.log(warn("Geçerli bir adres değil. Örnek: https://sirket.atlassian.net"));

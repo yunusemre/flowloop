@@ -141,7 +141,7 @@ Bilgisayarında Claude Code'a zaten giriş yaptıysan (`claude` → `/login`) bu
 
 ### Jira adresi
 
-Jira adresi kodun içinde sabit değildir; `flowloop setup` Jira adımında sorar (öneri olarak `https://kolaygelsin.atlassian.net` gelir, Enter ile kabul edilir). `kolaygelsin`, `kolaygelsin.atlassian.net` ya da tarayıcıdan kopyalanmış bir kayıt bağlantısı da yazılabilir; tam adrese çevrilir. Adres `~/.flowloop/config.json` dosyasına kaydedilir ve bütün projelerde kullanılır.
+Jira adresi kodun içinde sabit değildir; `flowloop setup` Jira adımında sorar ve **adres girilmeden ilerlemez**. Tarayıcıda Jira'yı açtığında adres çubuğundaki adresi yazman yeterli (ör. `https://sirket.atlassian.net`). Kısa yazım (`sirket` ya da `sirket.atlassian.net`) ya da kopyalanmış bir kayıt bağlantısı da olur; tam adrese çevrilir. Adres `~/.flowloop/config.json` dosyasına kaydedilir ve bütün projelerde kullanılır.
 
 Öncelik sırası:
 

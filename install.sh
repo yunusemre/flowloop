@@ -16,6 +16,8 @@
 #
 # Tekrar çalıştırmak güvenlidir: kurulu olanı atlar, sadece eksikleri tamamlar.
 set -euo pipefail
+# beklenmedik bir hata sessizce bitirmesin
+trap 'echo "✗ Kurulum beklenmedik şekilde durdu (satır $LINENO). Ayrıntı için: bash -x install.sh" >&2' ERR
 
 MIN_NODE_MAJOR=20
 NODE_CHANNEL="${FLOWLOOP_NODE:-lts}"   # lts | latest
@@ -44,11 +46,23 @@ step() { echo; echo "── $*"; }
 
 node_major() { node -p 'process.versions.node.split(".")[0]' 2>/dev/null || echo 0; }
 
+# nvm betikleri "set -eu" ile uyumlu değil (tanımsız değişken kullanır); yüklerken ve
+# çalıştırırken bu ayarlar kapatılır, yoksa kurulum sessizce yarıda kalır.
 load_nvm() {
   export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  [[ -s "$NVM_DIR/nvm.sh" ]] || return 1
+  set +eu
   # shellcheck disable=SC1091
-  [[ -s "$NVM_DIR/nvm.sh" ]] && . "$NVM_DIR/nvm.sh"
+  . "$NVM_DIR/nvm.sh" >/dev/null 2>&1
+  set -eu
   command -v nvm >/dev/null 2>&1
+}
+nvm_run() {
+  set +eu
+  nvm "$@"
+  local rc=$?
+  set -eu
+  return "$rc"
 }
 
 install_nvm() {
@@ -71,7 +85,7 @@ install_node() {
     brew install node || brew upgrade node   # Homebrew'un "node" paketi Current sürümüdür
   else
     load_nvm || install_nvm                  # LTS için (ve sudo'suz kurulum için) nvm
-    if [[ "$NODE_CHANNEL" == "latest" ]]; then nvm install node && nvm alias default node; else nvm install --lts && nvm alias default 'lts/*'; fi \
+    if [[ "$NODE_CHANNEL" == "latest" ]]; then nvm_run install node && nvm_run alias default node; else nvm_run install --lts && nvm_run alias default 'lts/*'; fi \
       || { err "Node.js indirilemedi (nodejs.org erişimini kontrol et)."; exit 1; }
   fi
   hash -r
@@ -83,7 +97,8 @@ if command -v git >/dev/null 2>&1; then ok "git $(git --version | awk '{print $3
   err "git bulunamadı. macOS: xcode-select --install · Linux: sudo apt install git"; exit 1; fi
 
 # ───────────── 2) Node.js ─────────────
-load_nvm >/dev/null 2>&1 || true
+# Node PATH'te yoksa, nvm ile kurulmuş olabilir: önce onu yüklemeyi dene
+command -v node >/dev/null 2>&1 || load_nvm || true
 if [[ -z "${FLOWLOOP_FORCE_NVM:-}" ]] && command -v node >/dev/null 2>&1 && (( $(node_major) >= MIN_NODE_MAJOR )); then
   ok "Node.js $(node -v) (en az v${MIN_NODE_MAJOR} gerekli)"
 else

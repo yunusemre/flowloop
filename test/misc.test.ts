@@ -34,7 +34,6 @@ test("Jira şablon metni kabul kriteri sayılmaz", () => {
   assert.equal(isTemplateText("1. Pin, tüm gönderiler teslim edilince yeşil olur"), false);
 });
 
-import { DEFAULT_JIRA_BASE, jiraBaseUrl } from "../src/config.js";
 test("eski .kgflow ve .ekip klasörleri .flowloop'a taşınır", async () => {
   const { migrateLegacyProject } = await import("../src/config.js");
   const fs = await import("node:fs");

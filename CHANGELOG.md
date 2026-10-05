@@ -6,6 +6,15 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.1.2 — 2026-10-05
+
+### Düzeltme
+- Bilgisayarda nvm kuruluysa kurulum betiği "✓ git" satırından sonra sessizce duruyordu (nvm betiği `set -u` ile uyumsuz). nvm artık sadece Node bulunamazsa ve güvenli şekilde yükleniyor.
+- Kurulum beklenmedik bir yerde durursa hangi satırda durduğu yazılıyor.
+
+### Değişen
+- `flowloop setup`'ta Jira adresi zorunlu: hazır bir adres önerilmez, adres girilmeden sonraki adıma geçilmez. Örnek olarak `https://sirket.atlassian.net` gösterilir.
+
 ## 1.1.1 — 2026-10-05
 
 ### Düzeltme
