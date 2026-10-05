@@ -6,6 +6,12 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.1.1 — 2026-10-05
+
+### Düzeltme
+- Klasörü taşınmış eski `kgflow` kurulumu `flowloop` komutunun kurulmasını engelliyordu (`flowloop: command not found`). Kurulum betiği artık kırık eski bağlantıları kendisi kaldırıyor.
+- Kurulum hatası artık gizlenmiyor: sebep (yetki / çakışan dosya) ve çözüm gösteriliyor; komut PATH'te değilse `~/.zshrc`'ye eklenecek satır yazılıyor.
+
 ## 1.1.0 — 2026-10-05
 
 ### Değişen

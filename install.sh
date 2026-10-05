@@ -105,22 +105,47 @@ fi
 
 # ───────────── 4) flowloop ─────────────
 step "flowloop kuruluyor"
+LINK_LOG="$(mktemp)"
 link_fail() {
-  err "Global npm klasörüne yazılamadı (yetki)."
-  echo "   Çözüm: Node'u nvm ile kur (sudo gerekmez):  FLOWLOOP_FORCE_NVM=1 bash install.sh"
+  err "flowloop komutu sisteme eklenemedi."
+  if grep -qi "EACCES\|permission denied" "$LINK_LOG" 2>/dev/null; then
+    echo "   Sebep: global npm klasörüne yazma yetkisi yok ($(npm prefix -g))."
+    echo "   Çözüm: Node'u nvm ile kur (sudo gerekmez):  FLOWLOOP_FORCE_NVM=1 bash install.sh"
+  elif grep -qi "EEXIST" "$LINK_LOG" 2>/dev/null; then
+    echo "   Sebep: aynı adlı eski bir komut var. Kaldırıp tekrar dene:"
+    grep -o "File exists: [^ ]*" "$LINK_LOG" | head -1 | sed 's/^/   /'
+    echo "   O dosyayı silip tekrar dene:  rm \"<yukarıdaki yol>\" && bash install.sh"
+  fi
+  [[ -s "$LINK_LOG" ]] && { echo "   npm çıktısı:"; tail -8 "$LINK_LOG" | sed 's/^/     /'; }
   exit 1
 }
+# Eski adlarla (kgflow, ekip) kurulmuş komutlar yeni bağlantıyla çakışır; önce kaldır.
+# Klasörü taşınmış eski bir "npm link" kırık kalır ve "npm rm -g" onu silemez; o yüzden
+# sadece bize ait sembolik bağlantılar doğrudan silinir.
+remove_legacy() {
+  local groot gbin old removed
+  groot="$(npm root -g)"; gbin="$(npm prefix -g)/bin"
+  for old in kgflow ekip; do
+    removed=0
+    if [[ -L "$groot/$old" ]]; then rm -f "$groot/$old"; removed=1
+    elif [[ -d "$groot/$old" ]]; then npm rm -g "$old" >/dev/null 2>&1 && removed=1; fi
+    if [[ -L "$gbin/$old" ]] && readlink "$gbin/$old" | grep -Eq "node_modules/(kgflow|ekip)/"; then rm -f "$gbin/$old"; removed=1; fi
+    (( removed )) && ok "Eski '$old' kurulumu kaldırıldı (artık: flowloop)"
+  done
+  return 0
+}
+remove_legacy
 if [[ "$MODE" == local ]]; then
   if [[ -f package-lock.json ]]; then npm ci --no-audit --no-fund --loglevel=error; else npm install --no-audit --no-fund --loglevel=error; fi
   npm run build --silent
   ok "Derlendi"
-  npm link --loglevel=error >/dev/null 2>&1 || link_fail
+  npm link --loglevel=error >"$LINK_LOG" 2>&1 || link_fail
   INSTALLED_FROM="$DIR"
   COMMIT="$(git -C "$DIR" rev-parse HEAD 2>/dev/null || true)"
 elif [[ "$SOURCE" == *.tgz || "$SOURCE" == *.tar.gz ]]; then
   # hazır derlenmiş paket: derleme gerekmez
   echo "Kaynak: $SOURCE"
-  npm install -g --no-audit --no-fund --loglevel=error "$SOURCE" || link_fail
+  npm install -g --no-audit --no-fund --loglevel=error "$SOURCE" >"$LINK_LOG" 2>&1 || link_fail
   INSTALLED_FROM="$SOURCE"
   COMMIT=""
 else
@@ -140,7 +165,7 @@ else
     cd "$SRC_DIR"
     if [[ -f package-lock.json ]]; then npm ci --no-audit --no-fund --loglevel=error; else npm install --no-audit --no-fund --loglevel=error; fi
     npm run build --silent
-    npm link --loglevel=error >/dev/null 2>&1
+    npm link --loglevel=error >"$LINK_LOG" 2>&1
   ) || link_fail
   ok "Derlendi"
   INSTALLED_FROM="$SOURCE"
@@ -156,8 +181,15 @@ JSON
 ok "flowloop $VERSION kuruldu ($MODE)"
 
 hash -r
-if command -v flowloop >/dev/null 2>&1; then ok "flowloop komutu hazır: $(command -v flowloop)"; else
-  warn "flowloop kuruldu ama PATH'te görünmüyor. Yeni bir terminal aç ya da: export PATH=\"$(npm prefix -g)/bin:\$PATH\""; fi
+GLOBAL_BIN="$(npm prefix -g)/bin"
+if command -v flowloop >/dev/null 2>&1; then ok "flowloop komutu hazır: $(command -v flowloop)"
+elif [[ -x "$GLOBAL_BIN/flowloop" ]]; then
+  warn "flowloop kuruldu ($GLOBAL_BIN/flowloop) ama bu klasör PATH'te değil."
+  echo "   Kalıcı çözüm — şu satırı ~/.zshrc dosyasına ekle ve yeni terminal aç:"
+  echo "   export PATH=\"$GLOBAL_BIN:\$PATH\""
+else
+  err "flowloop komutu oluşmadı ($GLOBAL_BIN/flowloop yok)."; [[ -s "$LINK_LOG" ]] && tail -8 "$LINK_LOG"; exit 1
+fi
 
 [[ -n "${FLOWLOOP_UPDATING:-}" ]] && exit 0
 
