@@ -77,7 +77,6 @@ Jira adresi (`https://kolaygelsin.atlassian.net`) varsayılan olarak tanımlı; 
 ## 4. Bir projeye eklemek (proje başına bir kez)
 
 ```bash
-cd ~/Desktop/WORK/KG/kgs-app
 kgflow init
 kgflow check
 git add .gitignore && git commit -m "chore: kgflow klasörünü gitignore'a ekle"
