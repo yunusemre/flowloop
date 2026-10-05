@@ -6,7 +6,7 @@ import path from "node:path";
 import { gitRemote, updateNotice } from "../src/update.js";
 
 test("gitRemote: kaynak adresini ayrıştırır", () => {
-  assert.deepEqual(gitRemote("git+ssh://git@bitbucket.org/sendeotech/flowloop.git"), { url: "ssh://git@bitbucket.org/sendeotech/flowloop.git", ref: "HEAD" });
+  assert.deepEqual(gitRemote("git+ssh://git@bitbucket.org/sirket/flowloop.git"), { url: "ssh://git@bitbucket.org/sirket/flowloop.git", ref: "HEAD" });
   assert.deepEqual(gitRemote("git+ssh://git@bitbucket.org/x/flowloop.git#develop"), { url: "ssh://git@bitbucket.org/x/flowloop.git", ref: "develop" });
   assert.deepEqual(gitRemote("git@bitbucket.org:x/flowloop.git"), { url: "git@bitbucket.org:x/flowloop.git", ref: "HEAD" });
   assert.equal(gitRemote("https://example.com/flowloop-0.2.0.tgz"), undefined);

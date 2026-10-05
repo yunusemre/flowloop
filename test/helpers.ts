@@ -10,7 +10,7 @@ export function fakeHome(repoRoot: string) {
     path.join(home, ".claude.json"),
     JSON.stringify({
       mcpServers: { github: { command: "gh-mcp" } },
-      projects: { [repoRoot]: { mcpServers: { "kgs-app-memory": { type: "stdio", command: "node", args: ["/x/mcp-qdrant-memory/dist/index.js"], env: { QDRANT_COLLECTION_NAME: "kgs-app" } } } } },
+      projects: { [repoRoot]: { mcpServers: { "my-app-memory": { type: "stdio", command: "node", args: ["/x/mcp-qdrant-memory/dist/index.js"], env: { QDRANT_COLLECTION_NAME: "my-app" } } } } },
     }),
   );
   return home;

@@ -20,11 +20,11 @@ Ayrıntılı kılavuz: **[KULLANIM.md](KULLANIM.md)**
 git clone https://github.com/yunusemre/flowloop.git ~/.flowloop/src && ~/.flowloop/src/install.sh
 
 # 2) Projeye ekle (proje başına bir kez)
-cd ~/Desktop/WORK/KG/kgs-app
+cd ~/projeler/my-app
 flowloop init && flowloop check
 
-# 3) Jira görevini çalıştır (--plan-onayi: planı onayla, yorumla güncellet ya da iptal et)
-flowloop run IDT-1234 --plan-onayi -v
+# 3) Jira görevini çalıştır (--approve-plan: planı onayla, yorumla güncellet ya da iptal et)
+flowloop run PROJ-1234 --approve-plan -v
 ```
 
 | Komut | Ne yapar |
@@ -70,7 +70,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 
 ## Jira
 
-`flowloop run IDT-1234` görevi Jira'dan çeker. İş bitince kayda kısa bir yorum eklenir: sorun / yapılan / neden bu yaklaşım / nasıl test edildi (committer yazar), branch, commit'ler, PR bağlantısı, kullanılan modeller ve "insan incelemesi gerekir" notu. Commit'lerdeki `Co-Authored-By` satırı işi kimin yaptığını gösterir.
+`flowloop run PROJ-1234` görevi Jira'dan çeker. İş bitince kayda kısa bir yorum eklenir: sorun / yapılan / neden bu yaklaşım / nasıl test edildi (committer yazar), branch, commit'ler, PR bağlantısı, kullanılan modeller ve "insan incelemesi gerekir" notu. Commit'lerdeki `Co-Authored-By` satırı işi kimin yaptığını gösterir.
 
 ## Yapılandırma (`.flowloop/flowloop.yaml`)
 

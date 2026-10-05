@@ -12,33 +12,33 @@ import { fakeHome } from "./helpers.js";
 test("~/.claude.json'dan MCP sunucuları; hafıza sunucusu tespiti", () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-repo-"));
   const home = fakeHome(repo);
-  assert.deepEqual(detectMemoryServers(repo, home), ["kgs-app-memory"]);
-  const { servers, missing } = loadMcpServers(["kgs-app-memory", "yok"], repo, home);
-  assert.deepEqual(Object.keys(servers), ["kgs-app-memory"]);
+  assert.deepEqual(detectMemoryServers(repo, home), ["my-app-memory"]);
+  const { servers, missing } = loadMcpServers(["my-app-memory", "yok"], repo, home);
+  assert.deepEqual(Object.keys(servers), ["my-app-memory"]);
   assert.deepEqual(missing, ["yok"]);
-  assert.deepEqual(Object.keys(loadMcpServers(["auto"], repo, home).servers), ["kgs-app-memory"]);
+  assert.deepEqual(Object.keys(loadMcpServers(["auto"], repo, home).servers), ["my-app-memory"]);
 });
 
 const cfg = configSchema.parse({
   version: 2,
   commands: { testRelated: "npx jest --findRelatedTests {{files}}" },
   paths: { edit: ["src/**"] },
-  mcp: { servers: ["kgs-app-memory"] },
+  mcp: { servers: ["my-app-memory"] },
 });
 
 test("hafıza araçları: sadece salt okuma ve sadece seçili roller", () => {
   const ctx: PolicyContext = { repoRoot: "/w/wt", runRoot: "/w/run", readDeny: [], forbiddenFlags: DEFAULT_FORBIDDEN_FLAGS };
   for (const r of ["analist", "developer", "reviewer"] as const) {
-    assert.equal(evaluate(permissionsFor(r, cfg), ctx, "mcp__kgs-app-memory__search_similar", { query: "UIFlatList" }).allow, true);
-    assert.equal(evaluate(permissionsFor(r, cfg), ctx, "mcp__kgs-app-memory__create_entities", {}).allow, false);
-    assert.equal(evaluate(permissionsFor(r, cfg), ctx, "mcp__kgs-app-memory__delete_entities", {}).allow, false);
+    assert.equal(evaluate(permissionsFor(r, cfg), ctx, "mcp__my-app-memory__search_similar", { query: "UIFlatList" }).allow, true);
+    assert.equal(evaluate(permissionsFor(r, cfg), ctx, "mcp__my-app-memory__create_entities", {}).allow, false);
+    assert.equal(evaluate(permissionsFor(r, cfg), ctx, "mcp__my-app-memory__delete_entities", {}).allow, false);
   }
-  assert.equal(evaluate(permissionsFor("committer", cfg), ctx, "mcp__kgs-app-memory__search_similar", {}).allow, false);
+  assert.equal(evaluate(permissionsFor("committer", cfg), ctx, "mcp__my-app-memory__search_similar", {}).allow, false);
 });
 
 test("hafızanın döndürdüğü asıl repo yolları çalışma kopyasına çevrilir", () => {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-alias-"));
-  const repo = path.join(base, "kgs-app");
+  const repo = path.join(base, "my-app");
   const wt = path.join(base, "wt");
   for (const d of [repo, wt]) fs.mkdirSync(path.join(d, "src"), { recursive: true });
   fs.writeFileSync(path.join(wt, "src", "a.ts"), "x");

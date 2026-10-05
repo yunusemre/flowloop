@@ -116,7 +116,7 @@ flowloop setup --check    # soru sormadan durumu gösterir (Jira ve Bitbucket'a 
 |---|---|---|---|
 | 1. Kimlik | Ad soyad, iş e-postan | Zaten `git config`'te varsa sorulmaz | Commit'lerde ve Jira yorumunda "Başlatan" olarak görünür |
 | 2. AI erişimi | Üç seçenekten biri (aşağıda) | — | Claude Code girişi varsa sorulmaz |
-| 3. Jira | Jira adresi, Atlassian e-postan ve API token | https://id.atlassian.com/manage-profile/security/api-tokens → **Create API token** | Jira'ya bağlanılır, adın gösterilir ("Jira doğrulandı: Yunus Emre Tatar") |
+| 3. Jira | Jira adresi, Atlassian e-postan ve API token | https://id.atlassian.com/manage-profile/security/api-tokens → **Create API token** | Jira'ya bağlanılır, adın gösterilir ("Jira doğrulandı: Ad Soyad") |
 | 4. Bitbucket | Bir şey sorulmaz, SSH erişimi denenir | Yoksa SSH anahtarı oluşturulur, panoya kopyalanır ve https://bitbucket.org/account/settings/ssh-keys/ açılır | `ssh -T git@bitbucket.org` |
 
 **AI erişimi seçenekleri:**
@@ -151,12 +151,12 @@ Jira adresi kodun içinde sabit değildir; `flowloop setup` Jira adımında sora
 
 Değiştirmek için `flowloop setup --force`.
 
-Adres bir kez girildikten sonra görevler sadece anahtarla çalıştırılır: `flowloop run IDT-24057`. Tarayıcıdan kopyaladığın bağlantıyı yapıştırırsan da çalışır; anahtar bağlantıdan alınır.
+Adres bir kez girildikten sonra görevler sadece anahtarla çalıştırılır: `flowloop run PROJ-1234`. Tarayıcıdan kopyaladığın bağlantıyı yapıştırırsan da çalışır; anahtar bağlantıdan alınır.
 
 ## 4. Bir projeye eklemek (proje başına bir kez)
 
 ```bash
-cd ~/Desktop/WORK/KG/kgs-app
+cd ~/projeler/my-app
 flowloop init
 flowloop check
 git add .gitignore && git commit -m "chore: flowloop klasörünü gitignore'a ekle"
@@ -166,7 +166,7 @@ git add .gitignore && git commit -m "chore: flowloop klasörünü gitignore'a ek
 
 - **Teknolojiyi algılar:** React Native/Expo, React, Next.js, Node, NestJS ya da .NET. Test, tip kontrolü, lint ve format komutlarını projenin kendi araçlarına göre seçer.
 - **Base branch'i bulur:** production → main → master sırasıyla bakar.
-- **Branch adı kalıbını belirler:** mevcut branch'ler Jira anahtarıyla başlıyorsa (`IDT-123-...`) aynı kalıbı kullanır.
+- **Branch adı kalıbını belirler:** mevcut branch'ler Jira anahtarıyla başlıyorsa (`PROJ-123-...`) aynı kalıbı kullanır.
 - **Kuralları bulur:** projedeki `CLAUDE.md`, `.cursorrules` gibi kural dosyalarını ve kişisel `~/.claude/CLAUDE.md` dosyanı otomatik dahil eder. Kod hafızası MCP'sini (claude-code-memory) de bulur.
 - **Ayar dosyasını oluşturur:** `.flowloop/flowloop.yaml`.
 - **`.gitignore`'ı günceller:** `.flowloop/` satırını ekler; dosya yoksa oluşturur.
@@ -176,25 +176,25 @@ git add .gitignore && git commit -m "chore: flowloop klasörünü gitignore'a ek
 ## 5. Günlük kullanım
 
 ```bash
-cd ~/Desktop/WORK/KG/kgs-app
-flowloop run IDT-24057 --plan-onayi -v
+cd ~/projeler/my-app
+flowloop run PROJ-1234 --approve-plan -v
 ```
 
 | Seçenek | Anlamı |
 |---|---|
-| `--plan-onayi` | Analist planı yazdıktan sonra durur ve onay ister. **Önerilir.** |
+| `--approve-plan` | Analist planı yazdıktan sonra durur ve onay ister. **Önerilir.** |
 | `-v` | Ajanların ne yaptığını canlı gösterir |
 | `--refresh` | Görev dosyası daha önce çekildiyse bile Jira'dan yeniden çeker |
 | `--no-push` | Bu seferlik push yapmaz |
 | `--agent claude\|cursor` | Ajan aracını bu seferlik seç |
 | `--dry-run` | Ajan çalıştırmadan prompt'ları ve yetkileri gösterir (ücretsiz) |
-| `--onaysiz` | İş bitince değişiklikleri sormadan commit/push eder (önerilmez) |
+| `--skip-review` | İş bitince değişiklikleri sormadan commit/push eder (önerilmez) |
 
 Akış:
 
-1. **Görev:** Jira kaydı `.flowloop/tasks/IDT-24057.md` dosyasına çekilir. Bu dosyayı düzenleyip tekrar çalıştırabilirsin; `--refresh` vermedikçe üzerine yazılmaz.
+1. **Görev:** Jira kaydı `.flowloop/tasks/PROJ-1234.md` dosyasına çekilir. Bu dosyayı düzenleyip tekrar çalıştırabilirsin; `--refresh` vermedikçe üzerine yazılmaz.
 2. **Çalışma alanı:** base branch'ten temiz bir kopya (git worktree) açılır. Senin çalışma klasörüne hiç dokunulmaz.
-3. **Plan:** analist planı yazar. `--plan-onayi` verdiysen planı okursun; onaylayabilir, yorum yazıp güncelletebilir ya da iptal edebilirsin (bkz. [Plan onayı](#plan-onayı)).
+3. **Plan:** analist planı yazar. `--approve-plan` verdiysen planı okursun; onaylayabilir, yorum yazıp güncelletebilir ya da iptal edebilirsin (bkz. [Plan onayı](#plan-onayı)).
 4. **Geliştirme döngüsü** (en fazla 3 tur):
    - Developer kodu yazar.
    - flowloop değişen dosyaları formatlar ve otomatik kontrolleri çalıştırır: bu işin testleri, **yeni** tip hataları, **yeni** lint hataları. Projede zaten var olan hatalar sayılmaz.
@@ -208,19 +208,19 @@ Bittiğinde ekranda şunlar görünür:
 ── BİTTİ
   a1b2c3d feat(harita): görevdeki birden fazla gönderiyi ayrı işaretle göster
 
-  Branch  : IDT-24057-haritada-task-icerisinde-birden-fazla-gonderi-gibi
+  Branch  : PROJ-1234-siparis-listesine-filtre-ekle
   Maliyet : $2.84 · 2 tur · 0 reddedilen işlem
 
-  Push    : origin/IDT-24057-haritada-task-icerisinde-birden-fazla-gonderi-gibi ✓
-  PR aç   : https://bitbucket.org/sendeotech/kgs-app/pull-requests/new?source=...
-  Jira    : https://kolaygelsin.atlassian.net/browse/IDT-24057?focusedCommentId=...
+  Push    : origin/PROJ-1234-siparis-listesine-filtre-ekle ✓
+  PR aç   : https://bitbucket.org/sirket/my-app/pull-requests/new?source=...
+  Jira    : https://sirket.atlassian.net/browse/PROJ-1234?focusedCommentId=...
 ```
 
 Sonra PR'ı açıp normal kod incelemesini yaparsın.
 
 ### Plan onayı
 
-`--plan-onayi` ile çalıştırdığında analist planı yazınca şu soru gelir:
+`--approve-plan` ile çalıştırdığında analist planı yazınca şu soru gelir:
 
 ```
 Plan uygun mu?
@@ -230,7 +230,7 @@ Plan uygun mu?
 ```
 
 - **[y] Yorum:** istediğin kadar satır yazabilirsin, bitirmek için boş bir satırda Enter'a basarsın. Analist yorumunu ve mevcut planı birlikte değerlendirir, planı günceller ve neyi değiştirdiğini özetler. Katılmadığı ya da uygulanamayan bir nokta varsa (ör. developer'ın değiştiremeyeceği bir dosya) planı değiştirmez, "Geri bildirime yanıt" başlığıyla nedenini yazar. Güncel plan tekrar sana sorulur. Önceki turların yorumları da analiste hatırlatılır; en fazla 5 tur yenilenebilir.
-- **[h] İptal:** analiz boşa gitmez. Plan saklanır; aynı görevi tekrar `flowloop run IDT-1234 --plan-onayi` ile çalıştırdığında analist yeniden çalışmaz, aynı plan karşına gelir. O zaman ek olarak **[b] Bu planı kullanma, baştan analiz et** seçeneği de çıkar.
+- **[h] İptal:** analiz boşa gitmez. Plan saklanır; aynı görevi tekrar `flowloop run PROJ-1234 --approve-plan` ile çalıştırdığında analist yeniden çalışmaz, aynı plan karşına gelir. O zaman ek olarak **[b] Bu planı kullanma, baştan analiz et** seçeneği de çıkar.
 - Verdiğin yorumlar çalıştırma kaydında (`run.json` → `planFeedback`) ve `run/plan-feedback.md` dosyasında durur.
 
 ### Değişiklik onayı
@@ -245,7 +245,7 @@ Değişen dosyalar:
  src/screens/Map/MapScreen.tsx      | 42 +++++++++----
  src/screens/Map/MapScreen.test.tsx | 88 ++++++++++++++++++++++++
 
-Kodu editöründe de açabilirsin: ~/.flowloop/work/kgs-app/<çalıştırma>/wt
+Kodu editöründe de açabilirsin: ~/.flowloop/work/my-app/<çalıştırma>/wt
 
 Değişiklikler uygun mu?
   [e] Onayla — commit, push ve Jira yorumu
@@ -259,7 +259,7 @@ Değişiklikler uygun mu?
 - **[h] Şimdilik onaylama:** commit yapılmaz, çalışma alanı olduğu gibi kalır. İncelemeyi bitirince `flowloop resume <id>` aynı soruyu tekrar sorar ve onay verirsen commit/push/Jira yapılır. (Sürdürmede değişiklik isteği yoktur; o durumda isteği görev dosyasına ekleyip görevi yeniden çalıştır.)
 - Değişiklik isteklerin `run.json` (`changeRequests`) ve `run/change-requests.md` içinde durur.
 
-Soru sadece etkileşimli bir terminalde sorulur. Sormadan commit'lemek için `--onaysiz` verilir.
+Soru sadece etkileşimli bir terminalde sorulur. Sormadan commit'lemek için `--skip-review` verilir.
 
 ### Jira'ya düşen yorum
 
@@ -277,7 +277,7 @@ Claude erişimi yoksa flowloop ajanları **Cursor CLI** ile çalıştırır. Se�
 | `claude` | Her zaman Claude |
 | `cursor` | Her zaman Cursor |
 
-Tek seferlik seçim için `flowloop run IDT-1234 --agent cursor` kullanılır. Hangisinin seçileceğini `flowloop check` gösterir; çalıştırma başında da ekrana yazılır.
+Tek seferlik seçim için `flowloop run PROJ-1234 --agent cursor` kullanılır. Hangisinin seçileceğini `flowloop check` gösterir; çalıştırma başında da ekrana yazılır.
 
 Cursor CLI kurulumu:
 
@@ -305,7 +305,7 @@ Claude ile arasındaki farklar:
 |---|---|
 | `flowloop runs` | Bu projedeki çalıştırmaları ve durumlarını listeler |
 | `flowloop resume <id> -v [--agent cursor]` | Yarım kalan bir çalıştırmayı baştan başlatmadan sürdürür (kontroller → reviewer → commit → push → Jira) |
-| `flowloop task IDT-123` | Sadece Jira görevini dosyaya çeker (çalıştırmaz) |
+| `flowloop task PROJ-123` | Sadece Jira görevini dosyaya çeker (çalıştırmaz) |
 | `flowloop clean` | Merge edilmiş çalıştırmaların çalışma klasörlerini siler |
 | `flowloop clean --all` | Tüm çalıştırmaların çalışma klasörlerini siler |
 | `flowloop init --force` | Ayar dosyasını yeniler; elle girdiğin değerleri korur |
@@ -319,7 +319,7 @@ En çok değiştirilenler:
 | Alan | Açıklama |
 |---|---|
 | `baseBranch` | Boşsa production → main → master |
-| `branchName` | `{{jira}}-{{slug}}` → `IDT-24057-haritada-task...` |
+| `branchName` | `{{jira}}-{{slug}}` → `PROJ-1234-siparis-listesine...` |
 | `push` | İş bitince branch'i push'la (force push asla yapılmaz) |
 | `jira.comment` | İş bitince Jira'ya yorum ekle |
 | `commands.testRelated` | Bu işin testleri, ör. `npx jest --findRelatedTests {{files}} --passWithNoTests` |
@@ -369,7 +369,7 @@ Gerisi kendiliğinden olur:
 | `Jira yetki hatası (401)` / `Jira kimlik bilgisi yok` | `flowloop setup --force` ile token'ı yenile; kayda erişimin olmalı |
 | `N turda onay alınamadı` | Son geri bildirim `flowloop runs` ile bulunan klasördeki `run.json` dosyasında. Kontroller düzeldiyse `flowloop resume <id> -v` |
 | `YENİ lint hatası` sürekli çıkıyor | Projede Prettier ile ESLint kuralları çakışıyor olabilir. `.eslintrc`'de `extends` listesinin sonuna `'prettier'` ekle |
-| `IDT-…-2` gibi branch açıldı | Aynı adlı eski branch'te commit var. Eskisini incele ya da sil |
+| `PROJ-…-2` gibi branch açıldı | Aynı adlı eski branch'te commit var. Eskisini incele ya da sil |
 | `Ne Claude ne Cursor erişimi bulundu` | `flowloop setup` |
 | `Cursor hook'ları çalışmadı` | Cursor CLI eski olabilir: `cursor-agent update` |
 | Cursor'da her yazma işlemi "yol belirtilmemiş" diye reddediliyor | Cursor'un hook formatı değişmiş olabilir; `run.json` içindeki `denials` listesine bak ve flowloop'u güncelle |

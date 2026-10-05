@@ -32,9 +32,9 @@ export function writeUserConfig(patch: UserConfig, home = os.homedir()): void {
 
 /**
  * Kullanıcının yazdığını Jira adresine çevirir:
- *   "kolaygelsin"                                   → https://kolaygelsin.atlassian.net
- *   "kolaygelsin.atlassian.net"                     → https://kolaygelsin.atlassian.net
- *   "https://kolaygelsin.atlassian.net/browse/X-1"  → https://kolaygelsin.atlassian.net
+ *   "sirket"                                   → https://sirket.atlassian.net
+ *   "sirket.atlassian.net"                     → https://sirket.atlassian.net
+ *   "https://sirket.atlassian.net/browse/X-1"  → https://sirket.atlassian.net
  * Geçersizse "" döner.
  */
 export function normalizeJiraBase(input: string): string {
@@ -50,7 +50,7 @@ export function normalizeJiraBase(input: string): string {
   }
 }
 
-/** Jira kayıt bağlantısından adres ve anahtar: .../browse/IDT-1, ...?selectedIssue=IDT-1 */
+/** Jira kayıt bağlantısından adres ve anahtar: .../browse/PROJ-1, ...?selectedIssue=PROJ-1 */
 export function parseJiraLink(s: string): { base: string; key: string } | undefined {
   if (!/^https?:\/\//i.test(s.trim())) return undefined;
   let u: URL;
@@ -104,7 +104,7 @@ export const configSchema = z
     baseBranch: z.string().default(""),
     /** {{jira}}, {{slug}}, {{date}}. {{jira}} bulunamazsa "flowloop/{{slug}}-{{date}}" kullanılır. */
     branchName: z.string().default("flowloop/{{slug}}-{{date}}"),
-    /** Jira entegrasyonu: `flowloop run IDT-1234` görev dosyasını Jira'dan üretir. */
+    /** Jira entegrasyonu: `flowloop run PROJ-1234` görev dosyasını Jira'dan üretir. */
     jira: z
       .object({
         /** Boş = JIRA_BASE_URL, o da yoksa flowloop setup'ta girilen adres (~/.flowloop/config.json) */

@@ -224,4 +224,4 @@ echo "Güncellemek için: flowloop update"
 echo
 echo "Sıradaki adım (projende):"
 echo "  cd <proje> && flowloop init && flowloop check"
-echo "  flowloop run IDT-1234 --plan-onayi -v"
+echo "  flowloop run PROJ-1234 --approve-plan -v"

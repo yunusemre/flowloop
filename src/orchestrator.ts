@@ -242,7 +242,7 @@ function stamp(d: Date): string {
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
 
-/** Görev dosyasından Jira anahtarı: "Jira: IDT-1234" satırı ya da başlıktaki ilk anahtar */
+/** Görev dosyasından Jira anahtarı: "Jira: PROJ-1234" satırı ya da başlıktaki ilk anahtar */
 export function jiraKey(task: string): string {
   const explicit = /^\s*(?:<!--\s*)?jira\s*:\s*([A-Z][A-Z0-9]+-\d+)/im.exec(task);
   if (explicit) return explicit[1];
@@ -909,7 +909,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     });
     if (d.action !== "approve") {
       fail(d.action === "revise"
-        ? "Sürdürmede değişiklik isteği desteklenmiyor. İsteğini görev dosyasına ekleyip görevi yeniden çalıştır: flowloop run <görev> --plan-onayi"
+        ? "Sürdürmede değişiklik isteği desteklenmiyor. İsteğini görev dosyasına ekleyip görevi yeniden çalıştır: flowloop run <görev> --approve-plan"
         : `Değişiklikler onaylanmadı; commit yapılmadı. Sonra tekrar: flowloop resume ${summary.id}`);
     }
     summary.userApproved = true;

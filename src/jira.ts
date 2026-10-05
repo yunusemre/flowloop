@@ -207,7 +207,7 @@ export function issueToTask(i: JiraIssue, fetchedAt: Date): string {
     sec("Açıklama", i.description || "_(Jira'da açıklama yok)_") +
     (i.acceptance
       ? sec("Kabul kriterleri", i.acceptance)
-      : `## Kabul kriterleri\n\n_Jira'da ayrı bir kabul kriteri alanı yok. Analist, açıklamadan ölçülebilir kriterler çıkaracak ve bunları "Jira'dan türetildi" diye işaretleyecek. Planı onaylamadan önce kontrol et (--plan-onayi)._\n\n`) +
+      : `## Kabul kriterleri\n\n_Jira'da ayrı bir kabul kriteri alanı yok. Analist, açıklamadan ölçülebilir kriterler çıkaracak ve bunları "Jira'dan türetildi" diye işaretleyecek. Planı onaylamadan önce kontrol et (--approve-plan)._\n\n`) +
     sec("Alt görevler", i.subtasks.map((s) => `- ${s}`).join("\n")) +
     sec("Bağlantılı işler", i.links.map((s) => `- ${s}`).join("\n")) +
     sec("Son yorumlar", i.comments.map((c) => `**${c.author}** (${c.created}):\n\n${c.body}`).join("\n\n---\n\n")) +

@@ -137,7 +137,7 @@ export async function printStatus(deps: SetupDeps, io: Pick<SetupIO, "log">, opt
       const w = await jiraWhoAmI(deps, s.jira.email, s.jira.token);
       io.log(w.ok ? ok(`Jira: ${w.name} <${s.jira.email}>`) : warn(`Jira: token geçersiz (HTTP ${w.status || "bağlantı yok"}) — flowloop setup`));
     } else io.log(ok(`Jira: ${s.jira.email} · token ${mask(s.jira.token)}`));
-  } else io.log(warn("Jira bilgisi yok (flowloop run IDT-xxxx için gerekli)"));
+  } else io.log(warn("Jira bilgisi yok (flowloop run PROJ-xxxx için gerekli)"));
   if (opts.network) {
     const ssh = sshBitbucket(deps);
     io.log(ssh.ok ? ok(`Bitbucket SSH${ssh.user ? `: ${ssh.user}` : ""}`) : warn("Bitbucket SSH erişimi yok (push için gerekli)"));
@@ -185,7 +185,7 @@ export async function runSetup(io: SetupIO, deps: SetupDeps, opts: { force?: boo
 
   io.log(head("Özet"));
   const ready = await printStatus(deps, io);
-  io.log(ready ? "\n" + ok("Hazırsın. Projende: flowloop init && flowloop run IDT-1234 --plan-onayi -v") : "\n" + warn("Eksikleri tamamlamak için istediğin zaman: flowloop setup"));
+  io.log(ready ? "\n" + ok("Hazırsın. Projende: flowloop init && flowloop run PROJ-1234 --approve-plan -v") : "\n" + warn("Eksikleri tamamlamak için istediğin zaman: flowloop setup"));
 }
 
 async function setupAi(io: SetupIO, deps: SetupDeps): Promise<void> {

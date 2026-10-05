@@ -23,7 +23,7 @@ tech: |
   - eski
 baseBranch: "main"
 jira:
-  baseUrl: "https://kolaygelsin.atlassian.net"
+  baseUrl: "https://sirket.atlassian.net"
 budgets: { analist: 2, gelistir: 8, commit: 0.5, total: 12 }
 model: "sonnet"
 commands:
@@ -34,7 +34,7 @@ paths:
   const fresh = renderConfig(d, "main", "{{jira}}-{{slug}}", ["codebase-memory-mcp"]);
   const { text, kept } = mergeConfig(fresh, old);
   const cfg = configSchema.parse(parse(text));
-  assert.equal(cfg.jira.baseUrl, "https://kolaygelsin.atlassian.net");
+  assert.equal(cfg.jira.baseUrl, "https://sirket.atlassian.net");
   assert.equal(cfg.jira.comment, true, "yeni alan şablondan gelir");
   assert.equal(cfg.push, true);
   assert.equal(cfg.budgets.gelistir, 8);
@@ -50,6 +50,6 @@ paths:
 });
 
 test("Jira adresi görev dosyasından bulunur", () => {
-  assert.equal(jiraBaseFromTask("# Görev: x\n\nJira: IDT-1\nKaynak: https://kolaygelsin.atlassian.net/browse/IDT-1 (çekildi: …)\n"), "https://kolaygelsin.atlassian.net");
+  assert.equal(jiraBaseFromTask("# Görev: x\n\nJira: PROJ-1\nKaynak: https://sirket.atlassian.net/browse/PROJ-1 (çekildi: …)\n"), "https://sirket.atlassian.net");
   assert.equal(jiraBaseFromTask("# Görev"), "");
 });

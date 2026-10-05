@@ -87,14 +87,14 @@ test(".gitignore: yoksa oluşturur, varsa ekler, eski .ekip satırını güncell
 
 test("Jira adresi: yazım biçimleri ve kayıt bağlantısı ayrıştırılır", async () => {
   const { normalizeJiraBase, parseJiraLink } = await import("../src/config.js");
-  assert.equal(normalizeJiraBase("kolaygelsin"), "https://kolaygelsin.atlassian.net");
-  assert.equal(normalizeJiraBase("kolaygelsin.atlassian.net/"), "https://kolaygelsin.atlassian.net");
-  assert.equal(normalizeJiraBase("https://kolaygelsin.atlassian.net/browse/IDT-1"), "https://kolaygelsin.atlassian.net");
+  assert.equal(normalizeJiraBase("sirket"), "https://sirket.atlassian.net");
+  assert.equal(normalizeJiraBase("sirket.atlassian.net/"), "https://sirket.atlassian.net");
+  assert.equal(normalizeJiraBase("https://sirket.atlassian.net/browse/PROJ-1"), "https://sirket.atlassian.net");
   assert.equal(normalizeJiraBase("https://jira.sirket.com.tr"), "https://jira.sirket.com.tr");
   assert.equal(normalizeJiraBase("bu bir adres değil!"), "");
-  assert.deepEqual(parseJiraLink("https://kolaygelsin.atlassian.net/browse/IDT-24057"), { base: "https://kolaygelsin.atlassian.net", key: "IDT-24057" });
-  assert.deepEqual(parseJiraLink("https://kolaygelsin.atlassian.net/jira/software/projects/IDT/boards/1?selectedIssue=IDT-7"), { base: "https://kolaygelsin.atlassian.net", key: "IDT-7" });
-  assert.equal(parseJiraLink("IDT-1"), undefined);
+  assert.deepEqual(parseJiraLink("https://sirket.atlassian.net/browse/PROJ-1234"), { base: "https://sirket.atlassian.net", key: "PROJ-1234" });
+  assert.deepEqual(parseJiraLink("https://sirket.atlassian.net/jira/software/projects/PROJ/boards/1?selectedIssue=PROJ-7"), { base: "https://sirket.atlassian.net", key: "PROJ-7" });
+  assert.equal(parseJiraLink("PROJ-1"), undefined);
 });
 
 test("Jira adresi önceliği: flowloop.yaml → JIRA_BASE_URL → flowloop setup ayarı", async () => {

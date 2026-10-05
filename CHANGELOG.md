@@ -13,6 +13,8 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - Kurulum beklenmedik bir yerde durursa hangi satırda durduğu yazılıyor.
 
 ### Değişen
+- Komut bayrakları İngilizce: `--plan-onayi` → `--approve-plan`, `--onaysiz` → `--skip-review`. Eski bayraklar bir süre daha uyarıyla çalışır.
+- Kodda, testlerde ve dokümanlarda şirkete özel ad ve adres geçmez; örnekler genel (`sirket.atlassian.net`, `PROJ-1234`).
 - `flowloop setup`'ta Jira adresi zorunlu: hazır bir adres önerilmez, adres girilmeden sonraki adıma geçilmez. Örnek olarak `https://sirket.atlassian.net` gösterilir.
 
 ## 1.1.1 — 2026-10-05
@@ -37,7 +39,7 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 
 ### Akış
 - Rol bazlı AI geliştirme ekibi: **analist → developer ⇄ reviewer → committer**. Rol yetkileri kodla zorlanır (dosya okuma/yazma, kabuk komutları, git); ihlal anında durdurulur.
-- `kgflow run IDT-1234`: görev doğrudan Jira'dan çekilir; temiz base branch'ten (`production → main → master`) ayrı bir worktree'de çalışılır.
+- `kgflow run PROJ-1234`: görev doğrudan Jira'dan çekilir; temiz base branch'ten (`production → main → master`) ayrı bir worktree'de çalışılır.
 - **Plan onayı:** onayla, yorum yazıp analiste güncellet (en fazla 5 tur) ya da iptal et. İptal edilen plan saklanır; görev yeniden çalışınca analiz tekrarlanmadan sunulur.
 - **Commit'ten önce kullanıcı onayı:** değişen dosyalar ve tam fark gösterilir; onayla, değişiklik iste (developer uygular, reviewer isteği de denetler) ya da beklet (`kgflow resume`). `--onaysiz` ile atlanır.
 - İş bitince branch push'lanır, PR bağlantısı verilir, Jira kaydına özet yorum düşer (Claude/Cursor, model ve başlatan bilgisiyle). Merge her zaman insandadır.

@@ -43,7 +43,7 @@ ${extraCfg}`,
   g("init", "-q", "-b", "main");
   // testler makinenin global git ayarına bağlı olmasın ("Başlatan" bilgisi buradan okunur)
   g("config", "user.name", "Test Kişi");
-  g("config", "user.email", "test@kolaygelsin.com");
+  g("config", "user.email", "test@sirket.com");
   g("-c", "user.name=t", "-c", "user.email=t@t", "add", "-A");
   g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "chore: init");
   return root;
@@ -190,16 +190,16 @@ test("projenin CLAUDE.md ve .cursorrules dosyaları kurallara eklenir", async ()
 
 test("kişisel CLAUDE.md ve kod hafızası (MCP) ajanlara verilir; committer'a verilmez", async () => {
   const { fakeHome } = await import("./helpers.js");
-  const { s: sum, agent } = await run({}, 'mcp: { servers: ["kgs-app-memory"] }', 0.1, {}, undefined, (root) => fakeHome(root));
+  const { s: sum, agent } = await run({}, 'mcp: { servers: ["my-app-memory"] }', 0.1, {}, undefined, (root) => fakeHome(root));
   assert.equal(sum!.status, "success");
   assert.ok(sum!.projectDocs.includes("~/.claude/CLAUDE.md"));
   assert.match(fs.readFileSync(path.join(sum!.runDir!, "run", "rules.md"), "utf8"), /Türkçe yorum yaz[\s\S]*|Proje kuralıyla çelişirse PROJE/);
   const byRole = Object.fromEntries(agent.calls.map((c) => [c.role, c.mcp]));
-  assert.deepEqual(byRole.analist, ["kgs-app-memory"]);
-  assert.deepEqual(byRole.developer, ["kgs-app-memory"]);
-  assert.deepEqual(byRole.reviewer, ["kgs-app-memory"]);
+  assert.deepEqual(byRole.analist, ["my-app-memory"]);
+  assert.deepEqual(byRole.developer, ["my-app-memory"]);
+  assert.deepEqual(byRole.reviewer, ["my-app-memory"]);
   assert.deepEqual(byRole.committer, []);
-  assert.match(agent.calls[0].prompt, /mcp__kgs-app-memory__search_similar[\s\S]*güncel olmayabilir/);
+  assert.match(agent.calls[0].prompt, /mcp__my-app-memory__search_similar[\s\S]*güncel olmayabilir/);
 });
 
 test("userClaudeMd: false ise kişisel kurallar eklenmez", async () => {

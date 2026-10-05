@@ -14,9 +14,9 @@ function repoWith(url: string) {
 }
 
 test("Bitbucket / GitHub bağlantıları", () => {
-  const bb = remoteLinks(repoWith("git@bitbucket.org:sendeotech/kgs-app.git"))!;
-  assert.equal(bb.branch("IDT-1-x"), "https://bitbucket.org/sendeotech/kgs-app/branch/IDT-1-x");
-  assert.equal(bb.pr("IDT-1-x", "main"), "https://bitbucket.org/sendeotech/kgs-app/pull-requests/new?source=IDT-1-x&dest=main");
+  const bb = remoteLinks(repoWith("git@bitbucket.org:sirket/my-app.git"))!;
+  assert.equal(bb.branch("PROJ-1-x"), "https://bitbucket.org/sirket/my-app/branch/PROJ-1-x");
+  assert.equal(bb.pr("PROJ-1-x", "main"), "https://bitbucket.org/sirket/my-app/pull-requests/new?source=PROJ-1-x&dest=main");
   const gh = remoteLinks(repoWith("https://github.com/acme/app.git"))!;
   assert.equal(gh.pr("f", "main"), "https://github.com/acme/app/compare/main...f?expand=1");
 });

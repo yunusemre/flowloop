@@ -31,12 +31,12 @@ Kullanım:
   flowloop run <görev.md | JIRA-123 | Jira bağlantısı> [seçenek]  Görevi ekiple çalıştırır (Jira anahtarı verilirse önce görevi çeker)
       --refresh                  Görev dosyası varsa bile Jira'dan yeniden çek
       --no-push                  Bu çalıştırmada push yapma (flowloop.yaml'daki push: true'yu ezer)
-      --plan-onayi               Plan yazıldıktan sonra onay ister
+      --approve-plan             Plan yazıldıktan sonra onay ister
       --agent claude|cursor      Ajan aracını seç (varsayılan: flowloop.yaml → agent: auto)
-      --onaysiz                  İş bitince değişiklikleri sormadan commit/push et
+      --skip-review              İş bitince değişiklikleri sormadan commit/push et
       --dry-run                  Ajan çalıştırmadan prompt ve yetkileri gösterir
       -v, --verbose              Ajanların çıktısını canlı gösterir
-  flowloop resume <id> [-v] [--agent claude|cursor] [--onaysiz]
+  flowloop resume <id> [-v] [--agent claude|cursor] [--skip-review]
                                    Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
   flowloop runs                      Bu repo için yapılan çalıştırmaları listeler
   flowloop setup [--force]           Hesap bilgilerini (Claude/Cursor, Jira, git, Bitbucket) adım adım kurar
@@ -94,7 +94,7 @@ function guessJiraBase(root: string): string {
   return "";
 }
 
-/** Repodaki branch isimlerinden Jira kalıbını tahmin eder (ör. IDT-1234-...) */
+/** Repodaki branch isimlerinden Jira kalıbını tahmin eder (ör. PROJ-1234-...) */
 function guessBranchPattern(root: string): string {
   const r = git(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"], root);
   const jiraLike = r.stdout.split("\n").filter((b) => /(^|\/)[A-Z][A-Z0-9]+-\d+([-_]|$)/.test(b)).length;
@@ -115,7 +115,7 @@ async function ensureJiraTask(root: string, key: string, refresh = false, baseOv
   fs.mkdirSync(path.dirname(abs), { recursive: true });
   fs.writeFileSync(abs, issueToTask(issue, new Date()));
   console.log(color.green(`✓ ${rel} oluşturuldu: ${issue.summary}`));
-  if (!issue.acceptance) console.log(color.yellow("  ! Jira'da kabul kriteri alanı yok; analist açıklamadan çıkaracak. --plan-onayi ile kontrol etmen önerilir."));
+  if (!issue.acceptance) console.log(color.yellow("  ! Jira'da kabul kriteri alanı yok; analist açıklamadan çıkaracak. --approve-plan ile kontrol etmen önerilir."));
   return rel;
 }
 
@@ -190,23 +190,34 @@ async function reviewChangesPrompt(info: ChangeReviewInfo): Promise<ChangeDecisi
   }
 }
 
+/** Eski Türkçe bayraklar (--plan-onayi, --onaysiz) uyarıyla yeni adlarına çevrilir */
+const LEGACY_FLAGS: Record<string, string> = { "--plan-onayi": "--approve-plan", "--onaysiz": "--skip-review" };
+function mapLegacyFlags(args: string[]): string[] {
+  return args.map((a) => {
+    const n = LEGACY_FLAGS[a];
+    if (!n) return a;
+    console.error(color.yellow(`! ${a} yerine artık ${n} kullanılıyor (eski bayrak bir süre daha çalışır).`));
+    return n;
+  });
+}
+
 async function cmdRun(root: string, args: string[]): Promise<number> {
   const { values, positionals } = parseArgs({
-    args,
+    args: mapLegacyFlags(args),
     allowPositionals: true,
     options: {
-      "plan-onayi": { type: "boolean", default: false },
+      "approve-plan": { type: "boolean", default: false },
       "dry-run": { type: "boolean", default: false },
       verbose: { type: "boolean", short: "v", default: false },
       refresh: { type: "boolean", default: false },
       "no-push": { type: "boolean", default: false },
       agent: { type: "string" },
-      onaysiz: { type: "boolean", default: false },
+      "skip-review": { type: "boolean", default: false },
     },
   });
   if (positionals.length !== 1) throw new FlowloopError("Kullanım: flowloop run <görev.md | JIRA-123>");
   let taskFile = positionals[0];
-  const link = parseJiraLink(taskFile); // https://sirket.atlassian.net/browse/IDT-1234 de verilebilir
+  const link = parseJiraLink(taskFile); // https://sirket.atlassian.net/browse/PROJ-1234 de verilebilir
   if (link) taskFile = await ensureJiraTask(root, link.key, values.refresh, link.base);
   else if (JIRA_KEY.test(taskFile)) taskFile = await ensureJiraTask(root, taskFile, values.refresh);
   const log = consoleLogger(values.verbose || values["dry-run"]);
@@ -216,7 +227,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     rl.close();
     return /^[eEyY]$/.test(a.trim());
   };
-  if (values["plan-onayi"] && !values["dry-run"] && !process.stdin.isTTY) throw new FlowloopError("--plan-onayi etkileşimli bir terminal ister.");
+  if (values["approve-plan"] && !values["dry-run"] && !process.stdin.isTTY) throw new FlowloopError("--approve-plan etkileşimli bir terminal ister.");
   const reviewPlan = async (_plan: string, ctx: { round: number; reused: boolean }): Promise<PlanDecision> => {
     const options = [
       "  [e] Onayla, geliştirmeye geç",
@@ -242,7 +253,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
   const s = await runTask({
     root,
     taskFile,
-    planApproval: values["plan-onayi"],
+    planApproval: values["approve-plan"],
     noPush: values["no-push"],
     dryRun: values["dry-run"],
     agent: r.runner,
@@ -250,8 +261,8 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     log,
     confirm,
     reviewPlan,
-    // etkileşimli terminalde iş bitince commit'ten önce sorulur; --onaysiz ile atlanır
-    reviewChanges: !values["dry-run"] && !values.onaysiz && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+    // etkileşimli terminalde iş bitince commit'ten önce sorulur; --skip-review ile atlanır
+    reviewChanges: !values["dry-run"] && !values["skip-review"] && process.stdin.isTTY ? reviewChangesPrompt : undefined,
   });
   if (s.status === "dry-run") return 0;
   printDone(root, s, log);
@@ -385,7 +396,7 @@ async function main(): Promise<number> {
       const key = link?.key ?? arg;
       if (!key || !JIRA_KEY.test(key)) throw new FlowloopError("Kullanım: flowloop task <JIRA-123 | Jira bağlantısı> [--refresh]");
       const rel = await ensureJiraTask(root, key, rest.includes("--refresh"), link?.base);
-      console.log(`İncele/düzenle: ${rel}  →  flowloop run ${key} --plan-onayi -v`);
+      console.log(`İncele/düzenle: ${rel}  →  flowloop run ${key} --approve-plan -v`);
       return 0;
     }
     case "run":
@@ -416,7 +427,7 @@ async function main(): Promise<number> {
       const r = pickRunner(root, agentOpt);
       const s = await resumeRun({
         root, resume: id, taskFile: "", agent: r.runner, backend: r.backend, log, noPush: rest.includes("--no-push"),
-        reviewChanges: !rest.includes("--onaysiz") && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+        reviewChanges: !mapLegacyFlags(rest).includes("--skip-review") && process.stdin.isTTY ? reviewChangesPrompt : undefined,
       });
       printDone(root, s, log);
       return 0;

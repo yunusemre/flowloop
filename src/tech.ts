@@ -234,7 +234,7 @@ roles: {}                        # ör. reviewer: { model: opus }
 isolation: true                  # kullanıcı plugin/skill/MCP'leri yüklenmez
 
 # Ajan aracı: auto = Claude erişimi varsa Claude, yoksa Cursor CLI. claude | cursor ile sabitlenebilir.
-# Tek seferlik: flowloop run IDT-1234 --agent cursor
+# Tek seferlik: flowloop run PROJ-1234 --agent cursor
 agent: auto
 cursor:
   bin: ""                         # boş = cursor-agent, yoksa agent

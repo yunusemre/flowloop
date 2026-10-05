@@ -1,6 +1,6 @@
 # Görev: <kısa başlık>
 
-Jira: IDT-0000
+Jira: PROJ-0000
 
 ## Amaç
 Ne isteniyor, neden? 2-3 cümle.

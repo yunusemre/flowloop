@@ -40,12 +40,12 @@ function fakeDeps(home: string, over: Partial<SetupDeps> = {}) {
   const deps: SetupDeps = {
     store,
     home,
-    jiraBase: "https://kolaygelsin.atlassian.net",
+    jiraBase: "https://sirket.atlassian.net",
     saveJiraBase: (b) => void (saved.jiraBase = b),
     fetchFn: async (url, init) => {
       if (url.endsWith("/rest/api/3/myself")) {
-        const ok = init.headers.Authorization === "Basic " + Buffer.from("yunus@kolaygelsin.com:dogru-token").toString("base64");
-        return { status: ok ? 200 : 401, json: async () => ({ displayName: "Yunus Emre Tatar" }) };
+        const ok = init.headers.Authorization === "Basic " + Buffer.from("ad.soyad@sirket.com:dogru-token").toString("base64");
+        return { status: ok ? 200 : 401, json: async () => ({ displayName: "Ad Soyad" }) };
       }
       if (url.includes("api.anthropic.com")) return { status: init.headers["x-api-key"] === "sk-ant-api-iyi" ? 200 : 401, json: async () => ({}) };
       return { status: 404, json: async () => ({}) };
@@ -70,19 +70,19 @@ test("setup: sıfırdan kimlik + API anahtarı + Jira; yanlış token tekrar sor
   const home = tmp();
   const { deps, store, gitCfg } = fakeDeps(home);
   const { io, out, opened, remaining } = scriptedIO([
-    "Yunus Emre Tatar", "yunus@kolaygelsin.com", true, // kimlik
+    "Ad Soyad", "ad.soyad@sirket.com", true, // kimlik
     1, "sk-ant-api-iyi", // AI: API anahtarı
-    "yunus@kolaygelsin.com", "yanlis", "dogru-token", // Jira: önce yanlış token
+    "ad.soyad@sirket.com", "yanlis", "dogru-token", // Jira: önce yanlış token
   ]);
   await runSetup(io, deps);
   assert.equal(remaining.length, 0, "tüm sorular soruldu");
-  assert.equal(gitCfg["user.email"], "yunus@kolaygelsin.com");
+  assert.equal(gitCfg["user.email"], "ad.soyad@sirket.com");
   assert.equal(store.get("ANTHROPIC_API_KEY"), "sk-ant-api-iyi");
   assert.equal(store.get("JIRA_API_TOKEN"), "dogru-token");
-  assert.equal(store.get("JIRA_EMAIL"), "yunus@kolaygelsin.com");
+  assert.equal(store.get("JIRA_EMAIL"), "ad.soyad@sirket.com");
   const text = out.join("\n");
   assert.match(text, /E-posta ya da token hatalı/);
-  assert.match(text, /Jira doğrulandı: Yunus Emre Tatar/);
+  assert.match(text, /Jira doğrulandı: Ad Soyad/);
   assert.match(text, /Bitbucket SSH/);
   assert.ok(!text.includes("dogru-token") && !text.includes("sk-ant-api-iyi"), "gizli bilgi ekrana yazılmaz");
   assert.ok(opened.some((u) => u.includes("id.atlassian.com")) && opened.some((u) => u.includes("console.anthropic.com")), "token sayfaları açıldı");
@@ -92,17 +92,17 @@ test("setup: sıfırdan kimlik + API anahtarı + Jira; yanlış token tekrar sor
 
 test("setup: her şey hazırsa soru sormaz, sadece doğrular", async () => {
   const home = tmp();
-  fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "yunus@kolaygelsin.com" } }));
+  fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "ad.soyad@sirket.com" } }));
   const { deps, store, gitCfg } = fakeDeps(home);
   gitCfg["user.name"] = "Yunus";
-  gitCfg["user.email"] = "yunus@kolaygelsin.com";
-  store.set("JIRA_EMAIL", "yunus@kolaygelsin.com");
+  gitCfg["user.email"] = "ad.soyad@sirket.com";
+  store.set("JIRA_EMAIL", "ad.soyad@sirket.com");
   store.set("JIRA_API_TOKEN", "dogru-token");
   const { io, out } = scriptedIO([]);
   await runSetup(io, deps);
   const text = out.join("\n");
-  assert.match(text, /Claude: Claude Code girişi \(yunus@kolaygelsin\.com\)/);
-  assert.match(text, /Jira: Yunus Emre Tatar/);
+  assert.match(text, /Claude: Claude Code girişi \(ad\.soyad@sirket\.com\)/);
+  assert.match(text, /Jira: Ad Soyad/);
   assert.match(text, /Hazırsın/);
 });
 
@@ -150,7 +150,7 @@ test("Jira istemcisi kayıtlı token'ı kullanır", async () => {
   delete process.env.JIRA_API_TOKEN;
   let auth = "";
   try {
-    await fetchIssue("IDT-1", "https://x.atlassian.net", {
+    await fetchIssue("PROJ-1", "https://x.atlassian.net", {
       fetchFn: async (_u, i) => {
         auth = i.headers.Authorization;
         return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
@@ -187,13 +187,13 @@ test("setup: Jira adresi yoksa sorulur, kısa yazım tam adrese çevrilir ve kay
   const home = tmp();
   const { deps, store, gitCfg, saved } = fakeDeps(home, { jiraBase: "" });
   gitCfg["user.name"] = "Y";
-  gitCfg["user.email"] = "yunus@kolaygelsin.com";
+  gitCfg["user.email"] = "ad.soyad@sirket.com";
   fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ oauthAccount: { emailAddress: "y@k.com" } }));
-  const { io, out } = scriptedIO(["", "bu bir adres değil!", "kolaygelsin", "yunus@kolaygelsin.com", "dogru-token"]);
+  const { io, out } = scriptedIO(["", "bu bir adres değil!", "sirket", "ad.soyad@sirket.com", "dogru-token"]);
   await runSetup(io, deps);
-  assert.equal(saved.jiraBase, "https://kolaygelsin.atlassian.net");
+  assert.equal(saved.jiraBase, "https://sirket.atlassian.net");
   assert.equal(store.get("JIRA_API_TOKEN"), "dogru-token");
   assert.match(out.join("\n"), /Geçerli bir adres değil/);
   assert.match(out.join("\n"), /Jira adresi zorunlu/, "boş bırakılınca ilerlemez");
-  assert.ok(!out.join("\n").includes("kolaygelsin.atlassian.net]"), "hazır adres önerilmez");
+  assert.ok(!out.join("\n").includes("sirket.atlassian.net]"), "hazır adres önerilmez");
 });
