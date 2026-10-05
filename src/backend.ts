@@ -5,6 +5,7 @@ import path from "node:path";
 import { SdkAgentRunner, type AgentRunner } from "./agent.js";
 import type { KgflowConfig } from "./config.js";
 import { CursorAgentRunner } from "./cursor.js";
+import { getCredential } from "./secrets.js";
 
 export type Backend = "claude" | "cursor";
 
@@ -52,12 +53,10 @@ export function chooseBackend(cfg: KgflowConfig, override?: string, home = os.ho
     if (!cursorBin) throw new BackendError("Cursor CLI bulunamadı. Kur: curl https://cursor.com/install -fsS | bash  (sonra: cursor-agent login)");
     return { backend: "cursor", cursorBin, reason: override ? "--agent cursor" : "kgflow.yaml: agent: cursor" };
   }
-  if (claudeAvailable(home)) return { backend: "claude", reason: "Claude erişimi bulundu" };
+  if (claudeAvailable(home) || getCredential("ANTHROPIC_API_KEY") || getCredential("CLAUDE_CODE_OAUTH_TOKEN")) return { backend: "claude", reason: "Claude erişimi bulundu" };
   if (cursorBin) return { backend: "cursor", cursorBin, reason: "Claude erişimi yok, Cursor CLI bulundu" };
   throw new BackendError(
-    "Ne Claude ne Cursor erişimi bulundu.\n" +
-      "  Claude: Claude Code'a giriş yap (claude → /login) ya da ANTHROPIC_API_KEY tanımla\n" +
-      "  Cursor: curl https://cursor.com/install -fsS | bash  ve  cursor-agent login",
+    "Ne Claude ne Cursor erişimi bulundu. Kurmak için: kgflow setup",
   );
 }
 

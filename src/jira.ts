@@ -1,3 +1,5 @@
+import { getCredential } from "./secrets.js";
+
 /**
  * Jira'dan görev çekme. Atlassian Cloud REST API v3 + API token.
  *
@@ -133,14 +135,12 @@ type FetchFn = (url: string, init: { headers: Record<string, string> }) => Promi
 
 export async function fetchIssue(key: string, baseUrl: string, opts: { email?: string; token?: string; fetchFn?: FetchFn } = {}): Promise<JiraIssue> {
   if (!JIRA_KEY.test(key)) throw new JiraError(`Geçersiz Jira anahtarı: ${key}`);
-  const email = opts.email ?? process.env.JIRA_EMAIL;
-  const token = opts.token ?? process.env.JIRA_API_TOKEN;
+  const email = opts.email ?? getCredential("JIRA_EMAIL");
+  const token = opts.token ?? getCredential("JIRA_API_TOKEN");
   if (!baseUrl) throw new JiraError("Jira adresi yok: kgflow.yaml → jira.baseUrl ya da export JIRA_BASE_URL=https://sirket.atlassian.net");
   if (!email || !token) {
     throw new JiraError(
-      "Jira kimlik bilgisi yok. Ortam değişkenlerini tanımla:\n" +
-        "  export JIRA_EMAIL=ad.soyad@sirket.com\n" +
-        "  export JIRA_API_TOKEN=...   (https://id.atlassian.com/manage-profile/security/api-tokens)",
+      "Jira kimlik bilgisi yok (JIRA_EMAIL / JIRA_API_TOKEN). Kurmak için: kgflow setup",
     );
   }
   const base = baseUrl.replace(/\/+$/, "");
@@ -241,9 +241,9 @@ export async function postComment(
   markdown: string,
   opts: { email?: string; token?: string; fetchFn?: (url: string, init: any) => Promise<any> } = {},
 ): Promise<string> {
-  const email = opts.email ?? process.env.JIRA_EMAIL;
-  const token = opts.token ?? process.env.JIRA_API_TOKEN;
-  if (!baseUrl || !email || !token) throw new JiraError("Jira yorumu için jira.baseUrl, JIRA_EMAIL ve JIRA_API_TOKEN gerekli.");
+  const email = opts.email ?? getCredential("JIRA_EMAIL");
+  const token = opts.token ?? getCredential("JIRA_API_TOKEN");
+  if (!baseUrl || !email || !token) throw new JiraError("Jira yorumu için JIRA_EMAIL ve JIRA_API_TOKEN gerekli (kgflow setup).");
   const base = baseUrl.replace(/\/+$/, "");
   const doFetch = opts.fetchFn ?? ((u: string, i: any) => fetch(u, i));
   const r = await doFetch(`${base}/rest/api/2/issue/${key}/comment`, {

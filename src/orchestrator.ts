@@ -390,7 +390,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     log.ok(`Bağımlılıklar repodan bağlandı: ${l.join(", ")}`);
   } else if (cfg.commands.install) {
     log.info(`Bağımlılık kurulumu: ${cfg.commands.install}${lockSame ? "" : " (lock dosyası base'den farklı)"}`);
-    const s = runConfigured(cfg.commands.install, wt);
+    const s = runConfigured(cfg.commands.install, wt, undefined, { fullEnv: true }); // özel npm registry token'ı gerekebilir
     if (s.code !== 0) fail(`Kurulum başarısız: ${s.stderr.trim().split("\n").slice(-5).join(" / ")}`);
     linkInto(wt, baseWt, cfg.linkDirs);
   }

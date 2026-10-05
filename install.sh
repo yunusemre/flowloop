@@ -5,6 +5,7 @@
 #   KGFLOW_NODE=latest ./install.sh   LTS yerine en güncel (Current) Node sürümünü kurar
 #   KGFLOW_FORCE_NVM=1 ./install.sh   Node kurulu olsa bile nvm ile (sudo'suz) kurar
 #   ./install.sh --check         Hiçbir şey kurmadan sadece ortamı kontrol eder
+#   KGFLOW_SKIP_SETUP=1 ...      Kurulum sonunda hesap sorularını sorma (kgflow setup ile sonra yapılır)
 #
 # Repoyu indirmeden (tek komut):
 #   curl -fsSL <install.sh adresi> | bash
@@ -94,25 +95,12 @@ else
 fi
 ok "npm $(npm -v)"
 
-# ───────────── 3) Claude ve Jira erişimi (sadece kontrol) ─────────────
-HAS_AGENT=0
-if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then ok "Claude: ANTHROPIC_API_KEY tanımlı"; HAS_AGENT=1
-elif [[ -f "$HOME/.claude/.credentials.json" ]] || grep -q '"oauthAccount"' "$HOME/.claude.json" 2>/dev/null; then ok "Claude: Claude Code girişi bulundu"; HAS_AGENT=1
-else warn "Claude girişi bulunamadı"; fi
-CURSOR_BIN="$(command -v cursor-agent 2>/dev/null || true)"
-if [[ -z "$CURSOR_BIN" ]] && command -v agent >/dev/null 2>&1 && agent --help 2>&1 | grep -qi cursor; then CURSOR_BIN="$(command -v agent)"; fi
-if [[ -n "$CURSOR_BIN" ]]; then ok "Cursor CLI: $CURSOR_BIN (Claude yoksa kullanılır)"; HAS_AGENT=1
-else warn "Cursor CLI bulunamadı"; fi
-if (( ! HAS_AGENT )); then
-  err "Ajan çalıştıracak bir araç yok. Birini kur:"
-  echo "   Claude: Claude Code'a giriş yap (claude → /login) ya da ANTHROPIC_API_KEY tanımla"
-  echo "   Cursor: curl https://cursor.com/install -fsS | bash  &&  cursor-agent login"
+# ───────────── 3) Hesaplar ─────────────
+# Ayrıntılı kontrol ve kurulum kgflow setup'ta (gizli bilgiler orada güvenli yerde saklanır)
+if (( CHECK_ONLY )); then
+  if command -v kgflow >/dev/null 2>&1; then kgflow setup --check || true; else warn "kgflow henüz kurulu değil"; fi
+  echo; ok "Kontrol bitti."; exit 0
 fi
-
-if [[ -n "${JIRA_EMAIL:-}" && -n "${JIRA_API_TOKEN:-}" ]]; then ok "Jira: JIRA_EMAIL ve JIRA_API_TOKEN tanımlı"
-else warn "Jira: JIRA_EMAIL / JIRA_API_TOKEN tanımlı değil (kgflow run IDT-xxxx için gerekli; KULLANIM.md → Jira)"; fi
-
-(( CHECK_ONLY )) && { echo; ok "Kontrol bitti."; exit 0; }
 
 # ───────────── 4) kgflow ─────────────
 step "kgflow kuruluyor"
@@ -171,6 +159,18 @@ if command -v kgflow >/dev/null 2>&1; then ok "kgflow komutu hazır: $(command -
   warn "kgflow kuruldu ama PATH'te görünmüyor. Yeni bir terminal aç ya da: export PATH=\"$(npm prefix -g)/bin:\$PATH\""; fi
 
 [[ -n "${KGFLOW_UPDATING:-}" ]] && exit 0
+
+# ───────────── 5) Hesap bilgileri ─────────────
+KGFLOW_BIN="$(npm prefix -g)/bin/kgflow"
+[[ -x "$KGFLOW_BIN" ]] || KGFLOW_BIN="$(command -v kgflow || true)"
+if [[ -n "$KGFLOW_BIN" && -z "${KGFLOW_SKIP_SETUP:-}" ]] && { : </dev/tty; } 2>/dev/null; then
+  echo
+  # curl | bash ile gelindiğinde stdin borudur; sorular terminalden okunur
+  "$KGFLOW_BIN" setup </dev/tty || warn "Hesap kurulumu tamamlanmadı; istediğin zaman: kgflow setup"
+else
+  echo
+  echo "Hesap bilgilerini (Claude/Cursor, Jira, Bitbucket) kurmak için: kgflow setup"
+fi
 echo
 echo "Güncellemek için: kgflow update"
 echo

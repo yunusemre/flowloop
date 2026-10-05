@@ -2,6 +2,7 @@ import type { Logger } from "./log.js";
 import { createMutantServer, type MutantSandbox } from "./mutant.js";
 import { evaluate, rewriteAliasPaths, type PolicyContext, type RolePermissions } from "./policy.js";
 import type { RoleName } from "./roles.js";
+import { getCredential, scrubEnv } from "./secrets.js";
 
 export interface AgentRequest {
   role: RoleName;
@@ -92,7 +93,13 @@ export class SdkAgentRunner implements AgentRunner {
         strictMcpConfig: true, // sadece bizim verdiğimiz MCP sunucuları (kullanıcının diğer MCP'leri yüklenmez)
         settingSources,
         systemPrompt: { type: "preset", preset: "claude_code", append: `${req.persona}\n${ROLE_GUARDRAIL}` },
-        env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: "kgflow/0.1.0" },
+        // gizli bilgiler (Jira token'ı vb.) ajana geçmez; sadece Claude'un kendi girişi için gerekenler
+        env: scrubEnv(process.env, {
+          ANTHROPIC_API_KEY: getCredential("ANTHROPIC_API_KEY"),
+          CLAUDE_CODE_OAUTH_TOKEN: getCredential("CLAUDE_CODE_OAUTH_TOKEN"),
+          ...(process.env.CLAUDE_CODE_USE_BEDROCK ? Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith("AWS_"))) : {}),
+          CLAUDE_AGENT_SDK_CLIENT_APP: "kgflow/0.1.0",
+        }),
         // 1. katman: HER araç çağrısı (okuma dahil) buradan geçer
         hooks: {
           PreToolUse: [

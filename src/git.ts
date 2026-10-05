@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { scrubEnv } from "./secrets.js";
 
 export interface ExecResult {
   code: number;
@@ -21,10 +22,14 @@ export function sh(cmd: string, args: string[], cwd: string, opts: { input?: str
   return { code: r.status ?? (r.error ? 127 : 1), stdout: r.stdout ?? "", stderr: (r.stderr ?? "") + (r.error ? String(r.error) : "") };
 }
 
-/** Yapılandırmadaki bir komut satırını (ör. "npm test") kabukta çalıştırır. Bu komutlar insan tarafından yazıldığı için güvenilir. */
-export function runConfigured(command: string, cwd: string, timeoutMs = 15 * 60_000): ExecResult {
-  // node --test içinden çağrıldığında iç içe test raporlamasını kapat
-  const { NODE_TEST_CONTEXT: _ignored, ...env } = process.env;
+/**
+ * Yapılandırmadaki bir komut satırını (ör. "npm test") kabukta çalıştırır. Komut insan tarafından
+ * yazıldı ama çalıştırdığı kod (testler) ajanın yazdığı kod olabilir; bu yüzden gizli bilgiler
+ * varsayılan olarak ortamdan çıkarılır. Sadece bağımlılık kurulumu tam ortamla çalışır.
+ */
+export function runConfigured(command: string, cwd: string, timeoutMs = 15 * 60_000, opts: { fullEnv?: boolean } = {}): ExecResult {
+  const env = opts.fullEnv ? { ...process.env } : scrubEnv(process.env);
+  delete env.NODE_TEST_CONTEXT; // node --test içinden çağrıldığında iç içe test raporlamasını kapat
   return sh("bash", ["-lc", command], cwd, { timeoutMs, env });
 }
 

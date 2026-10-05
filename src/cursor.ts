@@ -4,6 +4,7 @@ import path from "node:path";
 import { ROLE_GUARDRAIL, type AgentRequest, type AgentResult, type AgentRunner, type Denial } from "./agent.js";
 import type { PolicyContext, RolePermissions } from "./policy.js";
 import { PACKAGE_ROOT, type RoleName } from "./roles.js";
+import { scrubEnv } from "./secrets.js";
 
 /**
  * Cursor CLI ile ajan çalıştırıcı.
@@ -232,7 +233,7 @@ function runStreaming(
   onEvent: (ev: Record<string, unknown> & { type?: string; subtype?: string }) => void,
 ): Promise<{ code: number; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
-    const { NODE_TEST_CONTEXT: _ignored, ...env } = process.env;
+    const env = scrubEnv(process.env, { CURSOR_API_KEY: process.env.CURSOR_API_KEY });
     const child = spawn(bin, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let buf = "";
     let stderr = "";

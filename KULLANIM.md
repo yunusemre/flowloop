@@ -26,8 +26,8 @@ Bu kurallar prompt'la değil kodla zorlanır: bir rol yetkisi dışında bir şe
 | macOS ya da Linux | |
 | **Node.js 20 veya üstü** | Yoksa `install.sh` en güncel LTS sürümünü kurar |
 | git | macOS: `xcode-select --install` |
-| Claude **ya da** Cursor erişimi | Claude Code girişi (`claude` → `/login`) ya da `ANTHROPIC_API_KEY`. Claude yoksa Cursor CLI kullanılır (bkz. [Cursor ile kullanım](#claude-yerine-cursor)) |
-| Jira API token | `kgflow run IDT-xxxx` için (bkz. [Jira](#3-jira-erişimi)) |
+| Claude **ya da** Cursor erişimi | `kgflow setup` adım adım kurar (bkz. [Hesap bilgileri](#3-hesap-bilgileri-kgflow-setup)) |
+| Jira API token | `kgflow setup` sorar ve doğrular |
 | Bitbucket/GitHub push yetkisi | Branch'ler otomatik push'lanır |
 
 ## 2. Kurulum
@@ -79,8 +79,8 @@ Bu yolda kgflow doğrudan bu klasörden çalışır (`npm link`); klasördeki de
 
 1. git'i kontrol eder.
 2. Node.js'i kontrol eder. Yoksa ya da v20'den eskiyse **en güncel LTS** sürümünü [nvm](https://github.com/nvm-sh/nvm) ile kurar. nvm sudo istemez ve kendini `~/.zshrc` dosyasına ekler.
-3. Claude, Cursor ve Jira erişimini kontrol eder (sadece uyarır, bir şey kurmaz).
-4. kgflow'u kurar ve nereden kurulduğunu `~/.kgflow/install.json` dosyasına yazar. `kgflow update` bu kaydı kullanır.
+3. kgflow'u kurar ve nereden kurulduğunu `~/.kgflow/install.json` dosyasına yazar. `kgflow update` bu kaydı kullanır.
+4. `kgflow setup`'ı başlatır ve hesap bilgilerini sorar (bkz. [Hesap bilgileri](#3-hesap-bilgileri-kgflow-setup)). Atlamak için `KGFLOW_SKIP_SETUP=1`.
 
 Seçenekler (curl ile kullanırken `| bash -s -- --check` biçiminde):
 
@@ -123,19 +123,44 @@ Tek komutlu kurulum için `install.sh`'ın ekipçe erişilebilir bir adreste dur
 - **Şirket içi bir web sunucusu ya da wiki eki:** `install.sh`'ı oraya koy, adresini paylaş.
 - **Hazır paket:** `npm pack` ile üretilen `.tgz`'yi aynı yere koy; en hızlı kurulum budur.
 
-## 3. Jira erişimi
+## 3. Hesap bilgileri (`kgflow setup`)
 
-1. https://id.atlassian.com/manage-profile/security/api-tokens adresinden bir API token oluştur.
-2. `~/.zshrc` dosyasına ekle:
+Kurulumun sonunda `kgflow setup` kendiliğinden başlar ve gereken bilgileri adım adım sorar. Her adımda bilginin nereden alınacağını gösterir, gerekirse ilgili sayfayı tarayıcıda açar ve girdiğin bilgiyi doğrular. Daha sonra istediğin zaman tekrar çalıştırabilirsin:
 
-   ```bash
-   export JIRA_EMAIL="ad.soyad@kolaygelsin.com"
-   export JIRA_API_TOKEN="<token>"
-   ```
+```bash
+kgflow setup            # eksikleri sorar; hazır olanları sadece doğrular
+kgflow setup --force    # hepsini baştan sorar (ör. token yenilemek için)
+kgflow setup --check    # soru sormadan durumu gösterir (Jira ve Bitbucket'a bağlanıp dener)
+```
 
-3. Yeni bir terminal aç ya da `source ~/.zshrc` çalıştır.
+| Adım | Ne sorulur | Nereden alınır | Nasıl doğrulanır |
+|---|---|---|---|
+| 1. Kimlik | Ad soyad, iş e-postan | Zaten `git config`'te varsa sorulmaz | Commit'lerde ve Jira yorumunda "Başlatan" olarak görünür |
+| 2. AI erişimi | Üç seçenekten biri (aşağıda) | — | Claude Code girişi varsa sorulmaz |
+| 3. Jira | Atlassian e-postan ve API token | https://id.atlassian.com/manage-profile/security/api-tokens → **Create API token** | Jira'ya bağlanılır, adın gösterilir ("Jira doğrulandı: Yunus Emre Tatar") |
+| 4. Bitbucket | Bir şey sorulmaz, SSH erişimi denenir | Yoksa SSH anahtarı oluşturulur, panoya kopyalanır ve https://bitbucket.org/account/settings/ssh-keys/ açılır | `ssh -T git@bitbucket.org` |
 
-Jira adresi (`https://kolaygelsin.atlassian.net`) varsayılan olarak tanımlı; ayrıca ayarlamaya gerek yok. Token'ı asla repoya ya da `kgflow.yaml`'a yazma.
+**AI erişimi seçenekleri:**
+
+1. **Claude aboneliği (Pro/Max/Team):** Claude Code kurulu değilse kurulur. Ardından `claude setup-token` çalışır: tarayıcıda Claude hesabınla giriş yaparsın, terminalde bir token görünür, onu kgflow'a yapıştırırsın. Bu token bir yıl geçerlidir ve sadece model isteği yapabilir.
+2. **Anthropic API anahtarı:** https://console.anthropic.com/settings/keys → **Create Key**. Kullanım başına ücretlendirilir. Anahtar kaydedilmeden önce doğrulanır.
+3. **Cursor:** Cursor CLI kurulu değilse kurulur, ardından `cursor-agent login` ile giriş yapılır.
+
+Bilgisayarında Claude Code'a zaten giriş yaptıysan (`claude` → `/login`) bu adım atlanır; kgflow o girişi kullanır.
+
+### Bilgiler nerede saklanır
+
+| Sistem | Yer |
+|---|---|
+| macOS | Anahtar Zinciri (Keychain Access'te "kgflow" adıyla görünür) |
+| Linux | Sistem anahtarlığı (`secret-tool`), yoksa `~/.kgflow/credentials.json` (sadece senin okuyabileceğin izinle) |
+
+- Gizli bilgiler ekrana yazılmaz (yazarken `•` görünür), komut geçmişine ve hiçbir proje dosyasına girmez.
+- **Ajanlara asla verilmez.** Ajanlar ve onların çalıştırdığı testler, gizli görünen hiçbir ortam değişkenini (`*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_API_KEY`, `JIRA_*`, `AWS_*`…) görmez. Sadece Claude'un kendi girişi için gereken bilgi Claude sürecine verilir.
+- Ortam değişkeni tanımlıysa (ör. eskiden `~/.zshrc`'ye yazılmış `JIRA_API_TOKEN`) önce o kullanılır. `kgflow setup` ile kaydettikten sonra `~/.zshrc`'deki satırları silebilirsin.
+- Bir bilgiyi silmek için: macOS'ta Keychain Access → "kgflow" kayıtlarını sil; Linux'ta `~/.kgflow/credentials.json`.
+
+Jira adresi (`https://kolaygelsin.atlassian.net`) varsayılan olarak tanımlı; ayrıca ayarlamaya gerek yok.
 
 ## 4. Bir projeye eklemek (proje başına bir kez)
 
@@ -287,18 +312,18 @@ Reviewer'ın ve kontrollerin reddettiği konular `.kgflow/lessons.md` dosyasına
 | `Kaynağa erişilemedi` | Bitbucket SSH erişimini kontrol et: `ssh -T git@bitbucket.org` |
 | `zsh: permission denied: kgflow` | `cd ~/Desktop/kgflow && npm run build` |
 | npm yetki hatası (`EACCES`) | `KGFLOW_FORCE_NVM=1` ile kur (sudo'suz Node kurulumu) |
-| `Jira yetki hatası (401)` | `JIRA_EMAIL` / `JIRA_API_TOKEN` değerlerini kontrol et; kayda erişimin olmalı |
+| `Jira yetki hatası (401)` / `Jira kimlik bilgisi yok` | `kgflow setup --force` ile token'ı yenile; kayda erişimin olmalı |
 | `N turda onay alınamadı` | Son geri bildirim `kgflow runs` ile bulunan klasördeki `run.json` dosyasında. Kontroller düzeldiyse `kgflow resume <id> -v` |
 | `YENİ lint hatası` sürekli çıkıyor | Projede Prettier ile ESLint kuralları çakışıyor olabilir. `.eslintrc`'de `extends` listesinin sonuna `'prettier'` ekle |
 | `IDT-…-2` gibi branch açıldı | Aynı adlı eski branch'te commit var. Eskisini incele ya da sil |
-| `Ne Claude ne Cursor erişimi bulundu` | Claude Code'a giriş yap ya da Cursor CLI'yi kur ve `cursor-agent login` çalıştır |
+| `Ne Claude ne Cursor erişimi bulundu` | `kgflow setup` |
 | `Cursor hook'ları çalışmadı` | Cursor CLI eski olabilir: `cursor-agent update` |
 | Cursor'da her yazma işlemi "yol belirtilmemiş" diye reddediliyor | Cursor'un hook formatı değişmiş olabilir; `run.json` içindeki `denials` listesine bak ve kgflow'u güncelle |
 | Eski `.ekip` klasörü | İlk `kgflow` komutunda otomatik `.kgflow`'a taşınır |
 
 ## 9. Güvenlik
 
-- Token'lar sadece ortam değişkeninden okunur, hiçbir dosyaya yazılmaz.
+- Token'lar sistemin anahtar zincirinde saklanır; hiçbir proje dosyasına yazılmaz ve ajanlara geçmez.
 - `.env` gibi dosyalar hiçbir rol tarafından okunamaz (`paths.readDeny`).
 - Ajanlar senin çalışma klasörünü değiştirmez; ayrı bir kopyada çalışırlar.
 - Force push, `--no-verify` ve `--amend` engellidir. Commit hook'ları çalışır.

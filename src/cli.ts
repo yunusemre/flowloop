@@ -8,7 +8,8 @@ import { BackendError, chooseBackend, createRunner, type Backend } from "./backe
 import type { MutantContext } from "./cursor.js";
 import { MutantSandbox } from "./mutant.js";
 import { currentVersion, readInstallInfo, runUpdate, updateNotice } from "./update.js";
-import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, KGFLOW_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor } from "./config.js";
+import { printStatus, runSetup, systemDeps, terminalIO } from "./setup.js";
+import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, KGFLOW_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor , DEFAULT_JIRA_BASE } from "./config.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { mergeConfig } from "./configmerge.js";
 import { detectBaseBranch, detectProject, renderConfig } from "./tech.js";
@@ -36,6 +37,8 @@ Kullanım:
   kgflow resume <id> [-v] [--agent claude|cursor]
                                    Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
   kgflow runs                      Bu repo için yapılan çalıştırmaları listeler
+  kgflow setup [--force]           Hesap bilgilerini (Claude/Cursor, Jira, git, Bitbucket) adım adım kurar
+  kgflow setup --check             Hesapların durumunu gösterir (soru sormaz)
   kgflow update                    kgflow'u kurulduğu kaynaktan günceller
   kgflow --version                 Sürümü ve kurulum kaynağını gösterir
   kgflow clean [--all]             Merge edilmiş (ya da --all ile tüm) çalıştırmaların worktree'lerini siler
@@ -234,6 +237,13 @@ async function main(): Promise<number> {
     return 0;
   }
   if (cmd === "update") return runUpdate();
+  if (cmd === "setup") {
+    const deps = systemDeps(process.env.JIRA_BASE_URL || DEFAULT_JIRA_BASE);
+    if (rest.includes("--check")) return (await printStatus(deps, { log: console.log }, { network: true })) ? 0 : 1;
+    if (!process.stdin.isTTY) throw new KgflowError("kgflow setup etkileşimli bir terminal ister (durum için: kgflow setup --check)");
+    await runSetup(terminalIO(), deps, { force: rest.includes("--force") });
+    return 0;
+  }
   if (cmd === "run" || cmd === "check" || cmd === "init") {
     const notice = updateNotice();
     if (notice) console.log(color.yellow(`! ${notice}`));
@@ -256,6 +266,7 @@ async function main(): Promise<number> {
       } catch (e) {
         console.log(color.yellow(`  ajan     : ${(e as Error).message}`));
       }
+      await printStatus(systemDeps(jiraBaseUrl(cfg)), { log: console.log });
       const roles = loadRoles(root, cfg);
       for (const r of Object.values(roles)) {
         console.log(`\n${color.bold(r.name)} ${color.dim(`(${r.source}${r.model ? ", model: " + r.model : ""})`)}`);

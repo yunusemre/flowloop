@@ -49,6 +49,7 @@ Ajanlar Claude Agent SDK ile çalışır; Claude erişimi yoksa otomatik olarak 
 
 ```bash
 curl -fsSL <install.sh adresi> | bash     # repoyu indirmeden (ya da repo klasöründe: ./install.sh)
+kgflow setup                              # hesaplar: Claude/Cursor, Jira, git, Bitbucket (kurulum sonunda kendiliğinden açılır)
 kgflow update                             # güncelleme
 cd <proje> && kgflow init && kgflow check # proje başına bir kez
 kgflow run IDT-1234 --plan-onayi -v       # Jira görevini çalıştır
@@ -80,5 +81,5 @@ sorun / yapılan / neden bu yaklaşım / nasıl test edildi (committer yazar) + 
 ## Geliştirme
 
 ```bash
-npm test   # 79 test: politika, kabuk ayrıştırıcı, odaklı kontroller ve sahte ajanla uçtan uca akış
+npm test   # 86 test: politika, kabuk ayrıştırıcı, odaklı kontroller ve sahte ajanla uçtan uca akış
 ```

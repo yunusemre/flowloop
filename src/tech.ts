@@ -188,7 +188,7 @@ push: true                       # iş bitince branch origin'e push'lanır (forc
 jira:
   baseUrl: ${q(jiraBase)}                    # boş = https://kolaygelsin.atlassian.net (şirket varsayılanı)
   comment: true                  # iş bitince Jira'ya kısa özet yorumu (sorun / yapılan / neden + branch, PR)
-                                 # kimlik: JIRA_EMAIL ve JIRA_API_TOKEN ortam değişkenleri
+                                 # kimlik: kgflow setup (anahtar zincirinde saklanır)
 
 # {{files}} = bu işte değişen dosyalar, {{testFiles}} = bunlardan test olanlar.
 # typecheck ve lint için SADECE bu işin getirdiği YENİ hatalar sayılır.
