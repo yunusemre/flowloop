@@ -90,7 +90,7 @@ function detectNode(root: string, pkg: Record<string, any>): Detected {
   if (has("prettier")) tech.push(`Format: Prettier ${ver(deps.prettier)}`);
 
   const commitCheck = has("@commitlint/cli") ? "npx commitlint --from {{base}} --to HEAD" : "";
-  if (fs.existsSync(path.join(root, ".husky"))) notes.push("Husky hook'ları var: committer'ın commit'i sırasında çalışır. Hook dosya değiştirirse kgflow bunu yakalar ve durur.");
+  if (fs.existsSync(path.join(root, ".husky"))) notes.push("Husky hook'ları var: committer'ın commit'i sırasında çalışır. Hook dosya değiştirirse flowloop bunu yakalar ve durur.");
 
   const install = file("pnpm-lock.yaml") ? "pnpm install --frozen-lockfile" : file("yarn.lock") ? "yarn install --frozen-lockfile" : file("package-lock.json") ? "npm ci" : "npm install";
   const edit = existingDirs(root, ["src", "app", "components", "lib", "pages", "screens", "test", "tests", "__tests__", "__mocks__"]).map((d) => `${d}/**`);
@@ -178,17 +178,17 @@ const q = (s: string) => JSON.stringify(s);
 
 export function renderConfig(d: Detected, baseBranch: string, branchName: string, memoryServers: string[] = [], jiraBase = ""): string {
   const list = (xs: string[], indent = "    ") => xs.map((x) => `${indent}- ${q(x)}`).join("\n");
-  return `# kgflow yapılandırması
+  return `# flowloop yapılandırması
 version: 2
 stack: ${d.stack}
 baseBranch: ${q(baseBranch)}     # boş = otomatik (production → main → master)
-branchName: ${q(branchName)}     # {{jira}} görev dosyasından okunur; yoksa kgflow/{{slug}}-{{date}}
+branchName: ${q(branchName)}     # {{jira}} görev dosyasından okunur; yoksa flowloop/{{slug}}-{{date}}
 fetch: true                      # başlamadan önce origin'den base'i çek
 push: true                       # iş bitince branch origin'e push'lanır (force push asla yapılmaz)
 jira:
-  baseUrl: ${q(jiraBase)}                    # boş = kgflow setup'ta girilen adres (~/.kgflow/config.json) ya da JIRA_BASE_URL
+  baseUrl: ${q(jiraBase)}                    # boş = flowloop setup'ta girilen adres (~/.flowloop/config.json) ya da JIRA_BASE_URL
   comment: true                  # iş bitince Jira'ya kısa özet yorumu (sorun / yapılan / neden + branch, PR)
-                                 # kimlik: kgflow setup (anahtar zincirinde saklanır)
+                                 # kimlik: flowloop setup (anahtar zincirinde saklanır)
 
 # {{files}} = bu işte değişen dosyalar, {{testFiles}} = bunlardan test olanlar.
 # typecheck ve lint için SADECE bu işin getirdiği YENİ hatalar sayılır.
@@ -221,7 +221,7 @@ mcp:
   tools: ["search_similar", "read_graph", "get_implementation"]
   roles: ["analist", "developer", "reviewer"]
 
-rules: []                        # kgflow'e özel ek kural dosyaları (opsiyonel)
+rules: []                        # flowloop'e özel ek kural dosyaları (opsiyonel)
 
 tech: |
 ${d.tech.map((t) => `  - ${t}`).join("\n") || "  - (doldur)"}
@@ -234,7 +234,7 @@ roles: {}                        # ör. reviewer: { model: opus }
 isolation: true                  # kullanıcı plugin/skill/MCP'leri yüklenmez
 
 # Ajan aracı: auto = Claude erişimi varsa Claude, yoksa Cursor CLI. claude | cursor ile sabitlenebilir.
-# Tek seferlik: kgflow run IDT-1234 --agent cursor
+# Tek seferlik: flowloop run IDT-1234 --agent cursor
 agent: auto
 cursor:
   bin: ""                         # boş = cursor-agent, yoksa agent

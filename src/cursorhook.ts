@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * Cursor hook'u: Cursor her araç çağrısından önce bu betiği çalıştırır.
- * Girdi (stdin) Cursor'un hook JSON'u, argüman kgflow'un rol bağlamıdır.
- * Karar kgflow'un politikasıyla (evaluate) verilir. Bilinmeyen her şey reddedilir.
+ * Girdi (stdin) Cursor'un hook JSON'u, argüman flowloop'un rol bağlamıdır.
+ * Karar flowloop'un politikasıyla (evaluate) verilir. Bilinmeyen her şey reddedilir.
  *
  * Çıktı: {"permission":"allow"|"deny", ...}; red için çıkış kodu 2.
  */
@@ -13,7 +13,7 @@ import { evaluate, rewriteAliasPaths } from "./policy.js";
 
 type Json = Record<string, unknown>;
 
-/** Cursor hook olayını kgflow'un araç adına ve girdisine çevirir. */
+/** Cursor hook olayını flowloop'un araç adına ve girdisine çevirir. */
 export function mapCursorEvent(ev: Json): { tool: string; input: Json } | { deny: string } {
   const event = String(ev.hook_event_name ?? "");
   const cwd = typeof ev.cwd === "string" ? ev.cwd : Array.isArray(ev.workspace_roots) ? String(ev.workspace_roots[0] ?? "") : "";
@@ -42,7 +42,7 @@ export function mapCursorEvent(ev: Json): { tool: string; input: Json } | { deny
     case "LS":
       return { tool: name === "Grep" ? "Grep" : "Glob", input: { path: pathOf(input) } };
     default:
-      return { deny: `${name || "(adsız)"} aracı kgflow rollerinde kapalı` };
+      return { deny: `${name || "(adsız)"} aracı flowloop rollerinde kapalı` };
   }
 }
 
@@ -54,7 +54,7 @@ export function decideCursor(ctx: HookContext, ev: Json): { allow: boolean; reas
   const tool = m.tool === "Write" && !ctx.perms.tools.includes("Write") && ctx.perms.tools.includes("Edit") ? "Edit" : m.tool;
   const d = evaluate(ctx.perms, ctx.policy, tool, input);
   const shown = String(input.command ?? input.file_path ?? input.path ?? "");
-  return { allow: d.allow, reason: d.allow ? "kgflow policy" : d.reason, tool, input: shown };
+  return { allow: d.allow, reason: d.allow ? "flowloop policy" : d.reason, tool, input: shown };
 }
 
 function main(): void {
@@ -72,7 +72,7 @@ function main(): void {
     out = decideCursor(ctx, ev);
     if (ctx.callsFile) fs.appendFileSync(ctx.callsFile, `${out.allow ? "allow" : "deny"} ${out.tool}\n`);
   } catch (e) {
-    out = { allow: false, reason: `kgflow hook hatası: ${(e as Error).message}`, tool: "?", input: "" };
+    out = { allow: false, reason: `flowloop hook hatası: ${(e as Error).message}`, tool: "?", input: "" };
   }
   if (!out.allow) {
     if (ctx) {

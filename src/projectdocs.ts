@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import picomatch from "picomatch";
-import type { KgflowConfig } from "./config.js";
+import type { FlowloopConfig } from "./config.js";
 import { git } from "./git.js";
 import { PACKAGE_ROOT } from "./roles.js";
 import { userClaudeMdPath } from "./usermcp.js";
@@ -25,7 +25,7 @@ const PROCESS_NOTE = `> Bu dosyalar insanlarla etkileşimli çalışan AI araçl
 > "oturum başına en fazla N dosya", "edit başına N satır") bu otomatik akışta
 > uygulanmaz: onay mekanizması reviewer rolü ve insanın PR incelemesidir.`;
 
-export function composeRules(cfg: KgflowConfig, root: string, baseDir: string, home = os.homedir()): { text: string; docs: string[] } {
+export function composeRules(cfg: FlowloopConfig, root: string, baseDir: string, home = os.homedir()): { text: string; docs: string[] } {
   const parts: string[] = [];
   if (cfg.tech.trim()) parts.push(`# Teknoloji\n\nBu projede kullanılan teknolojiler. Çözümü bunlara göre üret; başka kütüphane ekleme.\n\n${cfg.tech.trim()}`);
   parts.push(fs.readFileSync(path.join(PACKAGE_ROOT, "templates", "rules-base.md"), "utf8").trim());

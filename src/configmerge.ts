@@ -1,7 +1,7 @@
 import { isMap, isScalar, parseDocument } from "yaml";
 
 /**
- * `kgflow init --force`: yeni şablonu (yorumlarıyla) üretir ama kullanıcının
+ * `flowloop init --force`: yeni şablonu (yorumlarıyla) üretir ama kullanıcının
  * mevcut ayarlarını korur. Teknoloji tespiti (stack, tech) her zaman yenilenir;
  * diğer tüm alanlarda eski değer (boş değilse) kazanır. Yeni eklenen alanlar
  * şablondaki varsayılanıyla gelir.

@@ -1,9 +1,9 @@
 {
-  "name": "kgflow",
-  "version": "1.0.0",
+  "name": "flowloop",
+  "version": "1.1.0",
   "description": "Rol bazlı AI geliştirme ekibi: analist → developer ⇄ reviewer → committer. Claude Agent SDK üzerinde, yetkileri kodla zorlanan iş akışı.",
   "type": "module",
-  "bin": { "kgflow": "dist/src/cli.js" },
+  "bin": { "flowloop": "dist/src/cli.js", "kgflow": "dist/src/cli.js" },
   "files": ["dist/src", "templates", "install.sh", "KULLANIM.md", "README.md", "CHANGELOG.md"],
   "scripts": {
     "build": "tsc -p . && chmod +x dist/src/cli.js",

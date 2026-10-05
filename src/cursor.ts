@@ -61,7 +61,7 @@ export class CursorAgentRunner implements AgentRunner {
     let perms = req.perms;
     let prompt = req.prompt;
     if (req.mutant) {
-      // MCP yerine kabuk komutu: run klasöründeki küçük betik, kgflow'un mutasyon kum havuzunu çağırır
+      // MCP yerine kabuk komutu: run klasöründeki küçük betik, flowloop'un mutasyon kum havuzunu çağırır
       const m = req.mutant;
       const ctxFile = path.join(ctlDir, "mutant.json");
       const ctx: MutantContext = { repoRoot: m.repoRoot, dir: m.dir, testCmd: m.testCmd(), linkDirs: m.linkDirs, timeoutSec: m.timeoutSec };

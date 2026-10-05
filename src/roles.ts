@@ -2,14 +2,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import type { KgflowConfig } from "./config.js";
-import { KGFLOW_DIR } from "./config.js";
+import type { FlowloopConfig } from "./config.js";
+import { FLOWLOOP_DIR } from "./config.js";
 import type { RolePermissions } from "./policy.js";
 
 export type RoleName = "analist" | "developer" | "reviewer" | "committer";
 export const ROLE_NAMES: RoleName[] = ["analist", "developer", "reviewer", "committer"];
 
-export const MCP_SERVER = "kgflow";
+export const MCP_SERVER = "flowloop";
 export const MUTANT_TOOLS = [`mcp__${MCP_SERVER}__mutant_reset`, `mcp__${MCP_SERVER}__mutant_test`];
 
 export interface RoleSpec {
@@ -43,17 +43,17 @@ function prefixes(xs: string[]): string[] {
   return [...new Set(xs.map(commandPrefix).filter(Boolean))];
 }
 
-export function mcpToolNames(name: RoleName, cfg: KgflowConfig): string[] {
+export function mcpToolNames(name: RoleName, cfg: FlowloopConfig): string[] {
   if (!cfg.mcp.roles.includes(name)) return [];
   return cfg.mcp.servers.flatMap((srv) => cfg.mcp.tools.map((t) => `mcp__${srv}__${t}`));
 }
 
-export function permissionsFor(name: RoleName, cfg: KgflowConfig): RolePermissions {
+export function permissionsFor(name: RoleName, cfg: FlowloopConfig): RolePermissions {
   const p = basePermissions(name, cfg);
   return { ...p, tools: [...p.tools, ...mcpToolNames(name, cfg)] };
 }
 
-function basePermissions(name: RoleName, cfg: KgflowConfig): RolePermissions {
+function basePermissions(name: RoleName, cfg: FlowloopConfig): RolePermissions {
   const c = cfg.commands;
   const extra = cfg.roles[name]?.extraBash ?? [];
   const readAll = ["**", "run:**"];
@@ -66,7 +66,7 @@ function basePermissions(name: RoleName, cfg: KgflowConfig): RolePermissions {
         tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "TodoWrite"],
         read: readAll,
         edit: [...cfg.paths.edit],
-        // tip kontrolü developer'a açık değil: tüm proje çıktısı çok büyük; kgflow her turdan sonra yeni hataları kendisi raporlar
+        // tip kontrolü developer'a açık değil: tüm proje çıktısı çok büyük; flowloop her turdan sonra yeni hataları kendisi raporlar
         bash: prefixes([c.testRelated, c.lint, c.format, "git status", "git diff", ...extra]),
       };
     case "reviewer": {
@@ -97,10 +97,10 @@ function parseRoleFile(file: string): { persona: string; body: string } {
   return { persona: String(fm.persona).trim(), body: m[2].trim() };
 }
 
-export function loadRoles(root: string, cfg: KgflowConfig): Record<RoleName, RoleSpec> {
+export function loadRoles(root: string, cfg: FlowloopConfig): Record<RoleName, RoleSpec> {
   const out = {} as Record<RoleName, RoleSpec>;
   for (const name of ROLE_NAMES) {
-    const override = path.join(root, KGFLOW_DIR, "roles", `${name}.md`);
+    const override = path.join(root, FLOWLOOP_DIR, "roles", `${name}.md`);
     const file = fs.existsSync(override) ? override : path.join(BUILTIN_ROLES_DIR, `${name}.md`);
     const { persona, body } = parseRoleFile(file);
     out[name] = {

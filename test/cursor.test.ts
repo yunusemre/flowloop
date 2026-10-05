@@ -10,7 +10,7 @@ import { DEFAULT_FORBIDDEN_FLAGS } from "../src/policy.js";
 import { silentLogger } from "../src/log.js";
 
 function sandbox() {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-cur-"));
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-cur-"));
   const wt = path.join(base, "wt");
   const run = path.join(base, "run");
   fs.mkdirSync(path.join(wt, "src"), { recursive: true });
@@ -26,7 +26,7 @@ function ctxFor(wt: string, run: string, perms = devPerms): HookContext {
   return { role: "developer", perms, policy: { repoRoot: wt, runRoot: run, readDeny: [".env"], forbiddenFlags: DEFAULT_FORBIDDEN_FLAGS }, denialsFile: path.join(run, "d.ndjson") };
 }
 
-test("cursor hook: Cursor araçları kgflow politikasına çevrilir", () => {
+test("cursor hook: Cursor araçları flowloop politikasına çevrilir", () => {
   const { wt, run } = sandbox();
   const ctx = ctxFor(wt, run);
   const ev = (o: Record<string, unknown>) => decideCursor(ctx, { cwd: wt, ...o });
@@ -150,7 +150,7 @@ test("CursorAgentRunner: Cursor bulunamazsa anlaşılır hata", async () => {
 });
 
 test("Claude erişimi tespiti", () => {
-  const home = fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-ch-"));
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-ch-"));
   assert.equal(claudeAvailable(home, {}), false);
   assert.equal(claudeAvailable(home, { ANTHROPIC_API_KEY: "x" }), true);
   fs.writeFileSync(path.join(home, ".claude.json"), JSON.stringify({ projects: {} }));

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { SdkAgentRunner, type AgentRunner } from "./agent.js";
-import type { KgflowConfig } from "./config.js";
+import type { FlowloopConfig } from "./config.js";
 import { CursorAgentRunner } from "./cursor.js";
 import { getCredential } from "./secrets.js";
 
@@ -45,22 +45,22 @@ export function findCursorBin(cfgBin = ""): string | undefined {
 
 export class BackendError extends Error {}
 
-export function chooseBackend(cfg: KgflowConfig, override?: string, home = os.homedir()): { backend: Backend; cursorBin?: string; reason: string } {
+export function chooseBackend(cfg: FlowloopConfig, override?: string, home = os.homedir()): { backend: Backend; cursorBin?: string; reason: string } {
   const want = (override || cfg.agent) as "auto" | Backend;
-  if (want === "claude") return { backend: "claude", reason: override ? "--agent claude" : "kgflow.yaml: agent: claude" };
+  if (want === "claude") return { backend: "claude", reason: override ? "--agent claude" : "flowloop.yaml: agent: claude" };
   const cursorBin = findCursorBin(cfg.cursor.bin);
   if (want === "cursor") {
     if (!cursorBin) throw new BackendError("Cursor CLI bulunamadı. Kur: curl https://cursor.com/install -fsS | bash  (sonra: cursor-agent login)");
-    return { backend: "cursor", cursorBin, reason: override ? "--agent cursor" : "kgflow.yaml: agent: cursor" };
+    return { backend: "cursor", cursorBin, reason: override ? "--agent cursor" : "flowloop.yaml: agent: cursor" };
   }
   if (claudeAvailable(home) || getCredential("ANTHROPIC_API_KEY") || getCredential("CLAUDE_CODE_OAUTH_TOKEN")) return { backend: "claude", reason: "Claude erişimi bulundu" };
   if (cursorBin) return { backend: "cursor", cursorBin, reason: "Claude erişimi yok, Cursor CLI bulundu" };
   throw new BackendError(
-    "Ne Claude ne Cursor erişimi bulundu. Kurmak için: kgflow setup",
+    "Ne Claude ne Cursor erişimi bulundu. Kurmak için: flowloop setup",
   );
 }
 
-export function createRunner(cfg: KgflowConfig, override?: string): { runner: AgentRunner; backend: Backend; reason: string } {
+export function createRunner(cfg: FlowloopConfig, override?: string): { runner: AgentRunner; backend: Backend; reason: string } {
   const c = chooseBackend(cfg, override);
   if (c.backend === "claude") return { runner: new SdkAgentRunner(), backend: "claude", reason: c.reason };
   return {

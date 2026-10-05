@@ -8,7 +8,7 @@ import { color } from "./log.js";
 import { defaultStore, getCredential, mask, type SecretStore } from "./secrets.js";
 
 /**
- * kgflow setup: kullanıcının hesap bilgilerini adım adım toplar, her birinin
+ * flowloop setup: kullanıcının hesap bilgilerini adım adım toplar, her birinin
  * nereden alınacağını gösterir, doğrular ve güvenli yerde saklar.
  *
  *   1) Kimlik (git kullanıcı adı / e-posta) → commit'lerde "Başlatan" olarak görünür
@@ -43,7 +43,7 @@ export interface SetupDeps {
   which(bin: string): string | undefined;
   /** Kayıtlı Jira adresi ("" = henüz girilmedi) */
   jiraBase: string;
-  /** Jira adresini kullanıcı ayarına yazar (~/.kgflow/config.json) */
+  /** Jira adresini kullanıcı ayarına yazar (~/.flowloop/config.json) */
   saveJiraBase(base: string): void;
 }
 
@@ -123,7 +123,7 @@ function sshBitbucket(deps: SetupDeps): { ok: boolean; user?: string } {
   return m ? { ok: true, user: m[1]?.replace(/\.$/, "") } : { ok: false };
 }
 
-/** Sadece durum (soru sormaz): kgflow setup --check ve kgflow check için */
+/** Sadece durum (soru sormaz): flowloop setup --check ve flowloop check için */
 export async function printStatus(deps: SetupDeps, io: Pick<SetupIO, "log">, opts: { network?: boolean } = {}): Promise<boolean> {
   const s = setupStatus(deps);
   io.log(head("Hesaplar"));
@@ -131,13 +131,13 @@ export async function printStatus(deps: SetupDeps, io: Pick<SetupIO, "log">, opt
   if (s.ai.claude) io.log(ok(`Claude: ${s.ai.claudeVia}${s.ai.claudeAccount ? ` (${s.ai.claudeAccount})` : ""}`));
   else io.log(warn("Claude erişimi yok"));
   io.log(s.ai.cursor ? ok(`Cursor CLI: ${s.ai.cursor}`) : color.dim("  Cursor CLI: kurulu değil (isteğe bağlı)"));
-  io.log(deps.jiraBase ? ok(`Jira adresi: ${deps.jiraBase}`) : warn("Jira adresi tanımlı değil (kgflow setup)"));
+  io.log(deps.jiraBase ? ok(`Jira adresi: ${deps.jiraBase}`) : warn("Jira adresi tanımlı değil (flowloop setup)"));
   if (s.jira.email && s.jira.token && deps.jiraBase) {
     if (opts.network) {
       const w = await jiraWhoAmI(deps, s.jira.email, s.jira.token);
-      io.log(w.ok ? ok(`Jira: ${w.name} <${s.jira.email}>`) : warn(`Jira: token geçersiz (HTTP ${w.status || "bağlantı yok"}) — kgflow setup`));
+      io.log(w.ok ? ok(`Jira: ${w.name} <${s.jira.email}>`) : warn(`Jira: token geçersiz (HTTP ${w.status || "bağlantı yok"}) — flowloop setup`));
     } else io.log(ok(`Jira: ${s.jira.email} · token ${mask(s.jira.token)}`));
-  } else io.log(warn("Jira bilgisi yok (kgflow run IDT-xxxx için gerekli)"));
+  } else io.log(warn("Jira bilgisi yok (flowloop run IDT-xxxx için gerekli)"));
   if (opts.network) {
     const ssh = sshBitbucket(deps);
     io.log(ssh.ok ? ok(`Bitbucket SSH${ssh.user ? `: ${ssh.user}` : ""}`) : warn("Bitbucket SSH erişimi yok (push için gerekli)"));
@@ -148,7 +148,7 @@ export async function printStatus(deps: SetupDeps, io: Pick<SetupIO, "log">, opt
 
 export async function runSetup(io: SetupIO, deps: SetupDeps, opts: { force?: boolean } = {}): Promise<void> {
   const s = setupStatus(deps);
-  io.log(color.bold("kgflow kurulumu — hesap bilgileri"));
+  io.log(color.bold("flowloop kurulumu — hesap bilgileri"));
   io.log(color.dim(`Gizli bilgiler ekrana yazılmaz ve ${deps.store.kind} içinde saklanır. Ajanlara asla verilmez.`));
 
   // ───────────── 1) Kimlik ─────────────
@@ -180,12 +180,12 @@ export async function runSetup(io: SetupIO, deps: SetupDeps, opts: { force?: boo
 
   // ───────────── 4) Bitbucket SSH ─────────────
   io.log(head("4/4 Bitbucket erişimi"));
-  io.log(color.dim("Branch'leri push'lamak ve kgflow'u güncellemek için."));
+  io.log(color.dim("Branch'leri push'lamak ve flowloop'u güncellemek için."));
   await setupSsh(io, deps);
 
   io.log(head("Özet"));
   const ready = await printStatus(deps, io);
-  io.log(ready ? "\n" + ok("Hazırsın. Projende: kgflow init && kgflow run IDT-1234 --plan-onayi -v") : "\n" + warn("Eksikleri tamamlamak için istediğin zaman: kgflow setup"));
+  io.log(ready ? "\n" + ok("Hazırsın. Projende: flowloop init && flowloop run IDT-1234 --plan-onayi -v") : "\n" + warn("Eksikleri tamamlamak için istediğin zaman: flowloop setup"));
 }
 
 async function setupAi(io: SetupIO, deps: SetupDeps): Promise<void> {
@@ -276,7 +276,7 @@ async function setupJira(io: SetupIO, deps: SetupDeps, defaultEmail: string | un
   const email = (await io.ask("Atlassian hesabının e-postası", curEmail ?? defaultEmail)).trim();
   if (!email) return io.log(warn("Atlandı."));
   io.log(`API token oluştur: ${LINKS.jiraToken}`);
-  io.log(color.dim('  "Create API token" → bir ad ver (ör. kgflow) → oluşan token\'ı kopyala'));
+  io.log(color.dim('  "Create API token" → bir ad ver (ör. flowloop) → oluşan token\'ı kopyala'));
   io.open(LINKS.jiraToken);
   for (let i = 0; i < 3; i++) {
     const token = (await io.secret("Jira API token'ını yapıştır")).trim();
@@ -306,7 +306,7 @@ async function setupSsh(io: SetupIO, deps: SetupDeps): Promise<void> {
   const key = path.join(deps.home, ".ssh", "id_ed25519");
   if (!fs.existsSync(key) && !fs.existsSync(path.join(deps.home, ".ssh", "id_rsa"))) {
     if (!(await io.confirm("Bir SSH anahtarı oluşturulsun mu? (ssh-keygen -t ed25519)", true))) return;
-    const email = gitConfig(deps, "user.email") ?? "kgflow";
+    const email = gitConfig(deps, "user.email") ?? "flowloop";
     deps.run("ssh-keygen", ["-t", "ed25519", "-C", email, "-f", key, "-N", ""]);
   }
   const pub = [key + ".pub", path.join(deps.home, ".ssh", "id_rsa.pub")].find((p) => fs.existsSync(p));

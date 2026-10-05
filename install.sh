@@ -1,39 +1,39 @@
 #!/usr/bin/env bash
-# kgflow kurulum betiği (macOS / Linux)
+# flowloop kurulum betiği (macOS / Linux)
 #
-#   ./install.sh                 Node yoksa ya da eskiyse en güncel LTS sürümünü kurar, sonra kgflow'u kurar
-#   KGFLOW_NODE=latest ./install.sh   LTS yerine en güncel (Current) Node sürümünü kurar
-#   KGFLOW_FORCE_NVM=1 ./install.sh   Node kurulu olsa bile nvm ile (sudo'suz) kurar
+#   ./install.sh                 Node yoksa ya da eskiyse en güncel LTS sürümünü kurar, sonra flowloop'u kurar
+#   FLOWLOOP_NODE=latest ./install.sh   LTS yerine en güncel (Current) Node sürümünü kurar
+#   FLOWLOOP_FORCE_NVM=1 ./install.sh   Node kurulu olsa bile nvm ile (sudo'suz) kurar
 #   ./install.sh --check         Hiçbir şey kurmadan sadece ortamı kontrol eder
-#   KGFLOW_SKIP_SETUP=1 ...      Kurulum sonunda hesap sorularını sorma (kgflow setup ile sonra yapılır)
+#   FLOWLOOP_SKIP_SETUP=1 ...      Kurulum sonunda hesap sorularını sorma (flowloop setup ile sonra yapılır)
 #
 # Önerilen kurulum (tek komut):
-#   git clone https://github.com/yunusemre/flowloop.git ~/.kgflow/src && ~/.kgflow/src/install.sh
+#   git clone https://github.com/yunusemre/flowloop.git ~/.flowloop/src && ~/.flowloop/src/install.sh
 # Başka bir kaynaktan:
-#   KGFLOW_SOURCE=<kaynak> bash install.sh    kaynak: git+ssh://...git, .tgz yolu ya da adresi
-# Git kaynağı ~/.kgflow/src klasörüne (gizli, sana ait) çekilip oradan kurulur; .tgz ise npm ile kurulur.
-# Güncelleme: kgflow update
+#   FLOWLOOP_SOURCE=<kaynak> bash install.sh    kaynak: git+ssh://...git, .tgz yolu ya da adresi
+# Git kaynağı ~/.flowloop/src klasörüne (gizli, sana ait) çekilip oradan kurulur; .tgz ise npm ile kurulur.
+# Güncelleme: flowloop update
 #
 # Tekrar çalıştırmak güvenlidir: kurulu olanı atlar, sadece eksikleri tamamlar.
 set -euo pipefail
 
 MIN_NODE_MAJOR=20
-NODE_CHANNEL="${KGFLOW_NODE:-lts}"   # lts | latest
+NODE_CHANNEL="${FLOWLOOP_NODE:-lts}"   # lts | latest
 CHECK_ONLY=0
 [[ "${1:-}" == "--check" ]] && CHECK_ONLY=1
 
-# kgflow reposu. Farklıysa KGFLOW_SOURCE ile değiştir.
+# flowloop reposu. Farklıysa FLOWLOOP_SOURCE ile değiştir.
 DEFAULT_SOURCE="git+https://github.com/yunusemre/flowloop.git"
 
 # Repo klasöründen mi çalışıyoruz, yoksa curl | bash ile mi geldik?
 DIR=""
 if [[ -n "${BASH_SOURCE[0]:-}" && -f "${BASH_SOURCE[0]}" ]]; then
   DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-  grep -q '"name": "kgflow"' "$DIR/package.json" 2>/dev/null || DIR=""
+  grep -q '"name": "flowloop"' "$DIR/package.json" 2>/dev/null || DIR=""
 fi
-SOURCE="${KGFLOW_SOURCE:-}"
+SOURCE="${FLOWLOOP_SOURCE:-}"
 if [[ -n "$SOURCE" ]]; then MODE=remote; elif [[ -n "$DIR" ]]; then MODE=local; else MODE=remote; SOURCE="$DEFAULT_SOURCE"; fi
-SRC_DIR="${KGFLOW_HOME:-$HOME/.kgflow}/src"
+SRC_DIR="${FLOWLOOP_HOME:-$HOME/.flowloop}/src"
 [[ "$MODE" == local ]] && cd "$DIR"
 
 if [[ -t 1 ]]; then G=$'\e[32m'; Y=$'\e[33m'; R=$'\e[31m'; N=$'\e[0m'; else G='' Y='' R='' N=''; fi
@@ -67,7 +67,7 @@ install_nvm() {
 install_node() {
   local label; [[ "$NODE_CHANNEL" == "latest" ]] && label="en güncel (Current)" || label="en güncel LTS"
   step "Node.js kuruluyor: ${label}"
-  if [[ "$NODE_CHANNEL" == "latest" && -z "${KGFLOW_FORCE_NVM:-}" ]] && ! load_nvm && command -v brew >/dev/null 2>&1; then
+  if [[ "$NODE_CHANNEL" == "latest" && -z "${FLOWLOOP_FORCE_NVM:-}" ]] && ! load_nvm && command -v brew >/dev/null 2>&1; then
     brew install node || brew upgrade node   # Homebrew'un "node" paketi Current sürümüdür
   else
     load_nvm || install_nvm                  # LTS için (ve sudo'suz kurulum için) nvm
@@ -84,10 +84,10 @@ if command -v git >/dev/null 2>&1; then ok "git $(git --version | awk '{print $3
 
 # ───────────── 2) Node.js ─────────────
 load_nvm >/dev/null 2>&1 || true
-if [[ -z "${KGFLOW_FORCE_NVM:-}" ]] && command -v node >/dev/null 2>&1 && (( $(node_major) >= MIN_NODE_MAJOR )); then
+if [[ -z "${FLOWLOOP_FORCE_NVM:-}" ]] && command -v node >/dev/null 2>&1 && (( $(node_major) >= MIN_NODE_MAJOR )); then
   ok "Node.js $(node -v) (en az v${MIN_NODE_MAJOR} gerekli)"
 else
-  if [[ -n "${KGFLOW_FORCE_NVM:-}" ]]; then warn "KGFLOW_FORCE_NVM: Node.js nvm ile kurulacak"
+  if [[ -n "${FLOWLOOP_FORCE_NVM:-}" ]]; then warn "FLOWLOOP_FORCE_NVM: Node.js nvm ile kurulacak"
   elif command -v node >/dev/null 2>&1; then warn "Node.js $(node -v) eski (en az v${MIN_NODE_MAJOR} gerekli)"; else warn "Node.js bulunamadı"; fi
   if (( CHECK_ONLY )); then err "Kurmak için: ./install.sh"; exit 1; fi
   install_node
@@ -97,17 +97,17 @@ fi
 ok "npm $(npm -v)"
 
 # ───────────── 3) Hesaplar ─────────────
-# Ayrıntılı kontrol ve kurulum kgflow setup'ta (gizli bilgiler orada güvenli yerde saklanır)
+# Ayrıntılı kontrol ve kurulum flowloop setup'ta (gizli bilgiler orada güvenli yerde saklanır)
 if (( CHECK_ONLY )); then
-  if command -v kgflow >/dev/null 2>&1; then kgflow setup --check || true; else warn "kgflow henüz kurulu değil"; fi
+  if command -v flowloop >/dev/null 2>&1; then flowloop setup --check || true; else warn "flowloop henüz kurulu değil"; fi
   echo; ok "Kontrol bitti."; exit 0
 fi
 
-# ───────────── 4) kgflow ─────────────
-step "kgflow kuruluyor"
+# ───────────── 4) flowloop ─────────────
+step "flowloop kuruluyor"
 link_fail() {
   err "Global npm klasörüne yazılamadı (yetki)."
-  echo "   Çözüm: Node'u nvm ile kur (sudo gerekmez):  KGFLOW_FORCE_NVM=1 bash install.sh"
+  echo "   Çözüm: Node'u nvm ile kur (sudo gerekmez):  FLOWLOOP_FORCE_NVM=1 bash install.sh"
   exit 1
 }
 if [[ "$MODE" == local ]]; then
@@ -124,7 +124,7 @@ elif [[ "$SOURCE" == *.tgz || "$SOURCE" == *.tar.gz ]]; then
   INSTALLED_FROM="$SOURCE"
   COMMIT=""
 else
-  # git kaynağı: ~/.kgflow/src'ye çek (sığ kopya), oradan kur
+  # git kaynağı: ~/.flowloop/src'ye çek (sığ kopya), oradan kur
   url="${SOURCE#git+}"; ref=""
   [[ "$url" == *#* ]] && { ref="${url##*#}"; url="${url%%#*}"; }
   echo "Kaynak: $url${ref:+ ($ref)}"
@@ -147,34 +147,34 @@ else
   COMMIT="$(git -C "$SRC_DIR" rev-parse HEAD)"
   MODE=managed
 fi
-# kgflow update bu kaydı kullanır
-mkdir -p "$HOME/.kgflow"
-VERSION="$(node -p "require('$(npm root -g)/kgflow/package.json').version" 2>/dev/null || echo "?")"
-cat > "$HOME/.kgflow/install.json" <<JSON
+# flowloop update bu kaydı kullanır
+mkdir -p "$HOME/.flowloop"
+VERSION="$(node -p "require('$(npm root -g)/flowloop/package.json').version" 2>/dev/null || echo "?")"
+cat > "$HOME/.flowloop/install.json" <<JSON
 { "mode": "$MODE", "source": "$INSTALLED_FROM", "dir": "${SRC_DIR}", "commit": "$COMMIT", "version": "$VERSION", "installedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)" }
 JSON
-ok "kgflow $VERSION kuruldu ($MODE)"
+ok "flowloop $VERSION kuruldu ($MODE)"
 
 hash -r
-if command -v kgflow >/dev/null 2>&1; then ok "kgflow komutu hazır: $(command -v kgflow)"; else
-  warn "kgflow kuruldu ama PATH'te görünmüyor. Yeni bir terminal aç ya da: export PATH=\"$(npm prefix -g)/bin:\$PATH\""; fi
+if command -v flowloop >/dev/null 2>&1; then ok "flowloop komutu hazır: $(command -v flowloop)"; else
+  warn "flowloop kuruldu ama PATH'te görünmüyor. Yeni bir terminal aç ya da: export PATH=\"$(npm prefix -g)/bin:\$PATH\""; fi
 
-[[ -n "${KGFLOW_UPDATING:-}" ]] && exit 0
+[[ -n "${FLOWLOOP_UPDATING:-}" ]] && exit 0
 
 # ───────────── 5) Hesap bilgileri ─────────────
-KGFLOW_BIN="$(npm prefix -g)/bin/kgflow"
-[[ -x "$KGFLOW_BIN" ]] || KGFLOW_BIN="$(command -v kgflow || true)"
-if [[ -n "$KGFLOW_BIN" && -z "${KGFLOW_SKIP_SETUP:-}" ]] && { : </dev/tty; } 2>/dev/null; then
+FLOWLOOP_BIN="$(npm prefix -g)/bin/flowloop"
+[[ -x "$FLOWLOOP_BIN" ]] || FLOWLOOP_BIN="$(command -v flowloop || true)"
+if [[ -n "$FLOWLOOP_BIN" && -z "${FLOWLOOP_SKIP_SETUP:-}" ]] && { : </dev/tty; } 2>/dev/null; then
   echo
   # curl | bash ile gelindiğinde stdin borudur; sorular terminalden okunur
-  "$KGFLOW_BIN" setup </dev/tty || warn "Hesap kurulumu tamamlanmadı; istediğin zaman: kgflow setup"
+  "$FLOWLOOP_BIN" setup </dev/tty || warn "Hesap kurulumu tamamlanmadı; istediğin zaman: flowloop setup"
 else
   echo
-  echo "Hesap bilgilerini (Claude/Cursor, Jira, Bitbucket) kurmak için: kgflow setup"
+  echo "Hesap bilgilerini (Claude/Cursor, Jira, Bitbucket) kurmak için: flowloop setup"
 fi
 echo
-echo "Güncellemek için: kgflow update"
+echo "Güncellemek için: flowloop update"
 echo
 echo "Sıradaki adım (projende):"
-echo "  cd <proje> && kgflow init && kgflow check"
-echo "  kgflow run IDT-1234 --plan-onayi -v"
+echo "  cd <proje> && flowloop init && flowloop check"
+echo "  flowloop run IDT-1234 --plan-onayi -v"

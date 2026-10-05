@@ -7,12 +7,12 @@ import type { AgentRequest, AgentResult, AgentRunner } from "../src/agent.js";
 import { gitOk, sh } from "../src/git.js";
 import { silentLogger } from "../src/log.js";
 import { MutantSandbox } from "../src/mutant.js";
-import { KgflowError, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision } from "../src/orchestrator.js";
+import { FlowloopError, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision } from "../src/orchestrator.js";
 import type { RoleName } from "../src/roles.js";
 
 // ───────────── küçük örnek repo ─────────────
 function makeRepo(extraCfg = "", opts: { commands?: string; files?: Record<string, string> } = {}): string {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-e2e-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-e2e-"));
   const w = (rel: string, body: string) => {
     fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
     fs.writeFileSync(path.join(root, rel), body);
@@ -22,10 +22,10 @@ function makeRepo(extraCfg = "", opts: { commands?: string; files?: Record<strin
   w("test/fiyat.test.js", 'import { test } from "node:test";\nimport assert from "node:assert/strict";\nimport { fiyat } from "../src/fiyat.js";\ntest("3 kg", () => assert.equal(fiyat(3), 90));\n');
   w("README.md", "# demo\n");
   w(".gitignore", "node_modules/\n");
-  w(".kgflow/tasks/ekspres.md", "# Görev: Ekspres teslimat\n\nJira: KG-42\n\n1. ekspres +50 TL\n");
+  w(".flowloop/tasks/ekspres.md", "# Görev: Ekspres teslimat\n\nJira: KG-42\n\n1. ekspres +50 TL\n");
   for (const [k, v] of Object.entries(opts.files ?? {})) w(k, v);
   w(
-    ".kgflow/kgflow.yaml",
+    ".flowloop/flowloop.yaml",
     `version: 2
 stack: node
 baseBranch: ""
@@ -88,14 +88,14 @@ const good: Partial<Record<RoleName, Script>> = {
 async function run(scripts: Partial<Record<RoleName, Script>>, extraCfg = "", cost = 0.1, repoOpts: Parameters<typeof makeRepo>[1] = {}, prep?: (root: string) => void, home?: (root: string) => string) {
   const root = makeRepo(extraCfg, repoOpts);
   prep?.(root);
-  const homeDir = home ? home(root) : fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-emptyhome-"));
+  const homeDir = home ? home(root) : fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-emptyhome-"));
   const agent = new FakeAgent({ ...good, ...scripts }, cost);
   const log = silentLogger();
   try {
-    const s = await runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent, log, noFetch: true, home: homeDir, now: () => new Date(2026, 9, 3, 12, 0, 0) });
+    const s = await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent, log, noFetch: true, home: homeDir, now: () => new Date(2026, 9, 3, 12, 0, 0) });
     return { root, agent, log, s, err: undefined as string | undefined };
   } catch (e) {
-    if (!(e instanceof KgflowError)) throw e;
+    if (!(e instanceof FlowloopError)) throw e;
     return { root, agent, log, s: undefined, err: e.message };
   }
 }
@@ -119,7 +119,7 @@ test("reviewer FAIL → geri bildirim developer'a gider, ders kaydedilir, 2. tur
   assert.equal(s!.iterations, 2);
   const dev2 = agent.calls.filter((c) => c.role === "developer")[1];
   assert.match(dev2.prompt, /REDDEDİLDİ[\s\S]*AK-1 testi yok/);
-  assert.match(fs.readFileSync(path.join(root, ".kgflow/lessons.md"), "utf8"), /AK-1 testi yok/);
+  assert.match(fs.readFileSync(path.join(root, ".flowloop/lessons.md"), "utf8"), /AK-1 testi yok/);
 });
 
 test("reviewer hiç onay vermezse durur", async () => {
@@ -255,7 +255,7 @@ test("linkDirs: node_modules bağlanır, değişiklik sayılmaz", async () => {
 
 test("mutant kum havuzu: kopyayı bozmak gerçek kodu etkilemez, testler kırılır", () => {
   const root = makeRepo();
-  const dir = path.join(os.tmpdir(), `kgflow-mut-${Date.now()}`);
+  const dir = path.join(os.tmpdir(), `flowloop-mut-${Date.now()}`);
   const m = new MutantSandbox(root, dir, () => "npm test --silent", [], 60);
   m.reset();
   assert.equal(m.test().code, 0);
@@ -270,7 +270,7 @@ test("dry-run hiçbir şey çalıştırmaz", async () => {
   const root = makeRepo();
   const agent = new FakeAgent(good);
   const log = silentLogger();
-  const s = await runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent, log, dryRun: true, noFetch: true });
+  const s = await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent, log, dryRun: true, noFetch: true });
   assert.equal(s.status, "dry-run");
   assert.equal(agent.calls.length, 0);
   assert.ok(log.lines.some((l) => l.includes("reviewer")));
@@ -288,7 +288,7 @@ test("önceki başarısız çalıştırmadan kalan boş branch temizlenir, -2 ek
   const first = await run({ reviewer: () => "VERDICT: FAIL" });
   assert.ok(first.err);
   const agent = new FakeAgent(good);
-  const s2 = await runTask({ root: first.root, taskFile: ".kgflow/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, now: () => new Date(2026, 9, 3, 13, 0, 0) });
+  const s2 = await runTask({ root: first.root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, now: () => new Date(2026, 9, 3, 13, 0, 0) });
   assert.equal(s2.branch, "KG-42-ekspres-teslimat");
 });
 
@@ -298,7 +298,7 @@ test("push + Jira yorumu: branch origin'e gider, yoruma özet + teslim bilgisi e
     posted = { url, body: JSON.parse(init.body) };
     return { ok: true, status: 201, json: async () => ({ id: "777" }), text: async () => "" };
   };
-  const bare = fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-origin-"));
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-origin-"));
   gitOk(["init", "-q", "--bare"], bare);
   const root = makeRepo('push: true\njira: { baseUrl: "https://kg.atlassian.net", comment: true }');
   gitOk(["remote", "add", "origin", bare], root);
@@ -310,7 +310,7 @@ test("push + Jira yorumu: branch origin'e gider, yoruma özet + teslim bilgisi e
       fs.writeFileSync(path.join(req.runRoot, "summary.md"), "## Sorun\nPin rengi yanlış.\n## Yapılan\n- Durum önceliği eklendi.");
     },
   });
-  const s = await runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, jira: { fetchFn, email: "a", token: "t" } });
+  const s = await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, jira: { fetchFn, email: "a", token: "t" } });
   assert.equal(s.pushed, true);
   assert.equal(gitOk(["rev-parse", s.branch!], bare), gitOk(["rev-parse", s.branch!], root));
   assert.equal(posted!.url, "https://kg.atlassian.net/rest/api/2/issue/KG-42/comment");
@@ -320,7 +320,7 @@ test("push + Jira yorumu: branch origin'e gider, yoruma özet + teslim bilgisi e
   assert.match(body, /KG-42-ekspres-teslimat/);
   assert.match(body, /feat\(fiyat\): ekspres teslimat/);
   assert.match(body, /insan incelemesi/);
-  assert.match(body, /Claude ile hazırlandı\* — kgflow \d+\.\d+\.\d+ \(Claude Agent SDK 0\.3\.\d+\)/);
+  assert.match(body, /Claude ile hazırlandı\* — flowloop \d+\.\d+\.\d+ \(Claude Agent SDK 0\.3\.\d+\)/);
   assert.match(body, /Modeller:\* analist: claude-sonnet-4-test · developer: claude-sonnet-4-test · reviewer: claude-opus-4-test · committer: claude-sonnet-4-test/);
   assert.match(body, /Başlatan:\*/);
   assert.equal(s.jiraCommentUrl, "https://kg.atlassian.net/browse/KG-42?focusedCommentId=777");
@@ -330,7 +330,7 @@ test("push ya da Jira başarısız olursa iş kaybolmaz, uyarı verilir", async 
   const fetchFn = async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => "boom" });
   const root = makeRepo('push: true\njira: { baseUrl: "https://kg.atlassian.net" }');
   gitOk(["remote", "add", "origin", "/yok/olan/remote"], root);
-  const s = await runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent: new FakeAgent(good), log: silentLogger(), noFetch: true, jira: { fetchFn, email: "a", token: "t" } });
+  const s = await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent: new FakeAgent(good), log: silentLogger(), noFetch: true, jira: { fetchFn, email: "a", token: "t" } });
   assert.equal(s.status, "success");
   assert.equal(s.pushed, undefined);
   assert.ok(s.warnings.some((w) => /Push başarısız/.test(w)));
@@ -411,7 +411,7 @@ test("plan onayı: yorum analiste gider, plan güncellenir, onaydan sonra geliş
   const seen: string[] = [];
   const decisions: PlanDecision[] = [{ action: "revise", comment: "indirim de olsun" }, { action: "approve" }];
   const s = await runTask({
-    root, taskFile: ".kgflow/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, planApproval: true,
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, planApproval: true,
     reviewPlan: async (plan) => (seen.push(plan), decisions.shift()!),
   });
   assert.equal(s.status, "success");
@@ -425,13 +425,13 @@ test("plan iptal edilirse saklanır; görev yeniden çalışınca analiz tekrarl
   const root = makeRepo("");
   const a1 = new FakeAgent({ ...good, analist: (req) => void fs.writeFileSync(planFile(req), "# Önceki plan\nAK-1: ekspres\n") });
   await assert.rejects(
-    runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, planApproval: true, reviewPlan: async () => ({ action: "cancel" }), now: () => new Date(2026, 9, 3, 12, 0, 0) }),
+    runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, planApproval: true, reviewPlan: async () => ({ action: "cancel" }), now: () => new Date(2026, 9, 3, 12, 0, 0) }),
     /Plan onaylanmadı. Plan saklandı/,
   );
   const a2 = new FakeAgent(good);
   let ctxSeen: { reused: boolean } | undefined;
   const s = await runTask({
-    root, taskFile: ".kgflow/tasks/ekspres.md", agent: a2, log: silentLogger(), noFetch: true, planApproval: true,
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent: a2, log: silentLogger(), noFetch: true, planApproval: true,
     reviewPlan: async (plan, ctx) => {
       ctxSeen = ctx;
       assert.match(plan, /Önceki plan/);
@@ -448,12 +448,12 @@ test("plan iptal edilirse saklanır; görev yeniden çalışınca analiz tekrarl
 test("önceki plan istenmezse baştan analiz edilir", async () => {
   const root = makeRepo("");
   const a1 = new FakeAgent({ ...good, analist: (req) => void fs.writeFileSync(planFile(req), "# Eski\n") });
-  await assert.rejects(runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, planApproval: true, reviewPlan: async () => ({ action: "cancel" }), now: () => new Date(2026, 9, 3, 12, 0, 0) }));
+  await assert.rejects(runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, planApproval: true, reviewPlan: async () => ({ action: "cancel" }), now: () => new Date(2026, 9, 3, 12, 0, 0) }));
   const a2 = new FakeAgent({ ...good, analist: (req) => void fs.writeFileSync(planFile(req), "# Yeni\nAK-1\n") });
   const decisions: PlanDecision[] = [{ action: "restart" }, { action: "approve" }];
   const plans: string[] = [];
   const s = await runTask({
-    root, taskFile: ".kgflow/tasks/ekspres.md", agent: a2, log: silentLogger(), noFetch: true, planApproval: true,
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent: a2, log: silentLogger(), noFetch: true, planApproval: true,
     reviewPlan: async (p) => (plans.push(p), decisions.shift()!), now: () => new Date(2026, 9, 3, 13, 0, 0),
   });
   assert.equal(s.status, "success");
@@ -482,7 +482,7 @@ test("iş bitince kullanıcı değişiklik ister: yorum developer'a ve reviewer'
   const infos: (ChangeReviewInfo & { fullDiff: string })[] = [];
   const decisions: ChangeDecision[] = [{ action: "revise", comment: "ekspres ücreti 60 olsun" }, { action: "approve" }];
   const s = await runTask({
-    root, taskFile: ".kgflow/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true,
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true,
     reviewChanges: async (info) => (infos.push({ ...info, fullDiff: info.diff() }), decisions.shift()!),
   });
   assert.equal(s.status, "success");
@@ -500,13 +500,13 @@ test("kullanıcı onaylamazsa commit yapılmaz; resume ile onaylanıp tamamlanı
   const a1 = new FakeAgent(good);
   let err = "";
   try {
-    await runTask({ root, taskFile: ".kgflow/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, reviewChanges: async () => ({ action: "cancel" }) });
+    await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, reviewChanges: async () => ({ action: "cancel" }) });
   } catch (e) {
     err = (e as Error).message;
   }
   assert.match(err, /Değişiklikler onaylanmadı; commit yapılmadı/);
   assert.ok(!a1.calls.some((c) => c.role === "committer"), "committer çalışmadı");
-  const id = /kgflow resume (\S+)/.exec(err)![1];
+  const id = /flowloop resume (\S+)/.exec(err)![1];
   const a2 = new FakeAgent(good);
   let asked = 0;
   const s = await resumeRun({ root, resume: id, taskFile: "", agent: a2, log: silentLogger(), noPush: true, reviewChanges: async (i) => (asked++, assert.equal(i.canRevise, false), { action: "approve" }) });

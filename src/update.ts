@@ -5,14 +5,14 @@ import path from "node:path";
 import { PACKAGE_ROOT } from "./roles.js";
 
 /**
- * Kurulum kaydı (~/.kgflow/install.json, install.sh yazar) ve güncelleme.
+ * Kurulum kaydı (~/.flowloop/install.json, install.sh yazar) ve güncelleme.
  *
  *   mode=local   → repo klasöründen kuruldu (npm link): güncelleme = git pull + install.sh
- *   mode=managed → git kaynağı ~/.kgflow/src'ye çekildi: güncelleme = aynı kaynaktan yeniden çek ve kur
+ *   mode=managed → git kaynağı ~/.flowloop/src'ye çekildi: güncelleme = aynı kaynaktan yeniden çek ve kur
  *   mode=remote  → .tgz paketinden kuruldu: güncelleme = aynı adresten yeniden kur
  */
 export interface InstallInfo {
-  /** local: repo klasöründen · managed: git kaynağından ~/.kgflow/src'ye çekildi · remote: .tgz */
+  /** local: repo klasöründen · managed: git kaynağından ~/.flowloop/src'ye çekildi · remote: .tgz */
   mode: "local" | "managed" | "remote";
   source: string;
   dir?: string;
@@ -24,16 +24,20 @@ export interface InstallInfo {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export function installFile(home = os.homedir()): string {
-  return path.join(home, ".kgflow", "install.json");
+  return path.join(home, ".flowloop", "install.json");
 }
 
 export function readInstallInfo(home = os.homedir()): InstallInfo | undefined {
-  try {
-    const j = JSON.parse(fs.readFileSync(installFile(home), "utf8")) as InstallInfo;
-    return j.source ? j : undefined;
-  } catch {
-    return undefined;
+  // eski adla (kgflow) yapılmış kurulumun kaydı da okunur
+  for (const f of [installFile(home), path.join(home, ".kgflow", "install.json")]) {
+    try {
+      const j = JSON.parse(fs.readFileSync(f, "utf8")) as InstallInfo;
+      if (j.source) return j;
+    } catch {
+      /* sıradaki */
+    }
   }
+  return undefined;
 }
 
 export function currentVersion(): string {
@@ -85,13 +89,13 @@ export function installedCommit(info: InstallInfo): string | undefined {
 
 /**
  * Günde en fazla bir kez yeni sürüm olup olmadığına bakar; varsa kullanıcıya gösterilecek mesajı döner.
- * KGFLOW_NO_UPDATE_CHECK=1 ile kapatılır. Hata/ağ yokluğu sessizce yok sayılır.
+ * FLOWLOOP_NO_UPDATE_CHECK=1 ile kapatılır. Hata/ağ yokluğu sessizce yok sayılır.
  */
 export function updateNotice(home = os.homedir(), now = Date.now(), check: (i: InstallInfo) => string | undefined = latestCommit): string | undefined {
-  if (process.env.KGFLOW_NO_UPDATE_CHECK) return undefined;
+  if (process.env.FLOWLOOP_NO_UPDATE_CHECK) return undefined;
   const info = readInstallInfo(home);
   if (!info) return undefined;
-  const cacheFile = path.join(home, ".kgflow", "update-check.json");
+  const cacheFile = path.join(home, ".flowloop", "update-check.json");
   let cache: { checkedAt?: number; latest?: string } = {};
   try {
     cache = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
@@ -111,7 +115,7 @@ export function updateNotice(home = os.homedir(), now = Date.now(), check: (i: I
   const mine = installedCommit(info);
   if (!latest || !mine || latest === mine) return undefined;
   if (info.mode === "local" && git(["merge-base", "--is-ancestor", latest, mine], info.source).ok) return undefined; // yerelde daha yeni
-  return `kgflow'un yeni bir sürümü var (${latest.slice(0, 7)}). Güncellemek için: kgflow update`;
+  return `flowloop'un yeni bir sürümü var (${latest.slice(0, 7)}). Güncellemek için: flowloop update`;
 }
 
 /** Güncellemeyi yapar; kullanıcıya akışı doğrudan gösterir. Dönüş: çıkış kodu. */
@@ -119,13 +123,13 @@ export function runUpdate(home = os.homedir(), log: (s: string) => void = consol
   const info = readInstallInfo(home);
   const before = currentVersion();
   if (!info) {
-    log("Kurulum kaydı bulunamadı (~/.kgflow/install.json). kgflow'u install.sh ile bir kez yeniden kur:");
-    log("  git clone https://github.com/yunusemre/flowloop.git ~/.kgflow/src && ~/.kgflow/src/install.sh");
-    log("  (kgflow'u kendi klasörüne clone'ladıysan, o klasörde: ./install.sh)");
+    log("Kurulum kaydı bulunamadı (~/.flowloop/install.json). flowloop'u install.sh ile bir kez yeniden kur:");
+    log("  git clone https://github.com/yunusemre/flowloop.git ~/.flowloop/src && ~/.flowloop/src/install.sh");
+    log("  (flowloop'u kendi klasörüne clone'ladıysan, o klasörde: ./install.sh)");
     return 1;
   }
   const c0 = installedCommit(info)?.slice(0, 7);
-  const env = { ...process.env, KGFLOW_UPDATING: "1" };
+  const env = { ...process.env, FLOWLOOP_UPDATING: "1" };
   let r;
   if (info.mode === "local") {
     log(`Kaynak: ${info.source} (yerel repo) → git pull`);
@@ -139,14 +143,14 @@ export function runUpdate(home = os.homedir(), log: (s: string) => void = consol
     log(`Kaynak: ${info.source}`);
     // install.sh'ı "curl | bash" gibi stdin'den çalıştır: kurulum sırasında dosyanın kendisi değişse de etkilenmez
     const script = fs.readFileSync(path.join(PACKAGE_ROOT, "install.sh"), "utf8");
-    r = spawnSync("bash", ["-s"], { input: script, stdio: ["pipe", "inherit", "inherit"], env: { ...env, KGFLOW_SOURCE: info.source } });
+    r = spawnSync("bash", ["-s"], { input: script, stdio: ["pipe", "inherit", "inherit"], env: { ...env, FLOWLOOP_SOURCE: info.source } });
   }
   if (r.status !== 0) return r.status ?? 1;
-  fs.rmSync(path.join(home, ".kgflow", "update-check.json"), { force: true });
+  fs.rmSync(path.join(home, ".flowloop", "update-check.json"), { force: true });
   const now = readInstallInfo(home);
   const after = now?.version ?? "?";
   const c1 = now ? installedCommit(now)?.slice(0, 7) : undefined;
   const changed = after !== before || (c0 && c1 && c0 !== c1);
-  log(changed ? `Güncellendi: kgflow ${before}${c0 ? ` (${c0})` : ""} → ${after}${c1 ? ` (${c1})` : ""}` : `Zaten güncel: kgflow ${after}${c1 ? ` (${c1})` : ""}`);
+  log(changed ? `Güncellendi: flowloop ${before}${c0 ? ` (${c0})` : ""} → ${after}${c1 ? ` (${c1})` : ""}` : `Zaten güncel: flowloop ${after}${c1 ? ` (${c1})` : ""}`);
   return 0;
 }

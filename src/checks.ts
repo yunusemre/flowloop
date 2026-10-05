@@ -1,4 +1,4 @@
-import type { KgflowConfig } from "./config.js";
+import type { FlowloopConfig } from "./config.js";
 import { fillFiles, runConfigured, type ExecResult } from "./git.js";
 
 /**
@@ -67,7 +67,7 @@ export class ScopedChecks {
   private typecheckBase?: string[];
 
   constructor(
-    private cfg: KgflowConfig,
+    private cfg: FlowloopConfig,
     /** developer'ın çalıştığı kopya */
     private wt: string,
     /** dokunulmamış base kopya */

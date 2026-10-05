@@ -10,7 +10,7 @@ import type { MutantContext } from "./cursor.js";
 import { MutantSandbox } from "./mutant.js";
 import { currentVersion, readInstallInfo, runUpdate, updateNotice } from "./update.js";
 import { printStatus, runSetup, systemDeps, terminalIO } from "./setup.js";
-import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, KGFLOW_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor , globalJiraBase, parseJiraLink } from "./config.js";
+import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, FLOWLOOP_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor , globalJiraBase, parseJiraLink } from "./config.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { mergeConfig } from "./configmerge.js";
 import { detectBaseBranch, detectProject, renderConfig } from "./tech.js";
@@ -18,59 +18,59 @@ import { detectMemoryServers, expandServerNames, loadMcpServers, userClaudeMdPat
 
 import { git } from "./git.js";
 import { color, consoleLogger } from "./log.js";
-import { KgflowError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type RunSummary } from "./orchestrator.js";
+import { FlowloopError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type RunSummary } from "./orchestrator.js";
 import { PACKAGE_ROOT, loadRoles } from "./roles.js";
 import { JIRA_KEY, JiraError, fetchIssue, issueToTask } from "./jira.js";
 
-const HELP = `kgflow — rol bazlı AI geliştirme ekibi (analist → developer ⇄ reviewer → committer)
+const HELP = `flowloop — rol bazlı AI geliştirme ekibi (analist → developer ⇄ reviewer → committer)
 
 Kullanım:
-  kgflow init [--force]            Projenin teknolojilerini algılar, .kgflow/kgflow.yaml oluşturur
-  kgflow check                     Yapılandırmayı doğrular, rollerin yetkilerini gösterir
-  kgflow task <JIRA-123>           Jira kaydından .kgflow/tasks/JIRA-123.md görev dosyasını üretir
-  kgflow run <görev.md | JIRA-123 | Jira bağlantısı> [seçenek]  Görevi ekiple çalıştırır (Jira anahtarı verilirse önce görevi çeker)
+  flowloop init [--force]            Projenin teknolojilerini algılar, .flowloop/flowloop.yaml oluşturur
+  flowloop check                     Yapılandırmayı doğrular, rollerin yetkilerini gösterir
+  flowloop task <JIRA-123>           Jira kaydından .flowloop/tasks/JIRA-123.md görev dosyasını üretir
+  flowloop run <görev.md | JIRA-123 | Jira bağlantısı> [seçenek]  Görevi ekiple çalıştırır (Jira anahtarı verilirse önce görevi çeker)
       --refresh                  Görev dosyası varsa bile Jira'dan yeniden çek
-      --no-push                  Bu çalıştırmada push yapma (kgflow.yaml'daki push: true'yu ezer)
+      --no-push                  Bu çalıştırmada push yapma (flowloop.yaml'daki push: true'yu ezer)
       --plan-onayi               Plan yazıldıktan sonra onay ister
-      --agent claude|cursor      Ajan aracını seç (varsayılan: kgflow.yaml → agent: auto)
+      --agent claude|cursor      Ajan aracını seç (varsayılan: flowloop.yaml → agent: auto)
       --onaysiz                  İş bitince değişiklikleri sormadan commit/push et
       --dry-run                  Ajan çalıştırmadan prompt ve yetkileri gösterir
       -v, --verbose              Ajanların çıktısını canlı gösterir
-  kgflow resume <id> [-v] [--agent claude|cursor] [--onaysiz]
+  flowloop resume <id> [-v] [--agent claude|cursor] [--onaysiz]
                                    Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
-  kgflow runs                      Bu repo için yapılan çalıştırmaları listeler
-  kgflow setup [--force]           Hesap bilgilerini (Claude/Cursor, Jira, git, Bitbucket) adım adım kurar
-  kgflow setup --check             Hesapların durumunu gösterir (soru sormaz)
-  kgflow update                    kgflow'u kurulduğu kaynaktan günceller
-  kgflow --version                 Sürümü ve kurulum kaynağını gösterir
-  kgflow clean [--all]             Merge edilmiş (ya da --all ile tüm) çalıştırmaların worktree'lerini siler
+  flowloop runs                      Bu repo için yapılan çalıştırmaları listeler
+  flowloop setup [--force]           Hesap bilgilerini (Claude/Cursor, Jira, git, Bitbucket) adım adım kurar
+  flowloop setup --check             Hesapların durumunu gösterir (soru sormaz)
+  flowloop update                    flowloop'u kurulduğu kaynaktan günceller
+  flowloop --version                 Sürümü ve kurulum kaynağını gösterir
+  flowloop clean [--all]             Merge edilmiş (ya da --all ile tüm) çalıştırmaların worktree'lerini siler
 `;
 
 function repoRoot(): string {
   const r = git(["rev-parse", "--show-toplevel"], process.cwd());
-  if (r.code !== 0) throw new KgflowError("Bir git deposunun içinde çalıştır.");
+  if (r.code !== 0) throw new FlowloopError("Bir git deposunun içinde çalıştır.");
   return r.stdout.trim();
 }
 
 function cmdInit(root: string, force: boolean): void {
   const cfgPath = path.join(root, CONFIG_FILE);
-  if (fs.existsSync(cfgPath) && !force) throw new KgflowError(`${CONFIG_FILE} zaten var. Yeniden oluşturmak için: kgflow init --force`);
+  if (fs.existsSync(cfgPath) && !force) throw new FlowloopError(`${CONFIG_FILE} zaten var. Yeniden oluşturmak için: flowloop init --force`);
   const d = detectProject(root);
   const base = detectBaseBranch(root);
   const branchName = guessBranchPattern(root);
-  fs.mkdirSync(path.join(root, KGFLOW_DIR, "tasks"), { recursive: true });
+  fs.mkdirSync(path.join(root, FLOWLOOP_DIR, "tasks"), { recursive: true });
   const memory = detectMemoryServers(root);
   let text = renderConfig(d, base, branchName, memory, guessJiraBase(root) || globalJiraBase());
   let kept: string[] = [];
   if (fs.existsSync(cfgPath)) ({ text, kept } = mergeConfig(text, fs.readFileSync(cfgPath, "utf8")));
   fs.writeFileSync(cfgPath, text);
   const gi = ensureGitignore(root);
-  const tpl = path.join(root, KGFLOW_DIR, "tasks", "_sablon.md");
+  const tpl = path.join(root, FLOWLOOP_DIR, "tasks", "_sablon.md");
   if (!fs.existsSync(tpl)) fs.copyFileSync(path.join(PACKAGE_ROOT, "templates", "task-template.md"), tpl);
   const docs = findProjectDocs(root, DEFAULT_PROJECT_DOCS);
   console.log(color.green(`✓ ${CONFIG_FILE} ${force ? "yeniden " : ""}oluşturuldu`));
   if (kept.length) console.log(color.dim(`  korunan ayarlar: ${kept.join(", ")}`));
-  const giMsg = { created: ".gitignore oluşturuldu, .kgflow/ eklendi", added: ".kgflow/ .gitignore'a eklendi", renamed: ".gitignore'daki .ekip satırı .kgflow/ olarak güncellendi", exists: "" }[gi];
+  const giMsg = { created: ".gitignore oluşturuldu, .flowloop/ eklendi", added: ".flowloop/ .gitignore'a eklendi", renamed: ".gitignore'daki eski satır (.kgflow/.ekip) .flowloop/ olarak güncellendi", exists: "" }[gi];
   if (giMsg) console.log(color.green(`✓ ${giMsg} (commit'lemeyi unutma)`));
   console.log(`  stack      : ${d.stack}`);
   for (const t of d.tech) console.log(`  teknoloji  : ${t}`);
@@ -80,12 +80,12 @@ function cmdInit(root: string, force: boolean): void {
   console.log(`  kişisel kurallar: ${fs.existsSync(userClaudeMdPath()) ? "~/.claude/CLAUDE.md (dahil edilir)" : "yok"}`);
   console.log(`  kod hafızası (MCP): ${memory.length ? memory.join(", ") + " (salt okuma araçlarıyla açılır)" : "bulunamadı"}`);
   for (const n of d.notes) console.log(color.yellow(`  ! ${n}`));
-  console.log(`\nKomutları kontrol et: ${CONFIG_FILE}  →  kgflow check  →  kgflow run .kgflow/tasks/<görev>.md`);
+  console.log(`\nKomutları kontrol et: ${CONFIG_FILE}  →  flowloop check  →  flowloop run .flowloop/tasks/<görev>.md`);
 }
 
 /** Daha önce Jira'dan çekilmiş görev dosyalarından Jira adresini bulur */
 function guessJiraBase(root: string): string {
-  const dir = path.join(root, KGFLOW_DIR, "tasks");
+  const dir = path.join(root, FLOWLOOP_DIR, "tasks");
   if (!fs.existsSync(dir)) return "";
   for (const f of fs.readdirSync(dir)) {
     const m = /^Kaynak:\s*(https:\/\/[^/\s]+)\/browse\//m.exec(fs.readFileSync(path.join(dir, f), "utf8"));
@@ -98,12 +98,12 @@ function guessJiraBase(root: string): string {
 function guessBranchPattern(root: string): string {
   const r = git(["for-each-ref", "--format=%(refname:short)", "refs/heads", "refs/remotes"], root);
   const jiraLike = r.stdout.split("\n").filter((b) => /(^|\/)[A-Z][A-Z0-9]+-\d+([-_]|$)/.test(b)).length;
-  return jiraLike >= 3 ? "{{jira}}-{{slug}}" : "kgflow/{{slug}}-{{date}}";
+  return jiraLike >= 3 ? "{{jira}}-{{slug}}" : "flowloop/{{slug}}-{{date}}";
 }
 
-/** .kgflow/tasks/<KEY>.md yoksa (ya da --refresh) Jira'dan üretir; varsa olduğu gibi kullanır (elle düzenlenmiş olabilir). */
+/** .flowloop/tasks/<KEY>.md yoksa (ya da --refresh) Jira'dan üretir; varsa olduğu gibi kullanır (elle düzenlenmiş olabilir). */
 async function ensureJiraTask(root: string, key: string, refresh = false, baseOverride?: string): Promise<string> {
-  const rel = path.join(KGFLOW_DIR, "tasks", `${key}.md`);
+  const rel = path.join(FLOWLOOP_DIR, "tasks", `${key}.md`);
   const abs = path.join(root, rel);
   if (fs.existsSync(abs) && !refresh) {
     console.log(color.dim(`Görev dosyası mevcut, o kullanılıyor: ${rel} (Jira'dan yeniden çekmek için --refresh)`));
@@ -121,14 +121,14 @@ async function ensureJiraTask(root: string, key: string, refresh = false, baseOv
 
 /** Claude ya da Cursor: ayara, --agent'a ve erişime göre seçer */
 function pickRunner(root: string, override: string | undefined, dryRun = false): { runner: AgentRunner; backend: Backend } {
-  if (override && !["auto", "claude", "cursor"].includes(override)) throw new KgflowError(`--agent claude | cursor | auto olmalı (verilen: ${override})`);
+  if (override && !["auto", "claude", "cursor"].includes(override)) throw new FlowloopError(`--agent claude | cursor | auto olmalı (verilen: ${override})`);
   try {
     const r = createRunner(loadConfig(root), override);
     console.log(color.dim(`Ajan: ${r.backend === "cursor" ? "Cursor CLI" : "Claude (Agent SDK)"} — ${r.reason}`));
     return r;
   } catch (e) {
     if (dryRun && e instanceof BackendError) return { runner: new SdkAgentRunner(), backend: "claude" };
-    if (e instanceof BackendError) throw new KgflowError(e.message);
+    if (e instanceof BackendError) throw new FlowloopError(e.message);
     throw e;
   }
 }
@@ -167,7 +167,7 @@ async function reviewChangesPrompt(info: ChangeReviewInfo): Promise<ChangeDecisi
     "  [e] Onayla — commit, push ve Jira yorumu",
     "  [d] Farkın tamamını göster",
     ...(info.canRevise ? ["  [y] Değişiklik iste — yorumun developer'a gider, testler ve reviewer tekrar çalışır"] : []),
-    "  [h] Şimdilik onaylama — commit yapılmaz, sonra: kgflow resume",
+    "  [h] Şimdilik onaylama — commit yapılmaz, sonra: flowloop resume",
   ];
   for (;;) {
     console.log(color.bold("\nDeğişiklikler uygun mu?") + "\n" + options.join("\n"));
@@ -204,7 +204,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
       onaysiz: { type: "boolean", default: false },
     },
   });
-  if (positionals.length !== 1) throw new KgflowError("Kullanım: kgflow run <görev.md | JIRA-123>");
+  if (positionals.length !== 1) throw new FlowloopError("Kullanım: flowloop run <görev.md | JIRA-123>");
   let taskFile = positionals[0];
   const link = parseJiraLink(taskFile); // https://sirket.atlassian.net/browse/IDT-1234 de verilebilir
   if (link) taskFile = await ensureJiraTask(root, link.key, values.refresh, link.base);
@@ -216,7 +216,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     rl.close();
     return /^[eEyY]$/.test(a.trim());
   };
-  if (values["plan-onayi"] && !values["dry-run"] && !process.stdin.isTTY) throw new KgflowError("--plan-onayi etkileşimli bir terminal ister.");
+  if (values["plan-onayi"] && !values["dry-run"] && !process.stdin.isTTY) throw new FlowloopError("--plan-onayi etkileşimli bir terminal ister.");
   const reviewPlan = async (_plan: string, ctx: { round: number; reused: boolean }): Promise<PlanDecision> => {
     const options = [
       "  [e] Onayla, geliştirmeye geç",
@@ -269,7 +269,7 @@ function printDone(root: string, s: RunSummary, log: ReturnType<typeof consoleLo
   Push    : ${s.pushed ? `origin/${s.branch} ✓` : `yapılmadı → git push -u origin ${s.branch}`}${s.prUrl ? `\n  PR aç   : ${s.prUrl}` : ""}${s.jiraCommentUrl ? `\n  Jira    : ${s.jiraCommentUrl}` : ""}
 
   İncele  : git checkout ${s.branch}   ya da   git diff ${s.baseSha!.slice(0, 7)}..${s.branch}
-  Temizle : kgflow clean   (merge edildikten sonra)`);
+  Temizle : flowloop clean   (merge edildikten sonra)`);
   for (const w of s.warnings) console.log(color.yellow(`  ! ${w}`));
   // yerel base, origin'den farklıysa uyar (ör. yerelde push'lanmamış commit)
   const local = git(["rev-parse", "--verify", "--quiet", `refs/heads/${s.baseBranch}`], root).stdout.trim();
@@ -296,7 +296,7 @@ function listRuns(root: string): { id: string; dir: string; status: string; bran
 function cmdClean(root: string, all: boolean): void {
   const cfg = loadConfig(root);
   for (const r of listRuns(root)) {
-    const branch = r.branch ?? `kgflow/${r.id}`;
+    const branch = r.branch ?? `flowloop/${r.id}`;
     const base = cfg.baseBranch || detectBaseBranch(root);
     const merged = [base, `origin/${base}`].some((b) => git(["merge-base", "--is-ancestor", branch, b], root).code === 0);
     if (!all && !merged) {
@@ -314,20 +314,21 @@ function cmdClean(root: string, all: boolean): void {
 
 async function main(): Promise<number> {
   const [cmd, ...rest] = process.argv.slice(2);
+  if (/(^|\/)kgflow$/.test(process.argv[1] ?? "")) console.error(color.yellow("! kgflow komutunun adı flowloop oldu; bundan sonra flowloop yaz (kgflow bir süre daha çalışır)."));
   if (!cmd || cmd === "-h" || cmd === "--help") {
     console.log(HELP);
     return 0;
   }
   if (cmd === "--version" || cmd === "-V" || cmd === "version") {
     const i = readInstallInfo();
-    console.log(`kgflow ${currentVersion()}${i ? color.dim(`  (${i.mode === "local" ? "yerel repo" : "kaynak"}: ${i.source}${i.commit ? " @ " + i.commit.slice(0, 7) : ""})`) : ""}`);
+    console.log(`flowloop ${currentVersion()}${i ? color.dim(`  (${i.mode === "local" ? "yerel repo" : "kaynak"}: ${i.source}${i.commit ? " @ " + i.commit.slice(0, 7) : ""})`) : ""}`);
     return 0;
   }
   if (cmd === "update") return runUpdate();
   if (cmd === "setup") {
     const deps = systemDeps();
     if (rest.includes("--check")) return (await printStatus(deps, { log: console.log }, { network: true })) ? 0 : 1;
-    if (!process.stdin.isTTY) throw new KgflowError("kgflow setup etkileşimli bir terminal ister (durum için: kgflow setup --check)");
+    if (!process.stdin.isTTY) throw new FlowloopError("flowloop setup etkileşimli bir terminal ister (durum için: flowloop setup --check)");
     await runSetup(terminalIO(), deps, { force: rest.includes("--force") });
     return 0;
   }
@@ -336,8 +337,9 @@ async function main(): Promise<number> {
     if (notice) console.log(color.yellow(`! ${notice}`));
   }
   const root = repoRoot();
-  if (migrateLegacyProject(root)) console.log(color.yellow(`Eski .ekip klasörü ${KGFLOW_DIR}/ olarak taşındı (ekip.yaml → kgflow.yaml).`));
-  if (git(["rev-parse", "--git-dir"], root).code === 0) ensureExcluded(root, [KGFLOW_DIR]); // .gitignore'a dokunmadan yerel olarak yok say
+  const migrated = migrateLegacyProject(root);
+  if (migrated) console.log(color.yellow(`Eski .${migrated} klasörü ${FLOWLOOP_DIR}/ olarak taşındı (${migrated}.yaml → flowloop.yaml).`));
+  if (git(["rev-parse", "--git-dir"], root).code === 0) ensureExcluded(root, [FLOWLOOP_DIR]); // .gitignore'a dokunmadan yerel olarak yok say
   switch (cmd) {
     case "init":
       cmdInit(root, rest.includes("--force"));
@@ -373,7 +375,7 @@ async function main(): Promise<number> {
       const { servers, missing } = loadMcpServers(cfg.mcp.servers, root);
       console.log(`  MCP      : ${Object.keys(servers).join(", ") || "—"}${missing.length ? color.yellow(` (bulunamadı: ${missing.join(", ")})`) : ""}${Object.keys(servers).length ? ` · araçlar: ${cfg.mcp.tools.join(", ")} · roller: ${cfg.mcp.roles.join(", ")}` : ""}`);
       const found = detectMemoryServers(root).filter((n) => !cfg.mcp.servers.includes(n));
-      if (found.length) console.log(color.dim(`             (tanımlı ama açılmamış hafıza sunucuları: ${found.join(", ")} → kgflow.yaml mcp.servers)`));
+      if (found.length) console.log(color.dim(`             (tanımlı ama açılmamış hafıza sunucuları: ${found.join(", ")} → flowloop.yaml mcp.servers)`));
       console.log(`  çalışma  : ${workDirFor(cfg, root)}`);
       return 0;
     }
@@ -381,9 +383,9 @@ async function main(): Promise<number> {
       const arg = rest.find((a) => !a.startsWith("-"));
       const link = arg ? parseJiraLink(arg) : undefined;
       const key = link?.key ?? arg;
-      if (!key || !JIRA_KEY.test(key)) throw new KgflowError("Kullanım: kgflow task <JIRA-123 | Jira bağlantısı> [--refresh]");
+      if (!key || !JIRA_KEY.test(key)) throw new FlowloopError("Kullanım: flowloop task <JIRA-123 | Jira bağlantısı> [--refresh]");
       const rel = await ensureJiraTask(root, key, rest.includes("--refresh"), link?.base);
-      console.log(`İncele/düzenle: ${rel}  →  kgflow run ${key} --plan-onayi -v`);
+      console.log(`İncele/düzenle: ${rel}  →  flowloop run ${key} --plan-onayi -v`);
       return 0;
     }
     case "run":
@@ -403,11 +405,11 @@ async function main(): Promise<number> {
         console.log(`exit=${r.code}\n${r.output}`);
         return 0;
       }
-      throw new KgflowError("Kullanım: mutant reset | test");
+      throw new FlowloopError("Kullanım: mutant reset | test");
     }
     case "resume": {
       const id = rest.find((a, i) => !a.startsWith("-") && rest[i - 1] !== "--agent");
-      if (!id) throw new KgflowError("Kullanım: kgflow resume <çalıştırma-id>  (kgflow runs ile listele)");
+      if (!id) throw new FlowloopError("Kullanım: flowloop resume <çalıştırma-id>  (flowloop runs ile listele)");
       const log = consoleLogger(rest.includes("-v") || rest.includes("--verbose"));
       const ai = rest.findIndex((a) => a === "--agent" || a.startsWith("--agent="));
       const agentOpt = ai < 0 ? undefined : rest[ai].includes("=") ? rest[ai].split("=")[1] : rest[ai + 1];
@@ -434,7 +436,7 @@ async function main(): Promise<number> {
 main().then(
   (code) => process.exit(code),
   (e) => {
-    if (e instanceof KgflowError || e instanceof ConfigError || e instanceof JiraError) {
+    if (e instanceof FlowloopError || e instanceof ConfigError || e instanceof JiraError) {
       console.error(color.red("✗ " + e.message));
       process.exit(1);
     }

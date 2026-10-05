@@ -12,11 +12,11 @@ Plan: `{{planFile}}` · Kurallar ve teknoloji: `{{rulesFile}}` (önce bunu oku)
    dosyaları yaz). Tüm test suite'ini çalıştırmaya çalışma.
 4. Projede zaten var olan tip/lint hataları ve kırık testler bu işin konusu DEĞİL;
    onlara dokunma.{{#typecheckCmd}} Tüm projenin tip kontrolünü kendin çalıştırma (çıktısı çok
-   büyük ve önceden var olan hatalarla dolu); kgflow senin yüzünden çıkan YENİ tip hatalarını
+   büyük ve önceden var olan hatalarla dolu); flowloop senin yüzünden çıkan YENİ tip hatalarını
    her turdan sonra sana ayrıca bildirir.{{/typecheckCmd}}
 5. Commit atmaya çalışma.
 
-Her turdan sonra kgflow OTOMATİK olarak şunları yapar: değişen dosyaları formatlar, bu işin
+Her turdan sonra flowloop OTOMATİK olarak şunları yapar: değişen dosyaları formatlar, bu işin
 testlerini çalıştırır{{#typecheckCmd}}, bu işle gelen YENİ tip hatalarını{{/typecheckCmd}}{{#lintCmd}} ve YENİ lint
 hatalarını (uyarılar bloklamaz){{/lintCmd}} arar. Bunlardan biri başarısız olursa iş reviewer'a gitmeden sana geri döner.
 {{#mutation}}

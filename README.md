@@ -1,4 +1,4 @@
-# kgflow
+# flowloop
 
 Rol bazlı AI geliştirme ekibi. Bir Jira görevini alır, dört rolden geçirir ve sonucu push'lanmış bir branch, PR bağlantısı ve Jira yorumu olarak teslim eder. Merge her zaman insandadır.
 
@@ -16,23 +16,23 @@ Ayrıntılı kılavuz: **[KULLANIM.md](KULLANIM.md)**
 ## Hızlı başlangıç
 
 ```bash
-# 1) Kur: repoyu ~/.kgflow/src'ye indirir, Node yoksa kurar, kgflow komutunu ekler ve hesap kurulumunu başlatır
-git clone https://github.com/yunusemre/flowloop.git ~/.kgflow/src && ~/.kgflow/src/install.sh
+# 1) Kur: repoyu ~/.flowloop/src'ye indirir, Node yoksa kurar, flowloop komutunu ekler ve hesap kurulumunu başlatır
+git clone https://github.com/yunusemre/flowloop.git ~/.flowloop/src && ~/.flowloop/src/install.sh
 
 # 2) Projeye ekle (proje başına bir kez)
 cd ~/Desktop/WORK/KG/kgs-app
-kgflow init && kgflow check
+flowloop init && flowloop check
 
 # 3) Jira görevini çalıştır (--plan-onayi: planı onayla, yorumla güncellet ya da iptal et)
-kgflow run IDT-1234 --plan-onayi -v
+flowloop run IDT-1234 --plan-onayi -v
 ```
 
 | Komut | Ne yapar |
 |---|---|
-| `kgflow setup` | Hesapları adım adım kurar: git kimliği, Claude/Cursor, Jira, Bitbucket. Kurulum sonunda kendiliğinden açılır |
-| `kgflow update` | kgflow'u günceller. Yeni sürüm çıkınca kgflow ekranın başında haber verir |
-| `kgflow runs` / `kgflow resume <id>` | Çalıştırmaları listeler / yarım kalanı sürdürür |
-| `kgflow --version` | Sürümü ve kurulum kaynağını gösterir |
+| `flowloop setup` | Hesapları adım adım kurar: git kimliği, Claude/Cursor, Jira, Bitbucket. Kurulum sonunda kendiliğinden açılır |
+| `flowloop update` | flowloop'u günceller. Yeni sürüm çıkınca flowloop ekranın başında haber verir |
+| `flowloop runs` / `flowloop resume <id>` | Çalıştırmaları listeler / yarım kalanı sürdürür |
+| `flowloop --version` | Sürümü ve kurulum kaynağını gösterir |
 
 Gereksinimler: macOS ya da Linux ve git. Node.js 20+ yoksa kurulum betiği kurar. Push için projenin kendi reposuna (ör. Bitbucket) erişimin olmalı.
 
@@ -50,10 +50,10 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 ## İlkeler
 
 1. **Projenin kendi kuralları geçerlidir.** `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.cursor/rules/*.mdc` ve `.github/copilot-instructions.md` varsa bütün rollere verilir; kişisel `~/.claude/CLAUDE.md` de eklenir (çelişirse proje kuralı geçerli).
-2. **Sadece bu işe odaklanılır.** Projede zaten var olan tip hataları, lint hataları ve kırık testler kimseyi bloklamaz. kgflow aynı kontrolleri dokunulmamış bir base kopyasında da çalıştırır ve sadece bu işle **gelen** hataları sayar. Lint uyarıları bloklamaz.
+2. **Sadece bu işe odaklanılır.** Projede zaten var olan tip hataları, lint hataları ve kırık testler kimseyi bloklamaz. flowloop aynı kontrolleri dokunulmamış bir base kopyasında da çalıştırır ve sadece bu işle **gelen** hataları sayar. Lint uyarıları bloklamaz.
 3. **Testler işe özeldir.** Tüm suite değil, değişen dosyalarla ilgili testler çalışır (Jest'te `--findRelatedTests`).
 4. **Her zaman temiz bir çalışma alanı kullanılır.** İş, `origin`'den çekilen base branch (`production → main → master`) üzerinde açılan ayrı bir worktree'de yapılır; senin çalışma klasörüne dokunulmaz.
-5. **Teknolojiye göre çalışılır.** `kgflow init` projeyi tanır (React Native/Expo, React, Next.js, Node, NestJS, .NET) ve test, tip kontrolü, lint ve format komutlarını projenin kendi araçlarına göre seçer.
+5. **Teknolojiye göre çalışılır.** `flowloop init` projeyi tanır (React Native/Expo, React, Next.js, Node, NestJS, .NET) ve test, tip kontrolü, lint ve format komutlarını projenin kendi araçlarına göre seçer.
 
 ## Güvenlik modeli
 
@@ -70,16 +70,16 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 
 ## Jira
 
-`kgflow run IDT-1234` görevi Jira'dan çeker. İş bitince kayda kısa bir yorum eklenir: sorun / yapılan / neden bu yaklaşım / nasıl test edildi (committer yazar), branch, commit'ler, PR bağlantısı, kullanılan modeller ve "insan incelemesi gerekir" notu. Commit'lerdeki `Co-Authored-By` satırı işi kimin yaptığını gösterir.
+`flowloop run IDT-1234` görevi Jira'dan çeker. İş bitince kayda kısa bir yorum eklenir: sorun / yapılan / neden bu yaklaşım / nasıl test edildi (committer yazar), branch, commit'ler, PR bağlantısı, kullanılan modeller ve "insan incelemesi gerekir" notu. Commit'lerdeki `Co-Authored-By` satırı işi kimin yaptığını gösterir.
 
-## Yapılandırma (`.kgflow/kgflow.yaml`)
+## Yapılandırma (`.flowloop/flowloop.yaml`)
 
 | Alan | Açıklama |
 |---|---|
 | `baseBranch` | Boş bırakılırsa production → main → master sırasıyla seçilir |
-| `branchName` | `{{jira}}-{{slug}}` ya da `kgflow/{{slug}}-{{date}}` |
+| `branchName` | `{{jira}}-{{slug}}` ya da `flowloop/{{slug}}-{{date}}` |
 | `push` | İş bitince branch'i origin'e gönder (`--no-push` ile tek seferlik kapatılır) |
-| `jira.baseUrl` / `jira.comment` | Projeye özel Jira adresi (boşsa `kgflow setup`'ta girilen) / iş bitince kayda özet yorumu |
+| `jira.baseUrl` / `jira.comment` | Projeye özel Jira adresi (boşsa `flowloop setup`'ta girilen) / iş bitince kayda özet yorumu |
 | `commands.testRelated` | Bu işin testleri; `{{files}}` ya da `{{testFiles}}` içermek zorunda |
 | `commands.typecheck` | Tüm projenin tip kontrolü; sadece yeni hatalar sayılır |
 | `commands.lint` | `{{files}}` ile; sadece yeni hatalar sayılır (uyarılar bloklamaz) |
@@ -92,11 +92,11 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 
 ## Geliştirme
 
-kgflow'un kendisi üzerinde çalışacaksan istediğin bir klasöre clone'layıp oradan kur; komut doğrudan o klasörü kullanır:
+flowloop'un kendisi üzerinde çalışacaksan istediğin bir klasöre clone'layıp oradan kur; komut doğrudan o klasörü kullanır:
 
 ```bash
 git clone https://github.com/yunusemre/flowloop.git && cd flowloop && ./install.sh
-npm test   # 93 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
+npm test   # 94 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
 ```
 
 ### Sürüm çıkarmak
@@ -108,4 +108,4 @@ npm run release -- minor     # testler + package.json sürümü + "chore(release
 git push --follow-tags
 ```
 
-Hata düzeltmesi için `patch`, uyumsuz değişiklik için `major` kullanılır. Ekiptekiler `kgflow update` ile yeni sürüme geçer.
+Hata düzeltmesi için `patch`, uyumsuz değişiklik için `major` kullanılır. Ekiptekiler `flowloop update` ile yeni sürüme geçer.

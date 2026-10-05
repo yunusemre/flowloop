@@ -56,7 +56,7 @@ export class MutantSandbox {
 export async function createMutantServer(sandbox: MutantSandbox) {
   const { createSdkMcpServer, tool } = await import("@anthropic-ai/claude-agent-sdk");
   return createSdkMcpServer({
-    name: "kgflow",
+    name: "flowloop",
     version: currentVersion(),
     tools: [
       tool(

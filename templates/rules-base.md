@@ -1,9 +1,9 @@
-# kgflow ortak kuralları
+# flowloop ortak kuralları
 
 ## Odak
 - Sadece görevin istediğini yap. Görevle ilgisiz refactor, format, dosya taşıma YOK.
 - Projede zaten var olan hatalar (tip, lint, kırık testler) bu işin konusu DEĞİL; onları
-  düzeltmeye çalışma. kgflow, tip ve lint kontrolünde sadece bu işle GELEN yeni hataları sayar.
+  düzeltmeye çalışma. flowloop, tip ve lint kontrolünde sadece bu işle GELEN yeni hataları sayar.
 - Testler: tüm test suite'i değil, bu işin testlerini çalıştır ve yaz. Her kabul kriterinin
   testi olmalı ve o kriterin mantığı bozulduğunda KIRILMALI.
 

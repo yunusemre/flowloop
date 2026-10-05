@@ -9,7 +9,7 @@ import { runConfigured } from "../src/git.js";
 import { fetchIssue } from "../src/jira.js";
 
 function tmp() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-setup-"));
+  return fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-setup-"));
 }
 
 /** Senaryolu terminal: verilen cevapları sırayla döner, yazılanları toplar */
@@ -33,7 +33,7 @@ function scriptedIO(answers: (string | boolean | number)[]) {
 }
 
 function fakeDeps(home: string, over: Partial<SetupDeps> = {}) {
-  const store = new FileStore(path.join(home, ".kgflow", "credentials.json"));
+  const store = new FileStore(path.join(home, ".flowloop", "credentials.json"));
   const gitCfg: Record<string, string> = {};
   const calls: string[] = [];
   const saved: { jiraBase?: string } = {};
@@ -86,7 +86,7 @@ test("setup: sıfırdan kimlik + API anahtarı + Jira; yanlış token tekrar sor
   assert.match(text, /Bitbucket SSH/);
   assert.ok(!text.includes("dogru-token") && !text.includes("sk-ant-api-iyi"), "gizli bilgi ekrana yazılmaz");
   assert.ok(opened.some((u) => u.includes("id.atlassian.com")) && opened.some((u) => u.includes("console.anthropic.com")), "token sayfaları açıldı");
-  const mode = fs.statSync(path.join(home, ".kgflow", "credentials.json")).mode & 0o777;
+  const mode = fs.statSync(path.join(home, ".flowloop", "credentials.json")).mode & 0o777;
   assert.equal(mode, 0o600);
 });
 
@@ -144,8 +144,8 @@ test("Jira istemcisi kayıtlı token'ı kullanır", async () => {
   const file = path.join(tmp(), "c.json");
   new FileStore(file).set("JIRA_EMAIL", "a@b.com");
   new FileStore(file).set("JIRA_API_TOKEN", "t0k");
-  const saved = { f: process.env.KGFLOW_SECRET_FILE, e: process.env.JIRA_EMAIL, t: process.env.JIRA_API_TOKEN };
-  process.env.KGFLOW_SECRET_FILE = file;
+  const saved = { f: process.env.FLOWLOOP_SECRET_FILE, e: process.env.JIRA_EMAIL, t: process.env.JIRA_API_TOKEN };
+  process.env.FLOWLOOP_SECRET_FILE = file;
   delete process.env.JIRA_EMAIL;
   delete process.env.JIRA_API_TOKEN;
   let auth = "";
@@ -157,7 +157,7 @@ test("Jira istemcisi kayıtlı token'ı kullanır", async () => {
       },
     }).catch(() => undefined);
   } finally {
-    for (const [k, v] of Object.entries({ KGFLOW_SECRET_FILE: saved.f, JIRA_EMAIL: saved.e, JIRA_API_TOKEN: saved.t })) {
+    for (const [k, v] of Object.entries({ FLOWLOOP_SECRET_FILE: saved.f, JIRA_EMAIL: saved.e, JIRA_API_TOKEN: saved.t })) {
       if (v === undefined) delete process.env[k];
       else process.env[k] = v;
     }

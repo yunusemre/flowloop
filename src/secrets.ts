@@ -4,11 +4,11 @@ import os from "node:os";
 import path from "node:path";
 
 /**
- * kgflow'un gizli bilgileri (Jira token'ı, Anthropic anahtarı...).
+ * flowloop'un gizli bilgileri (Jira token'ı, Anthropic anahtarı...).
  *
  * Saklama yeri:
- *   macOS  → Anahtar Zinciri (Keychain), servis adı "kgflow"
- *   Linux  → secret-tool (GNOME Keyring / KWallet) varsa o, yoksa ~/.kgflow/credentials.json (izin 600)
+ *   macOS  → Anahtar Zinciri (Keychain), servis adı "flowloop"
+ *   Linux  → secret-tool (GNOME Keyring / KWallet) varsa o, yoksa ~/.flowloop/credentials.json (izin 600)
  *
  * Okuma sırası: ortam değişkeni → saklama yeri. Böylece eskiden ~/.zshrc'ye
  * yazılmış değişkenler çalışmaya devam eder.
@@ -19,7 +19,9 @@ export const SECRET_NAMES = ["JIRA_API_TOKEN", "ANTHROPIC_API_KEY", "CLAUDE_CODE
 export const PLAIN_NAMES = ["JIRA_EMAIL"] as const;
 export type CredName = (typeof SECRET_NAMES)[number] | (typeof PLAIN_NAMES)[number];
 
-const SERVICE = "kgflow";
+const SERVICE = "flowloop";
+/** Eski adla (kgflow) kaydedilmiş gizliler okunup yeni yere taşınır */
+const LEGACY_SERVICE = "kgflow";
 
 export interface SecretStore {
   readonly kind: string;
@@ -30,33 +32,35 @@ export interface SecretStore {
 
 class KeychainStore implements SecretStore {
   readonly kind = "macOS Anahtar Zinciri";
+  constructor(private service = SERVICE) {}
   get(name: string) {
-    const r = spawnSync("security", ["find-generic-password", "-s", SERVICE, "-a", name, "-w"], { encoding: "utf8" });
+    const r = spawnSync("security", ["find-generic-password", "-s", this.service, "-a", name, "-w"], { encoding: "utf8" });
     return r.status === 0 ? r.stdout.replace(/\n$/, "") || undefined : undefined;
   }
   set(name: string, value: string) {
     // -U: varsa güncelle
-    const r = spawnSync("security", ["add-generic-password", "-U", "-s", SERVICE, "-a", name, "-l", `kgflow ${name}`, "-w", value], { encoding: "utf8" });
+    const r = spawnSync("security", ["add-generic-password", "-U", "-s", this.service, "-a", name, "-l", `${this.service} ${name}`, "-w", value], { encoding: "utf8" });
     if (r.status !== 0) throw new Error(`Anahtar Zinciri'ne yazılamadı: ${r.stderr.trim()}`);
   }
   delete(name: string) {
-    spawnSync("security", ["delete-generic-password", "-s", SERVICE, "-a", name], { encoding: "utf8" });
+    spawnSync("security", ["delete-generic-password", "-s", this.service, "-a", name], { encoding: "utf8" });
   }
 }
 
 class SecretToolStore implements SecretStore {
   readonly kind = "sistem anahtarlığı (secret-tool)";
+  constructor(private service = SERVICE) {}
   get(name: string) {
-    const r = spawnSync("secret-tool", ["lookup", "service", SERVICE, "account", name], { encoding: "utf8" });
+    const r = spawnSync("secret-tool", ["lookup", "service", this.service, "account", name], { encoding: "utf8" });
     return r.status === 0 ? r.stdout.replace(/\n$/, "") || undefined : undefined;
   }
   set(name: string, value: string) {
     // değer stdin'den verilir; komut satırında görünmez
-    const r = spawnSync("secret-tool", ["store", "--label", `kgflow ${name}`, "service", SERVICE, "account", name], { input: value, encoding: "utf8" });
+    const r = spawnSync("secret-tool", ["store", "--label", `${this.service} ${name}`, "service", this.service, "account", name], { input: value, encoding: "utf8" });
     if (r.status !== 0) throw new Error(`Anahtarlığa yazılamadı: ${r.stderr.trim()}`);
   }
   delete(name: string) {
-    spawnSync("secret-tool", ["clear", "service", SERVICE, "account", name]);
+    spawnSync("secret-tool", ["clear", "service", this.service, "account", name]);
   }
 }
 
@@ -96,20 +100,39 @@ function has(bin: string): boolean {
 
 let cached: SecretStore | undefined;
 export function defaultStore(home = os.homedir()): SecretStore {
-  if (process.env.KGFLOW_SECRET_FILE) return new FileStore(process.env.KGFLOW_SECRET_FILE);
+  if (process.env.FLOWLOOP_SECRET_FILE) return new FileStore(process.env.FLOWLOOP_SECRET_FILE);
   if (cached) return cached;
   if (process.platform === "darwin" && has("security")) cached = new KeychainStore();
   else if (process.platform === "linux" && has("secret-tool") && process.env.DBUS_SESSION_BUS_ADDRESS) cached = new SecretToolStore();
-  else cached = new FileStore(path.join(home, ".kgflow", "credentials.json"));
+  else cached = new FileStore(path.join(home, ".flowloop", "credentials.json"));
   return cached;
 }
 
-/** Ortam değişkeni → saklama yeri */
-export function getCredential(name: CredName, store: SecretStore = defaultStore(), env = process.env): string | undefined {
+/** Eski adla (kgflow) saklanmış gizlilerin yeri */
+export function legacyStore(home = os.homedir()): SecretStore | undefined {
+  if (process.env.FLOWLOOP_SECRET_FILE) return undefined;
+  if (process.platform === "darwin" && has("security")) return new KeychainStore(LEGACY_SERVICE);
+  if (process.platform === "linux" && has("secret-tool") && process.env.DBUS_SESSION_BUS_ADDRESS) return new SecretToolStore(LEGACY_SERVICE);
+  const f = path.join(home, ".kgflow", "credentials.json");
+  return fs.existsSync(f) ? new FileStore(f) : undefined;
+}
+
+/** Ortam değişkeni → saklama yeri (eski adla saklanmışsa okunur ve yeni yere taşınır) */
+export function getCredential(name: CredName, store: SecretStore = defaultStore(), env = process.env, legacy: SecretStore | undefined = store === cached ? legacyStore() : undefined): string | undefined {
   const v = env[name];
   if (v) return v;
   try {
-    return store.get(name);
+    const cur = store.get(name);
+    if (cur) return cur;
+    const old = legacy?.get(name);
+    if (old) {
+      try {
+        store.set(name, old);
+      } catch {
+        /* taşınamadı; yine de kullan */
+      }
+    }
+    return old;
   } catch {
     return undefined;
   }

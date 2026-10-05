@@ -21,7 +21,7 @@ const cfg = configSchema.parse({
 const P = (r: "analist" | "developer" | "reviewer" | "committer") => permissionsFor(r, cfg);
 
 before(() => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-pol-"));
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-pol-"));
   const repo = path.join(base, "wt");
   const run = path.join(base, "run");
   fs.mkdirSync(path.join(repo, "src"), { recursive: true });
@@ -79,7 +79,7 @@ test("gizli dosyalar hiçbir rol tarafından okunamaz (symlink dahil)", () => {
 test("reviewer: gerçek dosyaya yazamaz, sadece mutant kopyaya", () => {
   allow("reviewer", "Edit", { file_path: path.join(ctx.runRoot, "mutant/src/a.js") });
   deny("reviewer", "Edit", { file_path: path.join(ctx.repoRoot, "src/a.js") });
-  allow("reviewer", "mcp__kgflow__mutant_test", {});
+  allow("reviewer", "mcp__flowloop__mutant_test", {});
   allow("reviewer", "Bash", { command: "git diff -- test/" });
   allow("reviewer", "Bash", { command: "npx jest --findRelatedTests src/a.ts" });
   deny("reviewer", "Bash", { command: "npx prettier --write src/a.ts" });

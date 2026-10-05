@@ -3,7 +3,7 @@ import path from "node:path";
 import picomatch from "picomatch";
 import type { AgentRequest, AgentResult, AgentRunner, Denial } from "./agent.js";
 import { ScopedChecks, renderReport, type CheckResult, type CheckRunner } from "./checks.js";
-import { KGFLOW_DIR, jiraBaseUrl, loadConfig, workDirFor, workDirsFor } from "./config.js";
+import { FLOWLOOP_DIR, jiraBaseUrl, loadConfig, workDirFor, workDirsFor } from "./config.js";
 import { changedExisting, changedPaths, diffAgainst, fillFiles, git, gitOk, headSha, runConfigured, statusPorcelain, workingTreeHash } from "./git.js";
 import type { Logger } from "./log.js";
 import { MutantSandbox } from "./mutant.js";
@@ -17,7 +17,7 @@ import { extractLessons, parseVerdict } from "./verdict.js";
 import { postComment } from "./jira.js";
 import { remoteLinks, type RemoteLinks } from "./remote.js";
 
-/** Jira yorumu: committer'ın özeti + kgflow'in eklediği kesin bilgiler */
+/** Jira yorumu: committer'ın özeti + flowloop'in eklediği kesin bilgiler */
 export function buildJiraComment(aiSummary: string, s: RunSummary, links?: RemoteLinks): string {
   const facts = [
     `- *Branch:* ${s.pushed ? (s.branchUrl ? `[${s.branch}](${s.branchUrl})` : `\`${s.branch}\` (origin'e push edildi)`) : `\`${s.branch}\` (henüz push edilmedi)`}`,
@@ -56,8 +56,8 @@ export function provenance(s: RunSummary): string[] {
   const versions = toolVersions();
   return [
     s.backend === "cursor"
-      ? `🤖 *Cursor ile hazırlandı* — kgflow ${versions.kgflow} (Cursor CLI)`
-      : `🤖 *Claude ile hazırlandı* — kgflow ${versions.kgflow} (Claude Agent SDK ${versions.sdk})`,
+      ? `🤖 *Cursor ile hazırlandı* — flowloop ${versions.flowloop} (Cursor CLI)`
+      : `🤖 *Claude ile hazırlandı* — flowloop ${versions.flowloop} (Claude Agent SDK ${versions.sdk})`,
     `- *Modeller:* ${roles.length ? roles.join(" · ") : "bilinmiyor"}`,
     s.initiator ? `- *Başlatan:* ${s.initiator}` : "",
     `- *Akış:* analist → developer ⇄ reviewer (${s.iterations} tur) → committer`,
@@ -65,8 +65,8 @@ export function provenance(s: RunSummary): string[] {
   ].filter(Boolean);
 }
 
-let cachedVersions: { kgflow: string; sdk: string } | undefined;
-function toolVersions(): { kgflow: string; sdk: string } {
+let cachedVersions: { flowloop: string; sdk: string } | undefined;
+function toolVersions(): { flowloop: string; sdk: string } {
   if (cachedVersions) return cachedVersions;
   const read = (f: string) => {
     try {
@@ -76,13 +76,13 @@ function toolVersions(): { kgflow: string; sdk: string } {
     }
   };
   cachedVersions = {
-    kgflow: read(path.join(PACKAGE_ROOT, "package.json")),
+    flowloop: read(path.join(PACKAGE_ROOT, "package.json")),
     sdk: read(path.join(PACKAGE_ROOT, "node_modules", "@anthropic-ai", "claude-agent-sdk", "package.json")),
   };
   return cachedVersions;
 }
 
-export class KgflowError extends Error {}
+export class FlowloopError extends Error {}
 
 export interface RunOptions {
   root: string;
@@ -190,7 +190,7 @@ export interface RunSummary {
 
 const CONVENTIONAL = /^(feat|fix|test|refactor|docs|chore|perf|style|build|ci)(\([a-zA-Z0-9._/-]+\))?!?: .+/;
 const PLAN_SMELLS = /git (commit|push)|sub-?skill|superpowers|subagent/i;
-const LESSONS_FILE = path.join(KGFLOW_DIR, "lessons.md");
+const LESSONS_FILE = path.join(FLOWLOOP_DIR, "lessons.md");
 
 export function slugify(s: string): string {
   return (
@@ -221,7 +221,7 @@ export function cleanupStaleBranch(root: string, branch: string, baseSha: string
     if (!wtPath) continue;
     if (statusPorcelain(wtPath, ["node_modules"]).length) {
       // commit'lenmemiş iş var: silme, arşiv adıyla sakla ve ismi boşalt
-      const archived = `kgflow-arsiv/${branch}-${Date.now().toString(36)}`;
+      const archived = `flowloop-arsiv/${branch}-${Date.now().toString(36)}`;
       if (git(["branch", "-m", branch, archived], root).code === 0) {
         log.info(`Önceki başarısız çalıştırmanın branch'i arşivlendi: ${archived} (worktree: ${wtPath})`);
         return true;
@@ -258,7 +258,7 @@ function taskSlug(task: string, fallback: string): string {
 }
 
 export function branchNameFor(pattern: string, vars: { jira: string; slug: string; date: string }): string {
-  const p = !vars.jira && pattern.includes("{{jira}}") ? "kgflow/{{slug}}-{{date}}" : pattern;
+  const p = !vars.jira && pattern.includes("{{jira}}") ? "flowloop/{{slug}}-{{date}}" : pattern;
   return p.replace(/\{\{jira\}\}/g, vars.jira).replace(/\{\{slug\}\}/g, vars.slug).replace(/\{\{date\}\}/g, vars.date);
 }
 
@@ -275,7 +275,7 @@ function appendLessons(root: string, task: string, lessons: string[], date: Date
   fs.mkdirSync(path.dirname(f), { recursive: true });
   const head = fs.existsSync(f)
     ? ""
-    : "# kgflow dersleri\n\nReviewer'ın ve otomatik kontrollerin reddettiği konular. Developer ve reviewer bu dosyayı her çalıştırmada görür. Ekiple paylaşmak için commit'leyebilirsin.\n";
+    : "# flowloop dersleri\n\nReviewer'ın ve otomatik kontrollerin reddettiği konular. Developer ve reviewer bu dosyayı her çalıştırmada görür. Ekiple paylaşmak için commit'leyebilirsin.\n";
   fs.appendFileSync(f, `${head}\n## ${date.toISOString().slice(0, 10)} · ${task}\n${lessons.map((l) => `- ${l}`).join("\n")}\n`);
 }
 
@@ -308,7 +308,7 @@ export function ensureExcluded(root: string, dirs: string[]): void {
   const lines = new Set(current.split("\n").map((l) => l.trim()));
   const add = dirs.map((d) => `/${d.replace(/^\/+|\/+$/g, "")}`).filter((l) => !lines.has(l));
   if (!add.length) return;
-  fs.appendFileSync(file, `${current && !current.endsWith("\n") ? "\n" : ""}# kgflow: yok sayılan yollar\n${add.join("\n")}\n`);
+  fs.appendFileSync(file, `${current && !current.endsWith("\n") ? "\n" : ""}# flowloop: yok sayılan yollar\n${add.join("\n")}\n`);
 }
 
 /** Aynı görevin (Jira anahtarı ya da görev adı) en son yazılmış ama geliştirmeye geçmemiş planı */
@@ -345,7 +345,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const roles = loadRoles(root, cfg);
 
   const taskPath = path.resolve(root, opts.taskFile);
-  if (!fs.existsSync(taskPath)) throw new KgflowError(`Görev dosyası yok: ${opts.taskFile}`);
+  if (!fs.existsSync(taskPath)) throw new FlowloopError(`Görev dosyası yok: ${opts.taskFile}`);
   const taskText = fs.readFileSync(taskPath, "utf8");
   const slug = taskSlug(taskText, path.basename(taskPath, path.extname(taskPath)));
   const jira = jiraKey(taskText);
@@ -354,16 +354,16 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const summary: RunSummary = { status: "failed", id, projectDocs: [], commits: [], totalCostUsd: 0, iterations: 0, phases: [], checks: [], denials: [], warnings: [], jiraKey: jira || undefined };
 
   // ───────────── base branch ─────────────
-  if (git(["rev-parse", "--is-inside-work-tree"], root).code !== 0) throw new KgflowError("Bu klasör bir git deposu değil.");
+  if (git(["rev-parse", "--is-inside-work-tree"], root).code !== 0) throw new FlowloopError("Bu klasör bir git deposu değil.");
   const baseBranch = cfg.baseBranch || detectBaseBranch(root);
-  if (!baseBranch) throw new KgflowError("Base branch bulunamadı (production/main/master yok). kgflow.yaml'da baseBranch belirt.");
+  if (!baseBranch) throw new FlowloopError("Base branch bulunamadı (production/main/master yok). flowloop.yaml'da baseBranch belirt.");
   if (cfg.fetch && !opts.noFetch && !opts.dryRun && git(["remote"], root).stdout.includes("origin")) {
     const f = git(["fetch", "--quiet", "origin", baseBranch], root);
     if (f.code !== 0) log.warn(`origin/${baseBranch} çekilemedi (${f.stderr.trim().split("\n")[0]}); yerel kopya kullanılacak.`);
   }
   const remoteRef = `refs/remotes/origin/${baseBranch}`;
   const baseRef = git(["rev-parse", "--verify", "--quiet", remoteRef], root).code === 0 ? `origin/${baseBranch}` : baseBranch;
-  if (git(["rev-parse", "--verify", "--quiet", baseRef], root).code !== 0) throw new KgflowError(`Base branch yok: ${baseRef}`);
+  if (git(["rev-parse", "--verify", "--quiet", baseRef], root).code !== 0) throw new FlowloopError(`Base branch yok: ${baseRef}`);
   const baseSha = gitOk(["rev-parse", baseRef], root);
   const wanted = branchNameFor(cfg.branchName, { jira, slug, date });
   let branch = wanted;
@@ -441,7 +441,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     summary.status = "failed";
     summary.error = msg;
     saveSummary();
-    throw new KgflowError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
+    throw new FlowloopError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
   };
 
   // bağımlılıklar: lock dosyası base ile aynıysa repodakini bağla, değilse kur
@@ -463,7 +463,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   }
   const X = cfg.linkDirs; // git işlemlerinde hariç tutulacak symlink'ler
   ensureExcluded(root, X);
-  if (opts.backend === "cursor") ensureExcluded(root, [".cursor/hooks.json", ".cursor/cli.json"]); // kgflow'un geçici yetki dosyaları
+  if (opts.backend === "cursor") ensureExcluded(root, [".cursor/hooks.json", ".cursor/cli.json"]); // flowloop'un geçici yetki dosyaları
   if (statusPorcelain(wt, X).length) fail("Kurulum izlenen dosyaları değiştirdi (ör. lock dosyası).");
 
   const { text: rulesText, docs } = composeRules(cfg, root, baseWt, home);
@@ -664,7 +664,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
         break;
       }
       if (d.action === "cancel") {
-        fail(`Değişiklikler onaylanmadı; commit yapılmadı. Çalışma alanını inceleyebilir ya da sonra onaylayıp tamamlayabilirsin:\n  kgflow resume ${summary.id}`);
+        fail(`Değişiklikler onaylanmadı; commit yapılmadı. Çalışma alanını inceleyebilir ya da sonra onaylayıp tamamlayabilirsin:\n  flowloop resume ${summary.id}`);
       }
       if (d.action !== "revise") continue;
       const comment = d.comment.trim();
@@ -795,31 +795,31 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     ? opts.resume
     : [...workDirsFor(cfg, root), workDirFor(cfg, root)].map((d) => path.join(d, opts.resume)).find((d) => fs.existsSync(path.join(d, "run.json"))) ?? path.join(workDirFor(cfg, root), opts.resume);
   const jsonPath = path.join(runDir, "run.json");
-  if (!fs.existsSync(jsonPath)) throw new KgflowError(`Çalıştırma bulunamadı: ${opts.resume} (kgflow runs ile listele)`);
+  if (!fs.existsSync(jsonPath)) throw new FlowloopError(`Çalıştırma bulunamadı: ${opts.resume} (flowloop runs ile listele)`);
   const summary = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as RunSummary;
   summary.warnings = summary.warnings ?? [];
   if (opts.backend) summary.backend = opts.backend;
-  if (summary.status === "success") throw new KgflowError("Bu çalıştırma zaten başarıyla bitmiş.");
+  if (summary.status === "success") throw new FlowloopError("Bu çalıştırma zaten başarıyla bitmiş.");
   const wt = path.join(runDir, "wt");
   const baseWt = path.join(runDir, "base");
   const runRoot = path.join(runDir, "run");
-  if (!fs.existsSync(wt)) throw new KgflowError(`Çalışma klasörü yok: ${wt}`);
+  if (!fs.existsSync(wt)) throw new FlowloopError(`Çalışma klasörü yok: ${wt}`);
   const { baseSha, baseBranch, branch } = summary as Required<Pick<RunSummary, "baseSha" | "baseBranch" | "branch">>;
   const lastReview = [...summary.phases].reverse().find((p) => p.role === "reviewer");
   const lastDev = [...summary.phases].reverse().find((p) => p.role === "developer");
   // Reviewer onayı yoksa: developer'ın son hâli üzerinden kontroller + reviewer tekrar çalışır
   const needsReview = lastReview?.verdict !== "PASS" || (lastDev && summary.phases.lastIndexOf(lastDev) > summary.phases.lastIndexOf(lastReview!));
-  if (needsReview && !lastDev) throw new KgflowError("Bu çalıştırmada henüz kod yazılmamış; baştan çalıştır: kgflow run ...");
+  if (needsReview && !lastDev) throw new FlowloopError("Bu çalıştırmada henüz kod yazılmamış; baştan çalıştır: flowloop run ...");
 
   const X = cfg.linkDirs;
   ensureExcluded(root, X);
-  if (opts.backend === "cursor") ensureExcluded(root, [".cursor/hooks.json", ".cursor/cli.json"]); // kgflow'un geçici yetki dosyaları
+  if (opts.backend === "cursor") ensureExcluded(root, [".cursor/hooks.json", ".cursor/cli.json"]); // flowloop'un geçici yetki dosyaları
   if (headSha(wt) !== baseSha) gitOk(["reset", "-q", "--soft", baseSha], wt); // yarım kalmış commit'leri geri al, dosyalar aynen kalır
   gitOk(["reset", "-q"], wt); // stage'i temizle
   const current = workingTreeHash(wt, X);
   if (!needsReview) {
     if (!summary.approvedTree) log.warn("Eski sürümle başlatılmış çalıştırma: onaylanan içerik olarak mevcut çalışma kopyası kabul edildi.");
-    if (current !== (summary.approvedTree ?? current)) throw new KgflowError("Çalışma kopyası reviewer'ın onayladığı içerikten farklı; resume edilemez.");
+    if (current !== (summary.approvedTree ?? current)) throw new FlowloopError("Çalışma kopyası reviewer'ın onayladığı içerikten farklı; resume edilemez.");
   }
 
   const files = { task: path.join(runRoot, "task.md"), plan: path.join(runRoot, "plan.md"), summary: path.join(runRoot, "summary.md"), mutant: path.join(runRoot, "mutant"), rules: path.join(runRoot, "rules.md") };
@@ -839,7 +839,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     summary.status = "failed";
     summary.error = msg;
     saveSummary();
-    throw new KgflowError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
+    throw new FlowloopError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
   };
   summary.error = undefined;
   const changed = () => changedExisting(wt, X);
@@ -864,9 +864,9 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
 
   let approved = summary.approvedTree ?? current;
   if (needsReview) {
-    // Developer'ın son hâli: güncel kgflow.yaml ile otomatik kontroller, sonra reviewer
+    // Developer'ın son hâli: güncel flowloop.yaml ile otomatik kontroller, sonra reviewer
     log.step("SÜRDÜR · otomatik kontroller + reviewer (analist/developer tekrar çalışmaz)");
-    if (!fs.existsSync(baseWt)) throw new KgflowError(`Base kopya yok: ${baseWt}`);
+    if (!fs.existsSync(baseWt)) throw new FlowloopError(`Base kopya yok: ${baseWt}`);
     const editMatch = picomatch(cfg.paths.edit, { dot: true });
     const outside = changedPaths(wt, X).filter((p) => !editMatch(p));
     if (outside.length) fail(`İzinli yollar dışında değişiklik var: ${outside.join(", ")}`);
@@ -890,7 +890,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     if (v.verdict !== "PASS") {
       log.detail(v.feedback);
       appendLessons(root, summary.id, extractLessons(v.feedback), (opts.now ?? (() => new Date()))());
-      fail(`Reviewer FAIL. Geri bildirim run.json içinde; düzeltme için yeniden çalıştır: kgflow run ${summary.jiraKey ?? "<görev>"}`);
+      fail(`Reviewer FAIL. Geri bildirim run.json içinde; düzeltme için yeniden çalıştır: flowloop run ${summary.jiraKey ?? "<görev>"}`);
     }
     log.ok("Reviewer PASS");
     approved = workingTreeHash(wt, X);
@@ -909,8 +909,8 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     });
     if (d.action !== "approve") {
       fail(d.action === "revise"
-        ? "Sürdürmede değişiklik isteği desteklenmiyor. İsteğini görev dosyasına ekleyip görevi yeniden çalıştır: kgflow run <görev> --plan-onayi"
-        : `Değişiklikler onaylanmadı; commit yapılmadı. Sonra tekrar: kgflow resume ${summary.id}`);
+        ? "Sürdürmede değişiklik isteği desteklenmiyor. İsteğini görev dosyasına ekleyip görevi yeniden çalıştır: flowloop run <görev> --plan-onayi"
+        : `Değişiklikler onaylanmadı; commit yapılmadı. Sonra tekrar: flowloop resume ${summary.id}`);
     }
     summary.userApproved = true;
     saveSummary();

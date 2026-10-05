@@ -74,7 +74,7 @@ export class SdkAgentRunner implements AgentRunner {
 
     const builtinTools = req.perms.tools.filter((t) => !t.startsWith("mcp__"));
     const mcpServers: Record<string, any> = { ...(req.extraMcpServers ?? {}) };
-    if (req.mutant) mcpServers.kgflow = await createMutantServer(req.mutant);
+    if (req.mutant) mcpServers.flowloop = await createMutantServer(req.mutant);
     const settingSources: ("user" | "project" | "local")[] = req.isolation
       ? req.claudeMd
         ? ["project"]
@@ -99,7 +99,7 @@ export class SdkAgentRunner implements AgentRunner {
           ANTHROPIC_API_KEY: getCredential("ANTHROPIC_API_KEY"),
           CLAUDE_CODE_OAUTH_TOKEN: getCredential("CLAUDE_CODE_OAUTH_TOKEN"),
           ...(process.env.CLAUDE_CODE_USE_BEDROCK ? Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith("AWS_"))) : {}),
-          CLAUDE_AGENT_SDK_CLIENT_APP: `kgflow/${currentVersion()}`,
+          CLAUDE_AGENT_SDK_CLIENT_APP: `flowloop/${currentVersion()}`,
         }),
         // 1. katman: HER araç çağrısı (okuma dahil) buradan geçer
         hooks: {
@@ -116,7 +116,7 @@ export class SdkAgentRunner implements AgentRunner {
                     hookSpecificOutput: {
                       hookEventName: "PreToolUse" as const,
                       permissionDecision: d.allow ? ("allow" as const) : ("deny" as const),
-                      permissionDecisionReason: d.allow ? "kgflow policy" : d.reason,
+                      permissionDecisionReason: d.allow ? "flowloop policy" : d.reason,
                       ...(d.allow && rewritten ? { updatedInput: rewritten } : {}),
                     },
                   };

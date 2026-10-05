@@ -4,23 +4,27 @@ import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
-export const KGFLOW_DIR = ".kgflow";
-/** kgflow setup'ta önerilen Jira adresi (sadece öneri; kodun içinde sabit kullanılmaz). */
+export const FLOWLOOP_DIR = ".flowloop";
+/** flowloop setup'ta önerilen Jira adresi (sadece öneri; kodun içinde sabit kullanılmaz). */
 export const DEFAULT_JIRA_BASE = "https://kolaygelsin.atlassian.net";
 
-/** Kullanıcı ayarları (tüm projeler için): ~/.kgflow/config.json — kgflow setup yazar */
+/** Kullanıcı ayarları (tüm projeler için): ~/.flowloop/config.json — flowloop setup yazar */
 export interface UserConfig {
   jiraBaseUrl?: string;
 }
 export function userConfigFile(home = os.homedir()): string {
-  return path.join(home, ".kgflow", "config.json");
+  return path.join(home, ".flowloop", "config.json");
 }
 export function readUserConfig(home = os.homedir()): UserConfig {
-  try {
-    return JSON.parse(fs.readFileSync(userConfigFile(home), "utf8")) as UserConfig;
-  } catch {
-    return {};
+  // eski adla (kgflow) yazılmış ayar da okunur
+  for (const f of [userConfigFile(home), path.join(home, ".kgflow", "config.json")]) {
+    try {
+      return JSON.parse(fs.readFileSync(f, "utf8")) as UserConfig;
+    } catch {
+      /* sıradaki */
+    }
   }
+  return {};
 }
 export function writeUserConfig(patch: UserConfig, home = os.homedir()): void {
   const f = userConfigFile(home);
@@ -63,8 +67,8 @@ export function parseJiraLink(s: string): { base: string; key: string } | undefi
 }
 
 /**
- * Kullanılacak Jira adresi: kgflow.yaml (jira.baseUrl) → JIRA_BASE_URL → kgflow setup'ta girilen adres.
- * Hiçbiri yoksa "" (kgflow setup ile girilmesi istenir).
+ * Kullanılacak Jira adresi: flowloop.yaml (jira.baseUrl) → JIRA_BASE_URL → flowloop setup'ta girilen adres.
+ * Hiçbiri yoksa "" (flowloop setup ile girilmesi istenir).
  */
 export function jiraBaseUrl(cfg: { jira: { baseUrl: string } }, home = os.homedir()): string {
   const v = cfg.jira.baseUrl || process.env.JIRA_BASE_URL || readUserConfig(home).jiraBaseUrl || "";
@@ -76,7 +80,7 @@ export function globalJiraBase(home = os.homedir()): string {
   return normalizeJiraBase(process.env.JIRA_BASE_URL || readUserConfig(home).jiraBaseUrl || "");
 }
 export const DEFAULT_PROJECT_DOCS = ["CLAUDE.md", "AGENTS.md", ".cursorrules", ".cursor/rules/*.mdc", ".github/copilot-instructions.md", ".windsurfrules"];
-export const CONFIG_FILE = path.join(KGFLOW_DIR, "kgflow.yaml");
+export const CONFIG_FILE = path.join(FLOWLOOP_DIR, "flowloop.yaml");
 
 const roleOverride = z
   .object({
@@ -100,12 +104,12 @@ export const configSchema = z
     stack: z.string().default("other"),
     /** Boş = otomatik: production → main → master (önce origin/...) */
     baseBranch: z.string().default(""),
-    /** {{jira}}, {{slug}}, {{date}}. {{jira}} bulunamazsa "kgflow/{{slug}}-{{date}}" kullanılır. */
-    branchName: z.string().default("kgflow/{{slug}}-{{date}}"),
-    /** Jira entegrasyonu: `kgflow run IDT-1234` görev dosyasını Jira'dan üretir. */
+    /** {{jira}}, {{slug}}, {{date}}. {{jira}} bulunamazsa "flowloop/{{slug}}-{{date}}" kullanılır. */
+    branchName: z.string().default("flowloop/{{slug}}-{{date}}"),
+    /** Jira entegrasyonu: `flowloop run IDT-1234` görev dosyasını Jira'dan üretir. */
     jira: z
       .object({
-        /** Boş = JIRA_BASE_URL, o da yoksa kgflow setup'ta girilen adres (~/.kgflow/config.json) */
+        /** Boş = JIRA_BASE_URL, o da yoksa flowloop setup'ta girilen adres (~/.flowloop/config.json) */
         baseUrl: z.string().default(""),
         /** İş bitince Jira kaydına kısa özet yorumu ekle (sorun / yapılan / neden + branch, commit, PR). */
         comment: z.boolean().default(true),
@@ -159,7 +163,7 @@ export const configSchema = z
       })
       .strict()
       .default({ servers: ["auto"], tools: ["search_similar", "read_graph", "get_implementation"], roles: ["analist", "developer", "reviewer"] }),
-    /** kgflow'e özel ek kurallar (opsiyonel). */
+    /** flowloop'e özel ek kurallar (opsiyonel). */
     rules: z.array(z.string()).default([]),
     /** Teknoloji özeti; init tarafından üretilir, düzenlenebilir. Tüm rollere verilir. */
     tech: z.string().default(""),
@@ -212,18 +216,18 @@ export const configSchema = z
       })
       .strict()
       .default({ bin: "", model: "", timeoutMin: 30, extraArgs: [] }),
-    /** Worktree ve çalıştırma dosyalarının yeri. Boş = ~/.kgflow/work */
+    /** Worktree ve çalıştırma dosyalarının yeri. Boş = ~/.flowloop/work */
     workDir: z.string().default(""),
   })
   .strict();
 
-export type KgflowConfig = z.infer<typeof configSchema>;
+export type FlowloopConfig = z.infer<typeof configSchema>;
 
 export class ConfigError extends Error {}
 
-export function loadConfig(root: string): KgflowConfig {
+export function loadConfig(root: string): FlowloopConfig {
   const file = path.join(root, CONFIG_FILE);
-  if (!fs.existsSync(file)) throw new ConfigError(`${CONFIG_FILE} bulunamadı. Önce: kgflow init`);
+  if (!fs.existsSync(file)) throw new ConfigError(`${CONFIG_FILE} bulunamadı. Önce: flowloop init`);
   let raw: unknown;
   try {
     raw = parseYaml(fs.readFileSync(file, "utf8"));
@@ -231,7 +235,7 @@ export function loadConfig(root: string): KgflowConfig {
     throw new ConfigError(`${CONFIG_FILE} geçerli YAML değil: ${(e as Error).message}`);
   }
   if (raw && typeof raw === "object" && (raw as { version?: unknown }).version === 1) {
-    throw new ConfigError(`${CONFIG_FILE} eski sürüm (version: 1). Yeniden oluştur: kgflow init --force`);
+    throw new ConfigError(`${CONFIG_FILE} eski sürüm (version: 1). Yeniden oluştur: flowloop init --force`);
   }
   const r = configSchema.safeParse(raw);
   if (!r.success) {
@@ -247,56 +251,63 @@ export function loadConfig(root: string): KgflowConfig {
   return r.data;
 }
 
-export function workDirFor(cfg: KgflowConfig, root: string): string {
-  const base = cfg.workDir ? path.resolve(root, cfg.workDir) : path.join(os.homedir(), ".kgflow", "work");
+export function workDirFor(cfg: FlowloopConfig, root: string): string {
+  const base = cfg.workDir ? path.resolve(root, cfg.workDir) : path.join(os.homedir(), ".flowloop", "work");
   return path.join(base, path.basename(root));
 }
 
-/** Eski adla (ekip) yapılmış çalıştırmaların yeri; resume/runs/clean onları da bulur. */
-export function legacyWorkDirFor(cfg: KgflowConfig, root: string): string | undefined {
-  return cfg.workDir ? undefined : path.join(os.homedir(), ".ekip", "work", path.basename(root));
+/** Eski adlarla (kgflow, ekip) kullanılan klasör adları; eski kayıtlar bulunmaya devam eder. */
+export const LEGACY_NAMES = ["kgflow", "ekip"] as const;
+
+/** Eski adlarla yapılmış çalıştırmaların yerleri; resume/runs/clean onları da bulur. */
+export function legacyWorkDirsFor(cfg: FlowloopConfig, root: string): string[] {
+  return cfg.workDir ? [] : LEGACY_NAMES.map((n) => path.join(os.homedir(), `.${n}`, "work", path.basename(root)));
 }
 
-export function workDirsFor(cfg: KgflowConfig, root: string): string[] {
-  return [workDirFor(cfg, root), legacyWorkDirFor(cfg, root)].filter((d): d is string => !!d && fs.existsSync(d));
+export function workDirsFor(cfg: FlowloopConfig, root: string): string[] {
+  return [workDirFor(cfg, root), ...legacyWorkDirsFor(cfg, root)].filter((d) => fs.existsSync(d));
 }
 
 /**
- * .kgflow/ klasörünü projenin .gitignore'una ekler (dosya yoksa oluşturur).
- * Eski ".ekip" satırı varsa yerinde ".kgflow/" olarak değiştirir.
+ * .flowloop/ klasörünü projenin .gitignore'una ekler (dosya yoksa oluşturur).
+ * Eski ".kgflow" / ".ekip" satırı varsa yerinde ".flowloop/" olarak değiştirir.
  * Dönüş: "created" | "added" | "renamed" | "exists"
  */
 export function ensureGitignore(root: string): "created" | "added" | "renamed" | "exists" {
   const file = path.join(root, ".gitignore");
-  const entry = `${KGFLOW_DIR}/`;
+  const entry = `${FLOWLOOP_DIR}/`;
   const matches = (l: string, dir: string) => new RegExp(`^/?${dir.replace(".", "\\.")}/?(\\*\\*)?$`).test(l.trim());
   if (!fs.existsSync(file)) {
-    fs.writeFileSync(file, `# kgflow (AI geliştirme akışı) yerel dosyaları\n${entry}\n`);
+    fs.writeFileSync(file, `# flowloop (AI geliştirme akışı) yerel dosyaları\n${entry}\n`);
     return "created";
   }
   const text = fs.readFileSync(file, "utf8");
   const lines = text.split("\n");
-  if (lines.some((l) => matches(l, KGFLOW_DIR))) return "exists";
-  const legacy = lines.findIndex((l) => matches(l, ".ekip"));
+  if (lines.some((l) => matches(l, FLOWLOOP_DIR))) return "exists";
+  const legacy = lines.findIndex((l) => LEGACY_NAMES.some((n) => matches(l, `.${n}`)));
   if (legacy >= 0) {
     lines[legacy] = entry;
     fs.writeFileSync(file, lines.join("\n"));
     return "renamed";
   }
-  fs.writeFileSync(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}\n# kgflow (AI geliştirme akışı) yerel dosyaları\n${entry}\n`);
+  fs.writeFileSync(file, `${text}${text && !text.endsWith("\n") ? "\n" : ""}\n# flowloop (AI geliştirme akışı) yerel dosyaları\n${entry}\n`);
   return "added";
 }
 
 /**
- * Proje eski adla (.ekip/ekip.yaml) kurulmuşsa .kgflow/kgflow.yaml'a taşır.
- * Sadece kgflow'un kendi klasörüne dokunur. Taşındıysa true döner.
+ * Proje eski adla (.kgflow/kgflow.yaml ya da .ekip/ekip.yaml) kurulmuşsa .flowloop/flowloop.yaml'a taşır.
+ * Sadece flowloop'un kendi klasörüne dokunur. Taşındıysa eski adı döner.
  */
-export function migrateLegacyProject(root: string): boolean {
-  const legacy = path.join(root, ".ekip");
-  const dir = path.join(root, KGFLOW_DIR);
-  if (fs.existsSync(dir) || !fs.existsSync(legacy)) return false;
-  fs.renameSync(legacy, dir);
-  const oldYaml = path.join(dir, "ekip.yaml");
-  if (fs.existsSync(oldYaml) && !fs.existsSync(path.join(root, CONFIG_FILE))) fs.renameSync(oldYaml, path.join(root, CONFIG_FILE));
-  return true;
+export function migrateLegacyProject(root: string): string | undefined {
+  const dir = path.join(root, FLOWLOOP_DIR);
+  if (fs.existsSync(dir)) return undefined;
+  for (const n of LEGACY_NAMES) {
+    const legacy = path.join(root, `.${n}`);
+    if (!fs.existsSync(legacy)) continue;
+    fs.renameSync(legacy, dir);
+    const oldYaml = path.join(dir, `${n}.yaml`);
+    if (fs.existsSync(oldYaml) && !fs.existsSync(path.join(root, CONFIG_FILE))) fs.renameSync(oldYaml, path.join(root, CONFIG_FILE));
+    return n;
+  }
+  return undefined;
 }

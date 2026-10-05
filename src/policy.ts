@@ -56,7 +56,7 @@ export function rewriteAliasPaths(ctx: PolicyContext, input: Record<string, unkn
 export type Decision = { allow: true } | { allow: false; reason: string };
 
 // .cursor/hooks.json ve .cursor/cli.json: Cursor kullanılırken yetki kurallarını taşır; ajan değiştiremez
-const ALWAYS_EDIT_DENY = [".git/**", ".git", ".kgflow/**", ".cursor/hooks.json", ".cursor/cli.json"];
+const ALWAYS_EDIT_DENY = [".git/**", ".git", ".flowloop/**", ".cursor/hooks.json", ".cursor/cli.json"];
 const FILE_TOOLS_EDIT = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 
 function realish(p: string): string {
@@ -166,7 +166,7 @@ export function evaluate(perms: RolePermissions, ctx: PolicyContext, toolName: s
     }
     default:
       if (FILE_TOOLS_EDIT.has(toolName)) return checkPath(ctx, input.file_path, perms.edit, "yazma");
-      // TodoWrite, mcp__kgflow__* gibi yan etkisi bizim kontrolümüzde olan araçlar
+      // TodoWrite, mcp__flowloop__* gibi yan etkisi bizim kontrolümüzde olan araçlar
       return { allow: true };
   }
 }

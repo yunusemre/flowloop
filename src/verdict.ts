@@ -16,7 +16,7 @@ export function parseVerdict(text: string): { verdict: Verdict; feedback: string
   return { verdict: "FAIL", feedback: text.trim() + "\n\n(Reviewer son satırda VERDICT yazmadı; FAIL sayıldı.)", explicit: false };
 }
 
-/** FAIL geri bildiriminden kgflow hafızasına yazılacak kısa dersleri çıkarır. */
+/** FAIL geri bildiriminden flowloop hafızasına yazılacak kısa dersleri çıkarır. */
 export function extractLessons(feedback: string, max = 6): string[] {
   return feedback
     .split("\n")

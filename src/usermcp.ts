@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 
 /**
- * Kullanıcının Claude Code'da tanımlı MCP sunucularını bulur (sadece kgflow.yaml'da
+ * Kullanıcının Claude Code'da tanımlı MCP sunucularını bulur (sadece flowloop.yaml'da
  * adı verilenler). Kaynaklar: ~/.claude.json (kullanıcı ve proje kapsamı) ve repodaki .mcp.json.
  */
 export type McpConfig = Record<string, unknown>;

@@ -8,7 +8,7 @@ Değişiklikler henüz commit'lenmedi. `git status --porcelain` (yeni dosyalar `
 görünür, onları Read ile oku) ve `git diff` ile incele. Base: {{baseBranch}}
 Plan: `{{planFile}}` · Kurallar ve teknoloji: `{{rulesFile}}`
 
-Otomatik kontrollerin sonucu (kgflow çalıştırdı, hepsi geçti):
+Otomatik kontrollerin sonucu (flowloop çalıştırdı, hepsi geçti):
 {{checks}}
 
 {{#userRequests}}

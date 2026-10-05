@@ -75,7 +75,7 @@ export function changedPaths(cwd: string, exclude: string[] = []): string[] {
  */
 export function workingTreeHash(cwd: string, exclude: string[] = []): string {
   const gitDir = gitOk(["rev-parse", "--absolute-git-dir"], cwd);
-  const tmp = path.join(os.tmpdir(), `kgflow-index-${process.pid}-${Date.now()}`);
+  const tmp = path.join(os.tmpdir(), `flowloop-index-${process.pid}-${Date.now()}`);
   try {
     const realIndex = path.join(gitDir, "index");
     if (fs.existsSync(realIndex)) fs.copyFileSync(realIndex, tmp);
@@ -98,7 +98,7 @@ export function workingTreeHash(cwd: string, exclude: string[] = []): string {
  */
 export function diffAgainst(cwd: string, base: string, exclude: string[] = [], opts: { stat?: boolean; color?: boolean } = {}): string {
   const gitDir = gitOk(["rev-parse", "--absolute-git-dir"], cwd);
-  const tmp = path.join(os.tmpdir(), `kgflow-diff-${process.pid}-${Date.now()}`);
+  const tmp = path.join(os.tmpdir(), `flowloop-diff-${process.pid}-${Date.now()}`);
   try {
     const realIndex = path.join(gitDir, "index");
     if (fs.existsSync(realIndex)) fs.copyFileSync(realIndex, tmp);

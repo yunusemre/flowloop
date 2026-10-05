@@ -7,7 +7,7 @@ import { gitOk } from "../src/git.js";
 import { remoteLinks } from "../src/remote.js";
 
 function repoWith(url: string) {
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-rem-"));
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-rem-"));
   gitOk(["init", "-q"], d);
   gitOk(["remote", "add", "origin", url], d);
   return d;

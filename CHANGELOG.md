@@ -6,6 +6,16 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.1.0 — 2026-10-05
+
+### Değişen
+- **Projenin adı flowloop oldu** (repo adıyla aynı): komut `flowloop`, proje ayarı `.flowloop/flowloop.yaml`, kullanıcı klasörü `~/.flowloop`, ortam değişkenleri `FLOWLOOP_*`, branch öneki `flowloop/`.
+
+### Uyumluluk
+- `kgflow` komutu bir süre daha çalışır (uyarı verir).
+- Projedeki `.kgflow/` (ve daha eski `.ekip/`) klasörü ilk komutta `.flowloop/`'a taşınır.
+- Anahtar Zinciri'ndeki "kgflow" kayıtları, `~/.kgflow/config.json`, kurulum kaydı ve eski çalıştırmalar okunmaya devam eder; gizliler ilk kullanımda yeni yere taşınır.
+
 ## 1.0.0 — 2026-10-05
 
 İlk sürüm.

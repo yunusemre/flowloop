@@ -10,7 +10,7 @@ import { detectMemoryServers, loadMcpServers } from "../src/usermcp.js";
 import { fakeHome } from "./helpers.js";
 
 test("~/.claude.json'dan MCP sunucuları; hafıza sunucusu tespiti", () => {
-  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-repo-"));
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-repo-"));
   const home = fakeHome(repo);
   assert.deepEqual(detectMemoryServers(repo, home), ["kgs-app-memory"]);
   const { servers, missing } = loadMcpServers(["kgs-app-memory", "yok"], repo, home);
@@ -37,7 +37,7 @@ test("hafıza araçları: sadece salt okuma ve sadece seçili roller", () => {
 });
 
 test("hafızanın döndürdüğü asıl repo yolları çalışma kopyasına çevrilir", () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), "kgflow-alias-"));
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-alias-"));
   const repo = path.join(base, "kgs-app");
   const wt = path.join(base, "wt");
   for (const d of [repo, wt]) fs.mkdirSync(path.join(d, "src"), { recursive: true });
