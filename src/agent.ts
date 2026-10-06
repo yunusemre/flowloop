@@ -22,6 +22,8 @@ export interface AgentRequest {
   extraMcpServers?: Record<string, unknown>;
   /** Ajanın erişebileceği ek klasörler (ilgili repoların çalışma kopyaları) */
   extraDirs?: string[];
+  /** Bütçe dolduğunda aynı oturumdan devam etmek için önceki oturum kimliği */
+  resumeSessionId?: string;
   log: Logger;
 }
 
@@ -41,6 +43,8 @@ export interface AgentResult {
   denials: Denial[];
   /** Bu oturumda gerçekten kullanılan model kimlikleri (SDK'nın raporladığı) */
   models?: string[];
+  /** Rolün bütçesi dolduğu için durdu (aynı oturumdan devam edilebilir) */
+  budgetExceeded?: boolean;
 }
 
 /** Ajan çalıştırıcı soyutlaması: gerçek hâli SDK, testlerde sahte ajan. */
@@ -90,6 +94,7 @@ export class SdkAgentRunner implements AgentRunner {
         additionalDirectories: [req.runRoot, ...(req.extraDirs ?? [])],
         model: req.model,
         maxBudgetUsd: req.budgetUsd,
+        ...(req.resumeSessionId ? { resume: req.resumeSessionId } : {}),
         permissionMode: "default",
         tools: builtinTools,
         mcpServers,
@@ -141,6 +146,7 @@ export class SdkAgentRunner implements AgentRunner {
     let sessionId: string | undefined;
     let error: string | undefined;
     let ok = false;
+    let budgetExceeded = false;
     const models = new Set<string>();
     for await (const msg of q) {
       if (msg.type === "assistant") {
@@ -157,10 +163,56 @@ export class SdkAgentRunner implements AgentRunner {
           ok = true;
           text = msg.result;
         } else {
+          budgetExceeded = msg.subtype === "error_max_budget_usd";
           error = `${msg.subtype}${msg.errors?.length ? ": " + msg.errors.join("; ") : ""}`;
         }
       }
     }
-    return { ok, text, costUsd: cost, sessionId, error, denials, models: [...models] };
+    return { ok, text, costUsd: cost, sessionId, error, denials, models: [...models], budgetExceeded };
   }
+}
+
+export const CONTINUE_PROMPT =
+  "Bu rol için ayrılan bütçe dolduğu için durdun; kullanıcı ek bütçe verdi. Kaldığın yerden devam et ve görevi " +
+  "tamamla. Baştan başlama, yaptıklarını tekrarlama. Talimatlar ve yetkiler aynı.";
+
+export interface BudgetRequest {
+  role: string;
+  /** Rol için bu çağrıda ayrılan bütçe */
+  budgetUsd: number;
+  /** Bu rol çağrısında şimdiye kadar harcanan (tahmini) */
+  spentUsd: number;
+  /** Bütün çalıştırmada harcanan (tahmini) */
+  totalSpentUsd: number;
+}
+
+/**
+ * Ajanı çalıştırır; rolün bütçesi dolarsa extendBudget ile ek bütçe istenir ve aynı oturumdan
+ * (kaldığı yerden) devam edilir. Dönen sonuçta maliyet bütün devamların toplamıdır.
+ */
+export async function runWithBudget(
+  agent: AgentRunner,
+  req: AgentRequest,
+  o: { extendBudget?: (b: BudgetRequest) => Promise<number>; totalSpentBefore: number; onExtend?: (extra: number) => void },
+): Promise<AgentResult> {
+  let res = await agent.run(req);
+  let total = res.costUsd;
+  let sessionCost = res.costUsd;
+  const denials = [...res.denials];
+  const models = new Set(res.models ?? []);
+  while (!res.ok && res.budgetExceeded && res.sessionId && o.extendBudget) {
+    const extra = await o.extendBudget({ role: req.role, budgetUsd: req.budgetUsd, spentUsd: total, totalSpentUsd: o.totalSpentBefore + total });
+    if (!(extra > 0)) break;
+    o.onExtend?.(extra);
+    req.log.info(`  ${req.role}: +$${extra.toFixed(2)} ek bütçeyle kaldığı yerden devam ediyor…`);
+    const r2 = await agent.run({ ...req, prompt: CONTINUE_PROMPT, resumeSessionId: res.sessionId, budgetUsd: extra });
+    // devam edilen oturumun maliyeti önceki turları da içerir; sadece yeni harcamayı ekle
+    const delta = r2.costUsd >= sessionCost ? r2.costUsd - sessionCost : r2.costUsd;
+    sessionCost = Math.max(sessionCost, r2.costUsd);
+    total += delta;
+    denials.push(...r2.denials);
+    (r2.models ?? []).forEach((m) => models.add(m));
+    res = r2;
+  }
+  return { ...res, costUsd: total, denials, models: [...models] };
 }

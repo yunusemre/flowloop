@@ -12,6 +12,7 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **Birbirine bağımlı projeler (`related`):** bir görevde birden fazla repo. Her ilgili repo için temiz çalışma kopyası; ajanlar hepsini okuyabilir, `edit` verilen yollarda değişiklik yapılabilir. Kontroller her repoda o reponun komutlarıyla çalışır; onayda bütün farklar birlikte görünür; değişen her repo ayrı branch, commit, push ve PR ile teslim edilir; Jira yorumunda hepsi listelenir. Yetkiler Claude'da da Cursor'da da aynı kurallarla zorlanır. Git reposu olmayan ortak klasörler de sadece okunur olarak eklenebilir.
 
 ### Değişen
+- **Bütçe dolunca durmak yerine sorulur:** bir rolün bütçesi dolarsa ("reached maximum budget") etkileşimli terminalde ek bütçe istenir; onaylanırsa ajan aynı oturumdan, kaldığı yerden devam eder (maliyet çift sayılmaz). Onaylanmazsa hangi ayarın artırılacağı yazılır.
 - `paths.edit` varsayılanı artık `**` (bütün repo). Gizli dosyalara (`readDeny`), `.git`'e, `.flowloop`'a ve bağlanan klasörlere (`node_modules`) yine yazılamaz. İstenirse `src/**` gibi daraltılabilir.
 
 ### Düzeltme

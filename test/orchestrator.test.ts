@@ -156,7 +156,7 @@ for (const [name, scripts, expected] of violations) {
 
 test("bütçe aşılırsa durur", async () => {
   const { err } = await run({ reviewer: () => "VERDICT: FAIL" }, "", 1.2);
-  assert.match(err!, /Bütçe bitti/);
+  assert.match(err!, /bütçe doldu/);
 });
 
 test("kirli yerel çalışma alanı engel değil; iş temiz base'den başlar", async () => {
@@ -709,4 +709,49 @@ test("ortak klasör (git değil): sadece okunur eklenir, olduğu yerden okunur; 
   const { loadConfig } = await import("../src/config.js");
   fs.appendFileSync(path.join(main, ".flowloop/flowloop.yaml"), "    edit: [\"**\"]\n");
   assert.throws(() => loadConfig(main), /git reposu değil; sadece okunur eklenebilir/);
+});
+
+// ───────────── bütçe ─────────────
+class BudgetAgent extends FakeAgent {
+  resumes: AgentRequest[] = [];
+  private analistRuns = 0;
+  async run(req: AgentRequest): Promise<AgentResult> {
+    if (req.role === "analist" && !req.resumeSessionId && this.analistRuns++ === 0) {
+      return { ok: false, text: "", costUsd: 1.05, sessionId: "s-analist", error: "error_max_budget_usd", denials: [], models: ["m"], budgetExceeded: true };
+    }
+    if (req.resumeSessionId) {
+      this.resumes.push(req);
+      fs.writeFileSync(path.join(req.runRoot, "plan.md"), "# Plan\nAK-1: ekspres +50\n");
+      // devam eden oturumun maliyeti öncekini de içerir (1.05 + 0.40)
+      return { ok: true, text: "tamam", costUsd: 1.45, sessionId: "s-analist", denials: [], models: ["m"] };
+    }
+    return super.run(req);
+  }
+}
+
+test("bütçe dolunca ek bütçe verilirse ajan aynı oturumdan devam eder; maliyet çift sayılmaz", async () => {
+  const agent = new BudgetAgent(good);
+  const asked: number[] = [];
+  const root = makeRepo("");
+  const s = await runTask({
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true,
+    extendBudget: async (b) => (asked.push(b.spentUsd), 1),
+  });
+  assert.equal(s.status, "success");
+  assert.deepEqual(asked, [1.05]);
+  assert.equal(agent.resumes.length, 1);
+  assert.equal(agent.resumes[0].resumeSessionId, "s-analist");
+  assert.match(agent.resumes[0].prompt, /Kaldığın yerden devam et/);
+  assert.equal(agent.resumes[0].budgetUsd, 1);
+  const analist = s.phases.find((p) => p.role === "analist")!;
+  assert.equal(Math.round(analist.costUsd * 100) / 100, 1.45, "1.05 + 0.40 (çift sayım yok)");
+});
+
+test("bütçe dolar ve ek bütçe verilmezse ne yapılacağı söylenir", async () => {
+  const agent = new BudgetAgent(good);
+  const root = makeRepo("");
+  await assert.rejects(
+    runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true }),
+    /analist için ayrılan bütçe doldu[\s\S]*budgets\.analist \(şu an \$1\.00\)/,
+  );
 });

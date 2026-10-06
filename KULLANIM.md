@@ -356,7 +356,7 @@ En çok değiştirilenler:
 | `commands.format` | Ör. `npx prettier --write {{files}}`; her turdan sonra otomatik çalışır |
 | `paths.edit` | Developer'ın değiştirebileceği yollar. Varsayılan `**` (bütün repo); gizli dosyalara (`readDeny`), `.git`'e ve `.flowloop`'a yine yazılamaz. Daraltmak için ör. `src/**` |
 | `paths.readDeny` | Hiçbir rolün okuyamayacağı dosyalar (`.env` gibi) |
-| `budgets` | Rol başına ve toplam dolar limiti |
+| `budgets` | Rol başına (`analist`, `gelistir`, `commit`) ve toplam (`total`) dolar limiti; tutarlar SDK'nın tahminidir. Dolunca etkileşimli terminalde ek bütçe sorulur |
 | `maxIterations` | Developer ⇄ reviewer tur sayısı (varsayılan 3) |
 | `agent` | `auto` / `claude` / `cursor` |
 | `cursor.model` / `cursor.timeoutMin` | Cursor modeli / rol başına süre sınırı |
@@ -396,6 +396,7 @@ Gerisi kendiliğinden olur:
 | `zsh: permission denied: flowloop` | `flowloop update` (yeniden derler) ya da kurulum klasöründe `npm run build` |
 | npm yetki hatası (`EACCES`) | `FLOWLOOP_FORCE_NVM=1` ile kur (sudo'suz Node kurulumu) |
 | `Jira yetki hatası (401)` / `Jira kimlik bilgisi yok` | `flowloop setup --force` ile token'ı yenile; kayda erişimin olmalı |
+| `... için ayrılan bütçe doldu` / `reached maximum budget` | Etkileşimli terminalde flowloop ek bütçe sorar; `[e]` ile ajan kaldığı yerden devam eder. Kalıcı olarak artırmak için `.flowloop/flowloop.yaml` → `budgets` (ör. `analist: 2`, `total: 10`). Büyük projelerde ve `related` ile birden fazla repo okunurken analist daha çok harcar |
 | `N turda onay alınamadı` | Son geri bildirim `flowloop runs` ile bulunan klasördeki `run.json` dosyasında. Kontroller düzeldiyse `flowloop resume <id> -v` |
 | `YENİ lint hatası` sürekli çıkıyor | Projede Prettier ile ESLint kuralları çakışıyor olabilir. `.eslintrc`'de `extends` listesinin sonuna `'prettier'` ekle |
 | `PROJ-…-2` gibi branch açıldı | Aynı adlı eski branch'te commit var. Eskisini incele ya da sil |

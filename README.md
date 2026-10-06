@@ -97,7 +97,7 @@ flowloop'un kendisi üzerinde çalışacaksan istediğin bir klasöre clone'lay�
 
 ```bash
 git clone https://github.com/yunusemre/flowloop.git && cd flowloop && ./install.sh
-npm test   # 101 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
+npm test   # 104 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
 ```
 
 ### Sürüm çıkarmak

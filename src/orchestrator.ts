@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import picomatch from "picomatch";
-import type { AgentRequest, AgentResult, AgentRunner, Denial } from "./agent.js";
+import { runWithBudget, type AgentRequest, type AgentResult, type AgentRunner, type BudgetRequest, type Denial } from "./agent.js";
 import { ScopedChecks, renderReport, type CheckResult, type CheckRunner } from "./checks.js";
 import { FLOWLOOP_DIR, jiraBaseUrl, loadConfig, workDirFor, workDirsFor } from "./config.js";
 import { changedExisting, changedPaths, diffAgainst, fillFiles, git, gitOk, headSha, runConfigured, statusPorcelain, workingTreeHash } from "./git.js";
@@ -115,6 +115,11 @@ export interface RunOptions {
    * Verilmezse onay beklenmeden commit'e geçilir (etkileşimsiz kullanım).
    */
   reviewChanges?: (info: ChangeReviewInfo) => Promise<ChangeDecision>;
+  /**
+   * Bir rolün bütçesi dolduğunda sorulur; dönen tutar (USD) kadar ek bütçeyle ajan kaldığı yerden
+   * devam eder. 0 = durdur. Verilmezse bütçe dolunca çalıştırma durur.
+   */
+  extendBudget?: (b: BudgetRequest) => Promise<number>;
   now?: () => Date;
   /** Testlerde kontrol komutlarını taklit etmek için */
   checkRunner?: CheckRunner;
@@ -397,6 +402,25 @@ function combinedDiff(wt: string, baseSha: string, X: string[], related: Related
   return `━━ ana proje ━━\n${main.trim() ? main : "(değişiklik yok)\n"}${rest.join("")}`;
 }
 
+const PHASE_BUDGET: Record<string, "analist" | "gelistir" | "commit"> = { analist: "analist", gelistir: "gelistir", commit: "commit" };
+
+/** Kullanıcı ek bütçe verdi: o aşamanın ve toplamın sınırı yükselir (sadece bu çalıştırma için) */
+function raiseBudget(cfg: ReturnType<typeof loadConfig>, phase: string, extra: number): void {
+  const k = PHASE_BUDGET[phase];
+  if (k) cfg.budgets[k] += extra;
+  cfg.budgets.total += extra;
+}
+
+/** Bütçe dolunca ne yapılacağını anlatan mesaj */
+function budgetMessage(cfg: ReturnType<typeof loadConfig>, phase: string, spent: number, role?: string): string {
+  const k = PHASE_BUDGET[phase] ?? "total";
+  return (
+    `${role ? `${role} için ayrılan` : "Toplam"} bütçe doldu (bu çalıştırmada harcanan: $${spent.toFixed(2)}, tahmini).\n` +
+    `  Artırmak için .flowloop/flowloop.yaml → budgets.${k} (şu an $${cfg.budgets[k].toFixed(2)}) ve budgets.total (şu an $${cfg.budgets.total.toFixed(2)}).\n` +
+    `  Etkileşimli terminalde çalıştırırsan bütçe dolduğunda flowloop ek bütçe sorar ve ajan kaldığı yerden devam eder.`
+  );
+}
+
 export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const { root, log, agent } = opts;
   const now = opts.now ?? (() => new Date());
@@ -560,8 +584,13 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
   const budgetLeft = () => cfg.budgets.total - summary.totalCostUsd;
   const call = async (role: RoleSpec, phase: string, phaseBudgetLeft: number, extraVars: Record<string, string> = {}, iteration?: number): Promise<AgentResult> => {
-    const budget = Math.min(phaseBudgetLeft, budgetLeft());
-    if (budget <= 0.01) fail(`Bütçe bitti (${phase}). Harcanan: $${summary.totalCostUsd.toFixed(2)}`);
+    let budget = Math.min(phaseBudgetLeft, budgetLeft());
+    if (budget <= 0.01) {
+      const extra = opts.extendBudget ? await opts.extendBudget({ role: role.name, budgetUsd: 0, spentUsd: 0, totalSpentUsd: summary.totalCostUsd }) : 0;
+      if (!(extra > 0)) fail(budgetMessage(cfg, phase, summary.totalCostUsd));
+      raiseBudget(cfg, phase, extra);
+      budget = extra;
+    }
     const req: AgentRequest = {
       role: role.name,
       persona: role.persona,
@@ -579,11 +608,12 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       extraDirs: related.map((r) => r.s.wt),
       log,
     };
-    const res = await agent.run(req);
+    const res = await runWithBudget(agent, req, { extendBudget: opts.extendBudget, totalSpentBefore: summary.totalCostUsd, onExtend: (x) => raiseBudget(cfg, phase, x) });
     summary.totalCostUsd += res.costUsd;
     summary.denials.push(...res.denials);
     summary.phases.push({ phase, role: role.name, iteration, costUsd: res.costUsd, sessionId: res.sessionId, models: res.models });
     log.info(`  ${role.name}: $${res.costUsd.toFixed(2)}${res.sessionId ? ` · oturum: ${res.sessionId}` : ""}${res.denials.length ? ` · ${res.denials.length} reddedilen işlem` : ""}`);
+    if (!res.ok && res.budgetExceeded) fail(budgetMessage(cfg, phase, summary.totalCostUsd, role.name));
     if (!res.ok) fail(`${role.name} hata ile bitti: ${res.error ?? "bilinmiyor"}`);
     saveSummary();
     return res;
@@ -974,17 +1004,18 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed()), X, cfg.mutation.testTimeoutSec)
     : undefined;
   const call = async (role: RoleSpec, phase: string, budget: number, extraVars: Record<string, string> = {}): Promise<AgentResult> => {
-    const res = await agent.run({
+    const res = await runWithBudget(agent, {
       role: role.name, persona: role.persona, prompt: render(role.promptTemplate, { ...vars, ...extraVars }), cwd: wt, runRoot, perms: role.perms, policy,
       model: role.model, budgetUsd: budget, isolation: cfg.isolation, claudeMd: false, log,
       mutant: role.name === "reviewer" ? mutant : undefined,
       extraMcpServers: cfg.mcp.roles.includes(role.name) && Object.keys(userMcp).length ? userMcp : undefined,
       extraDirs: related.map((r) => r.s.wt),
-    });
+    }, { extendBudget: opts.extendBudget, totalSpentBefore: summary.totalCostUsd, onExtend: (x) => raiseBudget(cfg, phase, x) });
     summary.totalCostUsd += res.costUsd;
     summary.denials.push(...res.denials);
     summary.phases.push({ phase, role: role.name, costUsd: res.costUsd, sessionId: res.sessionId, models: res.models });
     log.info(`  ${role.name}: $${res.costUsd.toFixed(2)}${res.denials.length ? ` · ${res.denials.length} reddedilen işlem` : ""}`);
+    if (!res.ok && res.budgetExceeded) fail(budgetMessage(cfg, phase, summary.totalCostUsd, role.name));
     if (!res.ok) fail(`${role.name} hata ile bitti: ${res.error ?? "bilinmiyor"}`);
     saveSummary();
     return res;

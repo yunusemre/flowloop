@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline/promises";
 import { parseArgs } from "node:util";
-import { SdkAgentRunner, type AgentRunner } from "./agent.js";
+import { SdkAgentRunner, type AgentRunner, type BudgetRequest } from "./agent.js";
 import { BackendError, chooseBackend, createRunner, type Backend } from "./backend.js";
 import type { MutantContext } from "./cursor.js";
 import { MutantSandbox } from "./mutant.js";
@@ -155,6 +155,26 @@ const readComment = async (): Promise<string> => {
   return lines.join("\n");
 };
 
+/** Bir rolün bütçesi dolunca: ek bütçe ver ve kaldığı yerden devam et ya da durdur */
+async function extendBudgetPrompt(b: BudgetRequest): Promise<number> {
+  const step = b.budgetUsd > 0 ? Math.max(0.5, Math.round(b.budgetUsd * 100) / 100) : 1;
+  console.log(
+    "\n" + color.yellow(`! ${b.role} için ayrılan bütçe doldu`) +
+      color.dim(` (bu rolde $${b.spentUsd.toFixed(2)}, çalıştırmada toplam $${b.totalSpentUsd.toFixed(2)} — SDK'nın tahmini)`),
+  );
+  console.log(`  [e] +$${step.toFixed(2)} ile kaldığı yerden devam et\n  [t] Tutar gir\n  [h] Durdur (sonra .flowloop/flowloop.yaml → budgets ile artırabilirsin)`);
+  for (;;) {
+    const a = (await ask("Seçimin [e/t/h]: ")).trim().toLowerCase();
+    if (a === "e" || a === "evet") return step;
+    if (a === "h" || a === "hayır" || a === "hayir") return 0;
+    if (a === "t") {
+      const n = Number((await ask("Ek bütçe (USD): ")).trim().replace(",", "."));
+      if (n > 0 && n <= 100) return n;
+      console.log(color.yellow("0 ile 100 arasında bir tutar yaz."));
+    }
+  }
+}
+
 /** İş bitince, commit'ten önce: değişiklikleri göster ve kullanıcıya sor */
 async function reviewChangesPrompt(info: ChangeReviewInfo): Promise<ChangeDecision> {
   console.log("\n" + color.bold("━━ İŞ TAMAMLANDI — commit'ten önce senin onayın gerekiyor ━━"));
@@ -264,6 +284,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     reviewPlan,
     // etkileşimli terminalde iş bitince commit'ten önce sorulur; --skip-review ile atlanır
     reviewChanges: !values["dry-run"] && !values["skip-review"] && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+    extendBudget: process.stdin.isTTY ? extendBudgetPrompt : undefined,
   });
   if (s.status === "dry-run") return 0;
   printDone(root, s, log);
@@ -435,6 +456,7 @@ async function main(): Promise<number> {
       const s = await resumeRun({
         root, resume: id, taskFile: "", agent: r.runner, backend: r.backend, log, noPush: rest.includes("--no-push"),
         reviewChanges: !mapLegacyFlags(rest).includes("--skip-review") && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+        extendBudget: process.stdin.isTTY ? extendBudgetPrompt : undefined,
       });
       printDone(root, s, log);
       return 0;
