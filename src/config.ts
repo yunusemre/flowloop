@@ -138,7 +138,11 @@ export const configSchema = z
     linkDirs: z.array(z.string()).default([]),
     paths: z
       .object({
-        edit: z.array(z.string()).min(1),
+        // boş bırakılırsa (YAML'da null) anlaşılır bir mesaj ver
+        edit: z.preprocess(
+          (v) => v ?? [],
+          z.array(z.string()).min(1, `boş olamaz. Developer'ın değiştirebileceği yolları yaz, ör:\n      edit:\n        - "src/**"\n    (ya da "flowloop init --force" ile yeniden algılat)`),
+        ),
         readDeny: z.array(z.string()).default([]),
       })
       .strict(),
@@ -161,6 +165,27 @@ export const configSchema = z
       })
       .strict()
       .default({ servers: ["auto"], tools: ["search_similar", "read_graph", "get_implementation"], roles: ["analist", "developer", "reviewer"] }),
+    /**
+     * Bu projenin bağımlı olduğu diğer repolar (ör. backend). Ajanlar hepsini okuyabilir;
+     * edit verilen yollar developer tarafından değiştirilebilir. Değişiklik olursa o repoda da
+     * aynı adla branch açılır, commit'lenir, push'lanır ve PR bağlantısı verilir.
+     */
+    related: z
+      .array(
+        z
+          .object({
+            /** Kısa ad (ör. cure-backend); yollarda "@ad:" olarak görünür */
+            name: z.string().regex(/^[A-Za-z0-9._-]+$/, "sadece harf, rakam, . _ -"),
+            /** Bilgisayardaki repo yolu; bu projeye göre göreli olabilir (ör. ../cure-backend) */
+            path: z.string().min(1),
+            /** Developer'ın değiştirebileceği yollar; boş = sadece okunur */
+            edit: z.array(z.string()).default([]),
+            /** Boş = o reponun flowloop.yaml'ı, o da yoksa production → main → master */
+            baseBranch: z.string().default(""),
+          })
+          .strict(),
+      )
+      .default([]),
     /** flowloop'e özel ek kurallar (opsiyonel). */
     rules: z.array(z.string()).default([]),
     /** Teknoloji özeti; init tarafından üretilir, düzenlenebilir. Tüm rollere verilir. */
@@ -243,10 +268,22 @@ export function loadConfig(root: string): FlowloopConfig {
   if (!/\{\{(files|testFiles)\}\}/.test(r.data.commands.testRelated)) {
     throw new ConfigError("commands.testRelated {{files}} ya da {{testFiles}} içermeli (sadece bu işin testleri çalışsın).");
   }
+  const names = new Set<string>();
+  for (const rel of r.data.related) {
+    if (names.has(rel.name)) throw new ConfigError(`related: "${rel.name}" adı birden fazla kez kullanılmış`);
+    names.add(rel.name);
+    const p = path.resolve(root, rel.path.replace(/^~(?=\/|$)/, os.homedir()));
+    if (!fs.existsSync(path.join(p, ".git"))) throw new ConfigError(`related.${rel.name}: ${rel.path} bir git reposu değil (${p})`);
+  }
   for (const rf of r.data.rules) {
     if (!fs.existsSync(path.join(root, rf))) throw new ConfigError(`rules: ${rf} bulunamadı`);
   }
   return r.data;
+}
+
+/** related.path'i mutlak yola çevirir (~ ve göreli yollar desteklenir) */
+export function relatedPath(root: string, p: string): string {
+  return path.resolve(root, p.replace(/^~(?=\/|$)/, os.homedir()));
 }
 
 export function workDirFor(cfg: FlowloopConfig, root: string): string {

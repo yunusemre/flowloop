@@ -6,9 +6,18 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.2.0 — 2026-10-06
+
+### Yeni
+- **Birbirine bağımlı projeler (`related`):** bir görevde birden fazla repo. Her ilgili repo için temiz çalışma kopyası; ajanlar hepsini okuyabilir, `edit` verilen yollarda değişiklik yapılabilir. Kontroller her repoda o reponun komutlarıyla çalışır; onayda bütün farklar birlikte görünür; değişen her repo ayrı branch, commit, push ve PR ile teslim edilir; Jira yorumunda hepsi listelenir. Yetkiler Claude'da da Cursor'da da aynı kurallarla zorlanır.
+
+### Düzeltme
+- `src` klasörü olmayan projelerde (ör. .NET) `flowloop init` düzenlenebilir yolları boş bırakıyordu.
+
 ## 1.1.2 — 2026-10-05
 
 ### Düzeltme
+- `src` klasörü olmayan projelerde (ör. proje adlı klasörleri olan .NET çözümleri) `flowloop init` düzenlenebilir yolları boş bırakıyordu ve `flowloop check` "paths.edit: expected array, received null" hatası veriyordu. Artık .csproj klasörleri ya da repodaki üst klasörler önerilir; boş bırakılırsa ne yazılacağı söylenir.
 - Bilgisayarda nvm kuruluysa kurulum betiği "✓ git" satırından sonra sessizce duruyordu (nvm betiği `set -u` ile uyumsuz). nvm artık sadece Node bulunamazsa ve güvenli şekilde yükleniyor.
 - Kurulum beklenmedik bir yerde durursa hangi satırda durduğu yazılıyor.
 

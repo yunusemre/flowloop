@@ -23,6 +23,9 @@ hatalarını (uyarılar bloklamaz){{/lintCmd}} arar. Bunlardan biri başarısız
 Reviewer her AK için kodu bilerek bozup testlerinin kırıldığını kontrol edecek
 (mutasyon testi). Her AK'nın mantığı silinse ya da değişse en az bir test kırılmalı.
 {{/mutation}}
+{{#related}}
+{{related}}
+{{/related}}
 {{#memory}}
 {{memory}}
 {{/memory}}

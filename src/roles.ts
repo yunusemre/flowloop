@@ -56,7 +56,9 @@ export function permissionsFor(name: RoleName, cfg: FlowloopConfig): RolePermiss
 function basePermissions(name: RoleName, cfg: FlowloopConfig): RolePermissions {
   const c = cfg.commands;
   const extra = cfg.roles[name]?.extraBash ?? [];
-  const readAll = ["**", "run:**"];
+  const related = cfg.related ?? [];
+  const readAll = ["**", "run:**", ...related.map((r) => `@${r.name}:**`)];
+  const relatedEdit = related.flatMap((r) => r.edit.map((e) => `@${r.name}:${e}`));
   const gitRead = ["git status", "git diff", "git log", "git show"];
   switch (name) {
     case "analist":
@@ -65,7 +67,7 @@ function basePermissions(name: RoleName, cfg: FlowloopConfig): RolePermissions {
       return {
         tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "TodoWrite"],
         read: readAll,
-        edit: [...cfg.paths.edit],
+        edit: [...cfg.paths.edit, ...relatedEdit],
         // tip kontrolü developer'a açık değil: tüm proje çıktısı çok büyük; flowloop her turdan sonra yeni hataları kendisi raporlar
         bash: prefixes([c.testRelated, c.lint, c.format, "git status", "git diff", ...extra]),
       };
@@ -82,7 +84,8 @@ function basePermissions(name: RoleName, cfg: FlowloopConfig): RolePermissions {
       return {
         tools: ["Read", "Glob", "Grep", "Bash", "Write", "Edit"],
         read: readAll,
-        edit: ["run:summary.md"],
+        // ilgili repoların commit mesajları dosyaya yazılır; commit'i flowloop atar
+        edit: ["run:summary.md", ...related.map((r) => `run:commit-msg-${r.name}.txt`)],
         bash: prefixes([...gitRead, "git add", "git commit", ...extra]),
       };
   }

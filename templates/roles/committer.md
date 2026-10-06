@@ -29,3 +29,13 @@ eklenecek; okuyacak kişi ürün sahibi ve ekip arkadaşları. Türkçe, en fazl
 1-2 madde (eklenen testler; cihazda elle kontrol edilmesi gerekenler varsa onları da yaz).
 
 Kod, gizli bilgi, iç dosya yolu ya da maliyet bilgisi yazma. Branch, commit ve PR bağlantısını flowloop ekleyecek.
+
+{{#related}}
+{{related}}
+{{/related}}
+{{#relatedCommit}}
+{{relatedCommit}}
+{{/relatedCommit}}
+{{#relatedChanges}}
+{{relatedChanges}}
+{{/relatedChanges}}

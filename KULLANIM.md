@@ -267,6 +267,32 @@ Soru sadece etkileşimli bir terminalde sorulur. Sormadan commit'lemek için `--
 - **flowloop'un eklediği kısım:** branch, commit'ler, PR bağlantısı.
 - **İmza:** "Claude ile hazırlandı", kullanılan modeller ve işi başlatan kişi. Commit'lerdeki `Co-Authored-By: Claude` satırı da işi kimin yaptığını gösterir.
 
+## Birbirine bağımlı projeler
+
+Bir projede çalışırken başka bir repoya da bakmak ya da onu da değiştirmek gerekebilir (ör. bir job üzerinde çalışırken backend'deki API'yi değiştirmek). Bu repoları projenin `.flowloop/flowloop.yaml` dosyasına `related` olarak eklersin:
+
+```yaml
+related:
+  - name: backend
+    path: ../backend          # bilgisayardaki yol; bu projeye göre göreli ya da ~/... olabilir
+    edit: ["src/**"]          # developer'ın değiştirebileceği yollar
+  - name: shared-models
+    path: ~/projeler/shared-models
+                              # edit yok → sadece okunur
+```
+
+İstediğin kadar repo ekleyebilirsin. Her biri için:
+
+- **Temiz kopya:** kendi base branch'inden (o reponun `flowloop.yaml`'ı ya da production → main → master) ayrı bir çalışma kopyası açılır. Bilgisayarındaki repoya dokunulmaz.
+- **Okuma:** analist, developer, reviewer ve committer hepsini okuyabilir. O reponun `.env` gibi gizli dosyaları (kendi `readDeny` listesi) okunamaz. O reponun `CLAUDE.md` gibi kural dosyaları da ajanlara verilir.
+- **Yazma:** developer sadece `edit` altındaki yollara yazabilir; dışına yazarsa iş durdurulur. `edit` verilmemiş repo sadece okunur.
+- **Kontroller:** değişen dosyalar için o reponun kendi komutlarıyla format, testler, yeni tip ve lint hataları çalıştırılır. Komutlar o reponun `.flowloop/flowloop.yaml`'ından, yoksa otomatik tespitten gelir. Ajanlar ilgili repoda komut çalıştıramaz; bunu flowloop yapar.
+- **Onay:** reviewer ve sen ([Değişiklik onayı](#değişiklik-onayı)) bütün repoların farkını birlikte görürsünüz.
+- **Teslim:** değişiklik olan her repoda aynı adla branch açılır (`PROJ-1234-...`). Commit mesajını committer yazar, commit'i flowloop atar (commit hook'ları çalışır, içerik onaylananla aynı olmalı). Her repo ayrı push'lanır ve ayrı PR bağlantısı verilir. Jira yorumunda hepsinin branch'i, commit'leri ve PR bağlantısı yazar.
+- **Sadece ilgili repo değişirse:** ana projede branch bırakılmaz; sadece değişen repo teslim edilir.
+
+Mutasyon testi sadece ana projede yapılır. `flowloop check` eklenen repoları, yollarını ve hangi test komutunun kullanılacağını gösterir.
+
 ## Claude yerine Cursor
 
 Claude erişimi yoksa flowloop ajanları **Cursor CLI** ile çalıştırır. Seçim otomatiktir:
@@ -332,6 +358,7 @@ En çok değiştirilenler:
 | `maxIterations` | Developer ⇄ reviewer tur sayısı (varsayılan 3) |
 | `agent` | `auto` / `claude` / `cursor` |
 | `cursor.model` / `cursor.timeoutMin` | Cursor modeli / rol başına süre sınırı |
+| `related` | Bağımlı repolar: `name`, `path`, `edit` (bkz. [Birbirine bağımlı projeler](#birbirine-bağımlı-projeler)) |
 
 `{{files}}` yerine bu işte değişen dosyalar yazılır; testler, lint ve format sadece onlarda çalışır.
 

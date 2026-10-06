@@ -16,17 +16,27 @@ import os from "node:os";
 import { extractLessons, parseVerdict } from "./verdict.js";
 import { postComment } from "./jira.js";
 import { remoteLinks, type RemoteLinks } from "./remote.js";
+import { RelatedRepo, type RelatedSummary } from "./related.js";
+import { findProjectDocs } from "./projectdocs.js";
+import { CURSOR_CO_AUTHOR } from "./cursor.js";
 
 /** Jira yorumu: committer'ın özeti + flowloop'in eklediği kesin bilgiler */
 export function buildJiraComment(aiSummary: string, s: RunSummary, links?: RemoteLinks): string {
   const facts = [
-    `- *Branch:* ${s.pushed ? (s.branchUrl ? `[${s.branch}](${s.branchUrl})` : `\`${s.branch}\` (origin'e push edildi)`) : `\`${s.branch}\` (henüz push edilmedi)`}`,
+    s.mainChanged === false ? "" : `- *Branch:* ${s.pushed ? (s.branchUrl ? `[${s.branch}](${s.branchUrl})` : `\`${s.branch}\` (origin'e push edildi)`) : `\`${s.branch}\` (henüz push edilmedi)`}`,
     s.pushed && s.prUrl ? `- *PR aç:* [${s.baseBranch} hedefli PR](${s.prUrl})` : "",
-    `- *Commit'ler:*`,
+    s.commits.length ? `- *Commit'ler:*` : "",
     ...s.commits.map((c) => {
       const i = c.indexOf(" ");
       return `  - \`${c.slice(0, i)}\` ${c.slice(i + 1)}`;
     }),
+    ...(s.related ?? []).filter((r) => r.commits?.length).flatMap((r) => [
+      `- *${r.name}:* ${r.pushed ? (r.branchUrl ? `[${r.branch}](${r.branchUrl})` : `\`${r.branch}\` (push edildi)`) : `\`${r.branch}\` (henüz push edilmedi)`}${r.pushed && r.prUrl ? ` · [PR aç](${r.prUrl})` : ""}`,
+      ...r.commits!.map((c) => {
+        const i = c.indexOf(" ");
+        return `  - \`${c.slice(0, i)}\` ${c.slice(i + 1)}`;
+      }),
+    ]),
     `- *Kontroller:* bu işin testleri yeşil, yeni tip/lint hatası yok, reviewer onayı ${s.iterations}. turda`,
   ].filter(Boolean);
   void links;
@@ -161,6 +171,10 @@ export interface RunSummary {
   changeRequests?: { round: number; comment: string }[];
   /** Kullanıcı değişiklikleri inceleyip onayladı mı (reviewChanges kullanıldıysa) */
   userApproved?: boolean;
+  /** Bağımlı repolar (related) */
+  related?: RelatedSummary[];
+  /** Ana repoda değişiklik var mı (sadece ilgili repoda değişiklik olabilir) */
+  mainChanged?: boolean;
   backend?: "claude" | "cursor";
   baseBranch?: string;
   baseRef?: string;
@@ -336,6 +350,51 @@ export function findPreviousPlan(cfg: ReturnType<typeof loadConfig>, root: strin
   return found.sort((a, b) => b.mtime - a.mtime)[0];
 }
 
+/**
+ * İlgili repoları ajan bağlamına ekler: yetki kökleri, prompt'taki açıklama, kurallar ve
+ * committer'ın yazacağı commit mesajı dosyaları.
+ */
+function attachRelated(related: RelatedRepo[], policy: PolicyContext, vars: Record<string, string | boolean>, rulesFile: string | undefined, runRoot: string): void {
+  policy.extraRoots = related.map((r) => ({ name: r.name, root: r.s.wt, readDeny: [...r.readDeny, ...r.s.linkDirs.flatMap((d) => [d, `${d}/**`])], aliasRoot: r.s.root }));
+  vars.related = related.length
+    ? "İlgili repolar (bu işin parçası olabilir):\n" + related.map((r) => r.describe()).join("\n") +
+      "\nBu repolardaki dosyalar mutlak yollarıyla okunur/düzenlenir. Bu repolarda komut çalıştırma; testlerini flowloop çalıştırır."
+    : "";
+  const editable = related.filter((r) => r.editable);
+  if (editable.length && typeof vars.editPaths === "string" && !vars.editPaths.includes("@")) {
+    vars.editPaths += "; ilgili repolarda: " + editable.map((r) => `${r.name} → ${r.s.edit.join(", ")} (${r.s.wt})`).join("; ");
+  }
+  vars.relatedCommit = editable.length
+    ? "İlgili repolar için commit'i flowloop atar; SEN sadece mesajı yazarsın. Değişiklik olan her repo için\n" +
+      editable.map((r) => `- ${r.name}: \`${path.join(runRoot, `commit-msg-${r.name}.txt`)}\` (repo: \`${r.s.wt}\`, değişiklikleri \`git -C ${r.s.wt} diff\` yerine dosyaları okuyarak incele)`).join("\n") +
+      "\nMesaj Conventional Commits biçiminde olmalı (ilk satır: tip(kapsam): özet). O repoda değişiklik yoksa dosyayı yazma." +
+      "\nAna repoda (çalışma klasörün) hiç değişiklik yoksa orada commit ATMA."
+    : "";
+  // ilgili repoların kural dosyaları da ajanlara verilir
+  const parts: string[] = [];
+  for (const r of related) {
+    const docs = findProjectDocs(r.s.baseWt, ["CLAUDE.md", "AGENTS.md", ".cursorrules", ".cursor/rules/*.mdc"]);
+    if (!docs.length) continue;
+    parts.push(`# İlgili repo kuralları: ${r.name}`);
+    for (const d of docs) parts.push(`## ${r.name}/${d}\n\n${fs.readFileSync(path.join(r.s.baseWt, d), "utf8").trim()}`);
+  }
+  if (parts.length && rulesFile) fs.appendFileSync(rulesFile, "\n\n---\n\n" + parts.join("\n\n"));
+}
+
+/** İlgili repolarda değişen dosyalar (reviewer ve committer'a verilir) */
+function relatedChanges(related: RelatedRepo[]): string {
+  const lines = related.filter((r) => r.hasChanges()).map((r) => `- ${r.name}:\n${r.changed().map((f) => `  - ${path.join(r.s.wt, f)}`).join("\n") || "  - (silinen dosyalar)"}`);
+  return lines.length ? `İlgili repolarda değişen dosyalar (Read ile incele):\n${lines.join("\n")}` : "";
+}
+
+/** Ana repo + değişen ilgili repoların farkı (kullanıcı onayı için) */
+function combinedDiff(wt: string, baseSha: string, X: string[], related: RelatedRepo[], stat: boolean): string {
+  const main = diffAgainst(wt, baseSha, X, stat ? { stat: true } : { color: true });
+  const rest = related.filter((r) => r.hasChanges()).map((r) => `\n━━ ${r.name} ━━\n${stat ? r.diffStat() : r.diff(true)}`);
+  if (!rest.length) return main;
+  return `━━ ana proje ━━\n${main.trim() ? main : "(değişiklik yok)\n"}${rest.join("")}`;
+}
+
 export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const { root, log, agent } = opts;
   const now = opts.now ?? (() => new Date());
@@ -418,6 +477,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       log.info(`  bash     : ${r.perms.bash.join(" | ") || "—"}`);
       log.detail(render(r.promptTemplate, { ...vars, feedback: "", checks: "(otomatik kontrol sonuçları)" }));
     }
+    for (const r of cfg.related) log.info(`İlgili repo: ${r.name} (${r.path}) — ${r.edit.length ? `değiştirilebilir: ${r.edit.join(", ")}` : "sadece okunur"}`);
     log.detail("\n──── rules.md ────\n" + text);
     summary.status = "dry-run";
     summary.projectDocs = docs;
@@ -478,6 +538,20 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const checks = new ScopedChecks(cfg, wt, baseWt, opts.checkRunner);
   const changed = () => changedExisting(wt, X);
   const atBase = (fs_: string[]) => fs_.filter((f) => fs.existsSync(path.join(baseWt, f)));
+
+  // ───────────── bağımlı repolar ─────────────
+  const related: RelatedRepo[] = [];
+  for (const r of cfg.related) {
+    try {
+      related.push(RelatedRepo.prepare({ ...r, mainRoot: root, runDir, wantedBranch: branch, fetch: cfg.fetch && !opts.noFetch, log, runner: opts.checkRunner }));
+    } catch (e) {
+      summary.related = related.map((x) => x.s);
+      fail(`İlgili repo hazırlanamadı (${r.name}): ${(e as Error).message}`);
+    }
+  }
+  attachRelated(related, policy, vars, files.rules, runRoot);
+  summary.related = related.map((x) => x.s);
+  saveSummary();
   const mutant = cfg.mutation.enabled
     ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed()), X, cfg.mutation.testTimeoutSec)
     : undefined;
@@ -500,6 +574,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       claudeMd: false,
       mutant: role.name === "reviewer" ? mutant : undefined,
       extraMcpServers: cfg.mcp.roles.includes(role.name) ? userMcp : undefined,
+      extraDirs: related.map((r) => r.s.wt),
       log,
     };
     const res = await agent.run(req);
@@ -585,6 +660,10 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     if (headSha(wt) !== baseSha) fail(`${who} commit attı! Rol ihlali.`);
     const outside = changedPaths(wt, X).filter((p) => !editMatch(p));
     if (outside.length) fail(`${who} izinli yollar dışında değişiklik yaptı: ${outside.join(", ")}`);
+    for (const r of related) {
+      const v = r.scopeViolation();
+      if (v) fail(`${who}: ${v}. Rol ihlali.`);
+    }
   };
   summary.changeRequests = [];
   let lastReviewerNote = "";
@@ -603,15 +682,20 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
       // Deterministik, işe odaklı kontroller
       const files_ = changed();
-      if (files_.length === 0) {
+      if (files_.length === 0 && !related.some((r) => r.hasChanges())) {
         feedback = "Hiçbir dosya değişmedi. Görevi uygula.";
         log.warn("Developer hiçbir şey değiştirmedi.");
         continue;
       }
-      const results: CheckResult[] = [checks.format(files_)];
+      const results: CheckResult[] = [];
+      if (files_.length) {
+        results.push(checks.format(files_));
+        assertDevScope("Formatter");
+        const after = changed();
+        results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
+      }
+      for (const r of related) results.push(...r.runChecks());
       assertDevScope("Formatter");
-      const after = changed();
-      results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
       summary.checks.push(results);
       const report = renderReport(results);
       for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
@@ -623,9 +707,11 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       }
 
       const beforeReview = workingTreeHash(wt, X);
-      const r = await call(roles.reviewer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { checks: report, userRequests }, turn);
+      const relatedBefore = related.map((r) => r.treeHash());
+      const r = await call(roles.reviewer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { checks: report, userRequests, relatedChanges: relatedChanges(related) }, turn);
       gelistirSpent += r.costUsd;
       if (workingTreeHash(wt, X) !== beforeReview) fail("Reviewer gerçek dosyaları değiştirdi! Rol ihlali.");
+      if (related.some((x, k) => x.treeHash() !== relatedBefore[k])) fail("Reviewer ilgili repodaki dosyaları değiştirdi! Rol ihlali.");
       if (headSha(wt) !== baseSha) fail("Reviewer commit attı! Rol ihlali.");
 
       const v = parseVerdict(r.text);
@@ -644,17 +730,18 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   };
 
   if (!(await developLoop("", ""))) fail(`${cfg.maxIterations} turda onay alınamadı. Son geri bildirim run.json ve ${LESSONS_FILE} içinde.`);
-  if (statusPorcelain(wt, X).length === 0) fail("Onay geldi ama hiçbir değişiklik yok.");
+  if (statusPorcelain(wt, X).length === 0 && !related.some((r) => r.hasChanges())) fail("Onay geldi ama hiçbir değişiklik yok.");
 
   // ───────────── KULLANICI ONAYI (commit'ten önce) ─────────────
   if (opts.reviewChanges) {
     for (let round = 1; ; round++) {
       summary.approvedTree = workingTreeHash(wt, X); // iptal edilirse resume bu içerikten devam eder
+      for (const r of related) r.s.approvedTree = r.treeHash();
       saveSummary();
       const d = await opts.reviewChanges({
         round,
-        diffStat: diffAgainst(wt, baseSha, X, { stat: true }),
-        diff: () => diffAgainst(wt, baseSha, X, { color: true }),
+        diffStat: combinedDiff(wt, baseSha, X, related, true),
+        diff: () => combinedDiff(wt, baseSha, X, related, false),
         reviewerNote: lastReviewerNote,
         worktree: wt,
         canRevise: true,
@@ -683,11 +770,13 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     }
   }
   const approved = workingTreeHash(wt, X);
-  log.ok(`Onaylanan içerik: ${approved.slice(0, 12)}`);
+  for (const r of related) r.s.approvedTree = r.treeHash();
+  log.ok(`Onaylanan içerik: ${approved.slice(0, 12)}${related.filter((r) => r.hasChanges()).map((r) => ` · ${r.name} ${r.s.approvedTree!.slice(0, 12)}`).join("")}`);
 
   summary.approvedTree = approved;
   saveSummary();
-  return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira, X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText });
+  vars.relatedChanges = relatedChanges(related);
+  return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira, X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText, related, runRoot });
 }
 
 interface CommitCtx {
@@ -710,6 +799,8 @@ interface CommitCtx {
   opts: RunOptions;
   files: { summary: string };
   taskText?: string;
+  related?: RelatedRepo[];
+  runRoot?: string;
 }
 
 /** Jira'dan üretilmiş görev dosyasındaki "Kaynak: https://x.atlassian.net/browse/KEY" satırından adres */
@@ -721,16 +812,22 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   const { cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira, X, approved, summary, saveSummary, fail, call, log, opts, files } = ctx;
   // ───────────── 3) COMMITTER ─────────────
   log.step("3/3 COMMITTER  (sadece git add/commit — kod değiştiremez)");
+  const related = ctx.related ?? [];
+  const mainChanged = gitOk(["rev-parse", "HEAD^{tree}"], wt) !== approved || statusPorcelain(wt, X).length > 0;
+  summary.mainChanged = mainChanged;
   const c = await call(ctx.committer, "commit", cfg.budgets.commit);
   if (/COMMIT İPTAL/i.test(c.text)) fail(`Committer iptal etti: ${c.text.split("\n").find((l) => /COMMIT İPTAL/i.test(l))}`);
-  if (headSha(wt) === baseSha) fail("Committer hiç commit atmadı.");
+  if (mainChanged && headSha(wt) === baseSha) fail("Committer hiç commit atmadı.");
+  if (!mainChanged && headSha(wt) !== baseSha) fail("Ana repoda değişiklik yokken commit atıldı.");
   const leftover = statusPorcelain(wt, X);
   const hooks = fs.existsSync(path.join(wt, ".husky")) ? " Commit hook'u (husky/lint-staged) dosya değiştirmiş olabilir." : "";
   if (leftover.length) fail(`Commit sonrası değişiklik kaldı: ${leftover.map((l) => l.slice(3)).slice(0, 10).join(", ")}.${hooks}`);
   if (gitOk(["rev-parse", "HEAD^{tree}"], wt) !== approved) fail(`Commit'lenen içerik reviewer'ın onayladığıyla AYNI DEĞİL!${hooks}`);
   if (gitOk(["rev-list", "--merges", `${baseSha}..HEAD`], wt)) fail("Merge commit oluşmuş; beklenmiyor.");
   const subjects = gitOk(["log", "--format=%s", `${baseSha}..HEAD`], wt).split("\n").filter(Boolean);
-  if (cfg.commands.commitCheck) {
+  if (!mainChanged) {
+    /* ana repoda commit yok; kontrol edilecek mesaj da yok */
+  } else if (cfg.commands.commitCheck) {
     const chk = runConfigured(cfg.commands.commitCheck.replace(/\{\{base\}\}/g, baseSha), wt);
     if (chk.code !== 0) fail(`Commit kontrolü başarısız (${cfg.commands.commitCheck}):\n${(chk.stdout + chk.stderr).trim()}`);
   } else {
@@ -740,16 +837,38 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   log.ok("Commit'ler onaylanan içerikle birebir aynı.");
 
   summary.commits = gitOk(["log", "--format=%h %s", `${baseSha}..HEAD`], wt).split("\n").filter(Boolean);
+
+  // ilgili repolar: committer'ın yazdığı mesajla flowloop commit'ler (hook'lar çalışır)
+  const trailer = summary.backend === "cursor" ? CURSOR_CO_AUTHOR : "Co-Authored-By: Claude <noreply@anthropic.com>";
+  for (const r of related.filter((x) => x.editable && x.hasChanges())) {
+    const err = r.commit(path.join(ctx.runRoot ?? path.dirname(files.summary), `commit-msg-${r.name}.txt`), trailer, CONVENTIONAL);
+    if (err) fail(err);
+    log.ok(`${r.name}: ${r.s.commits!.length} commit, onaylanan içerikle aynı.`);
+  }
+  summary.related = related.map((x) => x.s);
+
   summary.status = "success";
   // Başarılı: branch kalır, worktree'ler kaldırılır → kullanıcı branch'e kendi repo'sunda geçebilir
   git(["worktree", "remove", "--force", baseWt], root);
   git(["worktree", "remove", "--force", wt], root);
+  if (!mainChanged) git(["branch", "-D", branch], root); // ana repoda iş yoksa boş branch bırakma
+  for (const r of related) r.removeWorktrees();
   saveSummary();
 
   // ───────────── gönder ve bildir ─────────────
   const links = remoteLinks(root);
   const hasOrigin = git(["remote", "get-url", "origin"], root).code === 0;
-  if (cfg.push && hasOrigin && !opts.noPush) {
+  if (cfg.push && !opts.noPush) {
+    for (const r of related) {
+      const w = r.push(log);
+      if (w) {
+        summary.warnings.push(w);
+        log.warn(w);
+      }
+    }
+    summary.related = related.map((x) => x.s);
+  }
+  if (cfg.push && hasOrigin && !opts.noPush && mainChanged) {
     const p = git(["push", "-u", "origin", `refs/heads/${branch}:refs/heads/${branch}`], root);
     if (p.code === 0) {
       summary.pushed = true;
@@ -816,10 +935,15 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   if (opts.backend === "cursor") ensureExcluded(root, [".cursor/hooks.json", ".cursor/cli.json"]); // flowloop'un geçici yetki dosyaları
   if (headSha(wt) !== baseSha) gitOk(["reset", "-q", "--soft", baseSha], wt); // yarım kalmış commit'leri geri al, dosyalar aynen kalır
   gitOk(["reset", "-q"], wt); // stage'i temizle
+  const related = (summary.related ?? []).filter((r) => fs.existsSync(r.wt)).map((r) => RelatedRepo.fromSummary(r, opts.checkRunner));
+  for (const r of related) r.softReset();
   const current = workingTreeHash(wt, X);
   if (!needsReview) {
     if (!summary.approvedTree) log.warn("Eski sürümle başlatılmış çalıştırma: onaylanan içerik olarak mevcut çalışma kopyası kabul edildi.");
     if (current !== (summary.approvedTree ?? current)) throw new FlowloopError("Çalışma kopyası reviewer'ın onayladığı içerikten farklı; resume edilemez.");
+    for (const r of related) {
+      if (r.s.approvedTree && r.treeHash() !== r.s.approvedTree) throw new FlowloopError(`${r.name}: çalışma kopyası onaylanan içerikten farklı; resume edilemez.`);
+    }
   }
 
   const files = { task: path.join(runRoot, "task.md"), plan: path.join(runRoot, "plan.md"), summary: path.join(runRoot, "summary.md"), mutant: path.join(runRoot, "mutant"), rules: path.join(runRoot, "rules.md") };
@@ -834,6 +958,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     vars.memory = `Kod hafızası araçları kullanılabilir: ${tools.join(", ")}. Hafıza güncel olmayabilir; kararını her zaman çalışma kopyasındaki dosyayı okuyarak ver.`;
   }
   const policy: PolicyContext = { repoRoot: wt, runRoot, readDeny: [...cfg.paths.readDeny, ...X.flatMap((d) => [d, `${d}/**`])], forbiddenFlags: DEFAULT_FORBIDDEN_FLAGS, aliasRoot: root };
+  attachRelated(related, policy, vars, undefined, runRoot); // kurallar dosyası zaten yazılı; tekrar eklenmez
   const saveSummary = () => fs.writeFileSync(jsonPath, JSON.stringify(summary, null, 2));
   const fail = (msg: string): never => {
     summary.status = "failed";
@@ -852,6 +977,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
       model: role.model, budgetUsd: budget, isolation: cfg.isolation, claudeMd: false, log,
       mutant: role.name === "reviewer" ? mutant : undefined,
       extraMcpServers: cfg.mcp.roles.includes(role.name) && Object.keys(userMcp).length ? userMcp : undefined,
+      extraDirs: related.map((r) => r.s.wt),
     });
     summary.totalCostUsd += res.costUsd;
     summary.denials.push(...res.denials);
@@ -870,20 +996,30 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     const editMatch = picomatch(cfg.paths.edit, { dot: true });
     const outside = changedPaths(wt, X).filter((p) => !editMatch(p));
     if (outside.length) fail(`İzinli yollar dışında değişiklik var: ${outside.join(", ")}`);
+    for (const r of related) {
+      const v = r.scopeViolation();
+      if (v) fail(v);
+    }
     const fs_ = changed();
-    if (!fs_.length) fail("Çalışma kopyasında değişiklik yok.");
+    if (!fs_.length && !related.some((r) => r.hasChanges())) fail("Çalışma kopyasında değişiklik yok.");
     const atBase = (l: string[]) => l.filter((f) => fs.existsSync(path.join(baseWt, f)));
     const checks = new ScopedChecks(cfg, wt, baseWt, opts.checkRunner);
-    const results: CheckResult[] = [checks.format(fs_)];
-    const after = changed();
-    results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
+    const results: CheckResult[] = [];
+    if (fs_.length) {
+      results.push(checks.format(fs_));
+      const after = changed();
+      results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
+    }
+    for (const r of related) results.push(...r.runChecks());
     summary.checks.push(results);
     for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
     const report = renderReport(results);
     if (results.some((r) => r.status === "fail")) fail(`Otomatik kontroller hâlâ başarısız:\n${report}`);
     const before = workingTreeHash(wt, X);
-    const r = await call(roles.reviewer, "gelistir", Math.min(cfg.budgets.gelistir, cfg.budgets.total), { checks: report });
+    const relatedBefore = related.map((x) => x.treeHash());
+    const r = await call(roles.reviewer, "gelistir", Math.min(cfg.budgets.gelistir, cfg.budgets.total), { checks: report, relatedChanges: relatedChanges(related) });
     if (workingTreeHash(wt, X) !== before) fail("Reviewer gerçek dosyaları değiştirdi! Rol ihlali.");
+    if (related.some((x, k) => x.treeHash() !== relatedBefore[k])) fail("Reviewer ilgili repodaki dosyaları değiştirdi! Rol ihlali.");
     if (headSha(wt) !== baseSha) fail("Reviewer commit attı! Rol ihlali.");
     const v = parseVerdict(r.text);
     summary.phases[summary.phases.length - 1].verdict = v.verdict;
@@ -895,14 +1031,15 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     log.ok("Reviewer PASS");
     approved = workingTreeHash(wt, X);
     summary.approvedTree = approved;
+    for (const x of related) x.s.approvedTree = x.treeHash();
     saveSummary();
   }
   log.ok(`Sürdürülüyor: ${summary.id} · branch ${branch} · onaylanan içerik ${approved.slice(0, 12)}`);
   if (opts.reviewChanges && !summary.userApproved) {
     const d = await opts.reviewChanges({
       round: (summary.changeRequests?.length ?? 0) + 1,
-      diffStat: diffAgainst(wt, baseSha, X, { stat: true }),
-      diff: () => diffAgainst(wt, baseSha, X, { color: true }),
+      diffStat: combinedDiff(wt, baseSha, X, related, true),
+      diff: () => combinedDiff(wt, baseSha, X, related, false),
       reviewerNote: "",
       worktree: wt,
       canRevise: false,
@@ -917,5 +1054,6 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   }
   const taskFile = path.join(runRoot, "task.md");
   const taskText = fs.existsSync(taskFile) ? fs.readFileSync(taskFile, "utf8") : "";
-  return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira: summary.jiraKey ?? "", X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText });
+  vars.relatedChanges = relatedChanges(related);
+  return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira: summary.jiraKey ?? "", X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText, related, runRoot });
 }

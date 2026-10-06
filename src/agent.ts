@@ -20,6 +20,8 @@ export interface AgentRequest {
   mutant?: MutantSandbox;
   /** Kullanıcının MCP sunucularından bu role açılanlar (ör. kod hafızası) */
   extraMcpServers?: Record<string, unknown>;
+  /** Ajanın erişebileceği ek klasörler (ilgili repoların çalışma kopyaları) */
+  extraDirs?: string[];
   log: Logger;
 }
 
@@ -85,7 +87,7 @@ export class SdkAgentRunner implements AgentRunner {
       prompt: req.prompt,
       options: {
         cwd: req.cwd,
-        additionalDirectories: [req.runRoot],
+        additionalDirectories: [req.runRoot, ...(req.extraDirs ?? [])],
         model: req.model,
         maxBudgetUsd: req.budgetUsd,
         permissionMode: "default",

@@ -87,6 +87,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 | `linkDirs` | Repodan worktree'ye bağlanan klasörler (`node_modules` gibi) |
 | `paths.edit` / `paths.readDeny` | Developer'ın yazabileceği yollar / hiçbir rolün okuyamayacağı dosyalar |
 | `agent` / `cursor.*` | Ajan aracı (`auto`, `claude`, `cursor`) ve Cursor ayarları |
+| `related` | Bağımlı repolar (ör. backend): okunur ya da `edit` ile değiştirilebilir; her repo ayrı branch/commit/PR |
 | `budgets` / `maxIterations` | Dolar bütçeleri (Claude) / developer ⇄ reviewer tur sayısı |
 | `tech` | Teknoloji özeti (init üretir, düzenlenebilir) |
 
@@ -96,7 +97,7 @@ flowloop'un kendisi üzerinde çalışacaksan istediğin bir klasöre clone'lay�
 
 ```bash
 git clone https://github.com/yunusemre/flowloop.git && cd flowloop && ./install.sh
-npm test   # 94 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
+npm test   # 101 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
 ```
 
 ### Sürüm çıkarmak

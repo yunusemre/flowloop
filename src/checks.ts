@@ -13,6 +13,8 @@ import { fillFiles, runConfigured, type ExecResult } from "./git.js";
  * kaydığında eski hatalar "yeni" görünmez.
  */
 export interface CheckResult {
+  /** İlgili repo kontrolü ise reponun adı */
+  repo?: string;
   name: "format" | "testler" | "tip" | "lint";
   status: "ok" | "fail" | "skip";
   summary: string;
@@ -91,6 +93,7 @@ export class ScopedChecks {
 
   tests(files: string[], baseFiles: string[]): CheckResult {
     const cmd = this.cfg.commands.testRelated;
+    if (!cmd.trim()) return { name: "testler", status: "skip", summary: "test komutu tanımlı değil" };
     if (files.length === 0) return { name: "testler", status: "skip", summary: "değişen dosya yok" };
     if (/\{\{testFiles\}\}/.test(cmd) && fillFiles("{{testFiles}}", files) === "") {
       return { name: "testler", status: "fail", summary: "bu işte hiç test dosyası değişmedi/eklenmedi" };
@@ -153,6 +156,6 @@ export class ScopedChecks {
 export function renderReport(results: CheckResult[]): string {
   const icon = { ok: "✅", fail: "❌", skip: "➖" } as const;
   return results
-    .map((r) => `${icon[r.status]} ${r.name}: ${r.summary}${r.details ? "\n```\n" + r.details + "\n```" : ""}`)
+    .map((r) => `${icon[r.status]} ${r.repo ? `[${r.repo}] ` : ""}${r.name}: ${r.summary}${r.details ? "\n```\n" + r.details + "\n```" : ""}`)
     .join("\n");
 }

@@ -35,6 +35,13 @@ Kontroller:
    Tablo yaz: AK | mutasyon | kırılan test (ya da "HAYATTA KALDI").
    Hayatta kalan mutasyon = o AK'nın testi yok = FAIL.
 {{/mutation}}
+{{#related}}
+{{related}}
+{{/related}}
+{{#relatedChanges}}
+{{relatedChanges}}
+Bu değişiklikleri de aynı ölçütlerle incele (kabul kriterleri, kurallar, kapsam).
+{{/relatedChanges}}
 {{#memory}}
 {{memory}}
 {{/memory}}

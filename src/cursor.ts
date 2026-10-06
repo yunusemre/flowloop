@@ -85,7 +85,7 @@ export class CursorAgentRunner implements AgentRunner {
     const hookCtx: HookContext = { role: req.role, perms, policy: req.policy, denialsFile, callsFile };
     fs.writeFileSync(hookCtxFile, JSON.stringify(hookCtx));
 
-    const restore = installHookFiles(req.cwd, hookCtxFile, req.runRoot);
+    const restore = installHookFiles(req.cwd, hookCtxFile, [req.runRoot, ...(req.extraDirs ?? [])]);
     const model = req.model || this.opts.model;
     const args = [
       "-p",
@@ -159,7 +159,8 @@ export class CursorAgentRunner implements AgentRunner {
 }
 
 /** Hook dosyalarını yazar; dönen fonksiyon önceki hâli geri yükler. */
-export function installHookFiles(wt: string, hookCtxFile: string, runRoot: string): () => void {
+export function installHookFiles(wt: string, hookCtxFile: string, extraRoots: string | string[]): () => void {
+  const roots = Array.isArray(extraRoots) ? extraRoots : [extraRoots];
   const saved = HOOK_FILES.map((rel) => {
     const f = path.join(wt, rel);
     return { f, content: fs.existsSync(f) ? fs.readFileSync(f) : undefined };
@@ -173,7 +174,7 @@ export function installHookFiles(wt: string, hookCtxFile: string, runRoot: strin
   // Cursor'un kendi izin katmanı: web erişimi kapalı, run klasörü (plan, mutant) erişilebilir; asıl karar hook'ta
   fs.writeFileSync(
     path.join(wt, ".cursor/cli.json"),
-    JSON.stringify({ permissions: { allow: [`Read(${runRoot}/**)`, `Write(${runRoot}/**)`], deny: ["WebFetch(*)"] } }, null, 2),
+    JSON.stringify({ permissions: { allow: roots.flatMap((r) => [`Read(${r}/**)`, `Write(${r}/**)`]), deny: ["WebFetch(*)"] } }, null, 2),
   );
   return () => {
     for (const s of saved) {

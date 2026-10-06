@@ -32,23 +32,33 @@ export interface PolicyContext {
    * Asıl repoya hiçbir rol doğrudan erişemez.
    */
   aliasRoot?: string;
+  /**
+   * Bağımlı (ilgili) repoların çalışma kopyaları. Desen sözdizimi: "@ad:src/**".
+   * readDeny ve aliasRoot her repo için ayrıdır.
+   */
+  extraRoots?: { name: string; root: string; readDeny: string[]; aliasRoot?: string }[];
 }
 
 const PATH_FIELDS = ["file_path", "path", "notebook_path"];
 
 /** Asıl repo yollarını çalışma kopyası yollarına çevirir; değişiklik yoksa undefined. */
 export function rewriteAliasPaths(ctx: PolicyContext, input: Record<string, unknown>): Record<string, unknown> | undefined {
-  if (!ctx.aliasRoot) return undefined;
-  const alias = realish(ctx.aliasRoot);
+  const pairs: { alias: string; target: string }[] = [];
+  if (ctx.aliasRoot) pairs.push({ alias: realish(ctx.aliasRoot), target: ctx.repoRoot });
+  for (const e of ctx.extraRoots ?? []) if (e.aliasRoot) pairs.push({ alias: realish(e.aliasRoot), target: e.root });
+  if (!pairs.length) return undefined;
   let changed = false;
   const out = { ...input };
   for (const f of PATH_FIELDS) {
     const v = input[f];
     if (typeof v !== "string" || !path.isAbsolute(v)) continue;
-    const rel = within(alias, realish(v));
-    if (rel === undefined) continue;
-    out[f] = rel === "." ? ctx.repoRoot : path.join(ctx.repoRoot, rel);
-    changed = true;
+    for (const { alias, target } of pairs) {
+      const rel = within(alias, realish(v));
+      if (rel === undefined) continue;
+      out[f] = rel === "." ? target : path.join(target, rel);
+      changed = true;
+      break;
+    }
   }
   return changed ? out : undefined;
 }
@@ -92,9 +102,28 @@ export function locate(ctx: PolicyContext, p: string): string | undefined {
   const repoRoot = realish(ctx.repoRoot);
   const inRun = within(runRoot, abs);
   if (inRun !== undefined) return "run:" + inRun;
+  for (const e of ctx.extraRoots ?? []) {
+    const r = within(realish(e.root), abs);
+    if (r !== undefined) return `@${e.name}:${r}`;
+  }
   const inRepo = within(repoRoot, abs);
   if (inRepo !== undefined) return inRepo;
   return undefined;
+}
+
+/** "@ad:src/x.ts" → "src/x.ts"; diğerleri aynen */
+function innerPath(key: string): string {
+  const m = /^@[^:]+:(.*)$/.exec(key);
+  return m ? m[1] : key;
+}
+
+/** Ana repoda readDeny, ilgili repolarda kendi readDeny listeleri */
+function isSecret(ctx: PolicyContext, key: string): boolean {
+  if (key.startsWith("run:")) return false;
+  const m = /^@([^:]+):(.*)$/.exec(key);
+  if (!m) return match(key, ctx.readDeny);
+  const e = ctx.extraRoots?.find((x) => x.name === m[1]);
+  return match(m[2], e?.readDeny ?? ctx.readDeny);
 }
 
 function match(key: string, patterns: string[]): boolean {
@@ -106,10 +135,10 @@ function checkPath(ctx: PolicyContext, p: unknown, allowed: string[], kind: "oku
   if (typeof p !== "string" || !p) return { allow: false, reason: `${kind}: yol belirtilmemiş` };
   const key = locate(ctx, p);
   if (key === undefined) return { allow: false, reason: `${kind}: ${p} çalışma alanı dışında` };
-  if (!key.startsWith("run:") && match(key, ctx.readDeny)) {
+  if (isSecret(ctx, key)) {
     return { allow: false, reason: `${kind}: ${key} gizli dosya listesinde (readDeny)` };
   }
-  if (kind === "yazma" && match(key, ALWAYS_EDIT_DENY)) {
+  if (kind === "yazma" && match(innerPath(key), ALWAYS_EDIT_DENY)) {
     return { allow: false, reason: `yazma: ${key} korumalı` };
   }
   if (key === "." && kind === "okuma") return { allow: true };
@@ -124,12 +153,12 @@ function checkDir(ctx: PolicyContext, p: unknown, allowedRead: string[]): Decisi
   if (typeof p !== "string") return { allow: false, reason: "geçersiz yol" };
   const key = locate(ctx, p);
   if (key === undefined) return { allow: false, reason: `arama: ${p} çalışma alanı dışında` };
-  if (key === "." || key === "run:.") return { allow: true };
+  if (key === "." || key === "run:." || /^@[^:]+:\.$/.test(key)) return { allow: true };
   // klasör ya da dosya: klasörün altındaki bir şey okunabiliyorsa izin ver
   const isFile = fs.existsSync(path.isAbsolute(p) ? p : path.join(ctx.repoRoot, p)) &&
     fs.statSync(path.isAbsolute(p) ? p : path.join(ctx.repoRoot, p)).isFile();
   if (isFile) return checkPath(ctx, p, allowedRead, "okuma");
-  if (!key.startsWith("run:") && match(key, ctx.readDeny)) return { allow: false, reason: `arama: ${key} gizli` };
+  if (isSecret(ctx, key)) return { allow: false, reason: `arama: ${key} gizli` };
   if (match(key, allowedRead) || match(key + "/x", allowedRead)) return { allow: true };
   return { allow: false, reason: `arama: bu rol ${key} klasöründe arama yapamaz` };
 }

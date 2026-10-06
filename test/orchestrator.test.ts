@@ -514,3 +514,173 @@ test("kullanıcı onaylamazsa commit yapılmaz; resume ile onaylanıp tamamlanı
   assert.equal(s.status, "success");
   assert.deepEqual(a2.calls.map((c) => c.role), ["committer"]);
 });
+
+// ───────────── bağımlı (ilgili) repolar ─────────────
+function makeBackend(): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-backend-"));
+  const w = (rel: string, body: string) => {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), body);
+  };
+  w("package.json", JSON.stringify({ name: "backend", type: "module" }));
+  w("src/api.js", "export const LIMIT = 10;\n");
+  w("README.md", "# backend\n");
+  w(".env", "SECRET=1\n");
+  w(".gitignore", ".env\n");
+  w(".flowloop/flowloop.yaml", 'version: 2\ncommands:\n  testRelated: "node --test {{testFiles}}"\npaths: { edit: ["src/**"], readDeny: [".env"] }\n');
+  const g = (...a: string[]) => gitOk(a, root);
+  g("init", "-q", "-b", "main");
+  g("config", "user.name", "Test Kişi");
+  g("config", "user.email", "test@sirket.com");
+  g("add", "-A");
+  g("commit", "-qm", "chore: init");
+  return root;
+}
+const relatedCfg = (main: string, backend: string, edit = '["src/**", "test/**"]') =>
+  `related:\n  - name: backend\n    path: ${JSON.stringify(path.relative(main, backend))}\n    edit: ${edit}\n`;
+const backendWt = (req: AgentRequest) => req.extraDirs![0];
+const backendDev: Script = (req) => {
+  fs.writeFileSync(path.join(backendWt(req), "src/api.js"), "export const LIMIT = 20;\n");
+  fs.mkdirSync(path.join(backendWt(req), "test"), { recursive: true });
+  fs.writeFileSync(path.join(backendWt(req), "test/api.test.js"), 'import { test } from "node:test";\nimport assert from "node:assert/strict";\nimport { LIMIT } from "../src/api.js";\ntest("limit", () => assert.equal(LIMIT, 20));\n');
+};
+
+test("ilgili repo: iki repoda değişiklik, her biri ayrı branch ve commit; Jira'da ikisi de görünür", async () => {
+  const backend = makeBackend();
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "x"));
+  fs.rmSync(root, { recursive: true });
+  const main = makeRepo("");
+  fs.appendFileSync(path.join(main, ".flowloop/flowloop.yaml"), relatedCfg(main, backend));
+  gitOk(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "chore: related"], main);
+  let reviewerPrompt = "";
+  const agent = new FakeAgent({
+    ...good,
+    analist: (req) => {
+      assert.match(req.prompt, /backend: `[^`]+wt-backend` — değiştirilebilir yollar: src\/\*\*, test\/\*\*/);
+      good.analist!(req, 1);
+    },
+    developer: (req, n) => {
+      good.developer!(req, n);
+      backendDev(req, n);
+    },
+    reviewer: (req) => {
+      reviewerPrompt = req.prompt;
+      return "VERDICT: PASS";
+    },
+    committer: (req, n) => {
+      assert.match(req.prompt, /commit-msg-backend\.txt/);
+      fs.writeFileSync(path.join(req.runRoot, "commit-msg-backend.txt"), "feat(api): limit 20\n\nKG-42 için");
+      good.committer!(req, n);
+    },
+  });
+  const infos: string[] = [];
+  const s = await runTask({
+    root: main, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true,
+    reviewChanges: async (i) => (infos.push(i.diffStat), { action: "approve" }),
+  });
+  assert.equal(s.status, "success");
+  assert.match(reviewerPrompt, /İlgili repolarda değişen dosyalar[\s\S]*src\/api\.js/);
+  assert.match(infos[0], /━━ backend ━━[\s\S]*src\/api\.js/);
+  const rel = s.related![0];
+  assert.equal(rel.branch, s.branch, "ilgili repoda aynı adlı branch");
+  assert.equal(rel.commits!.length, 1);
+  assert.match(rel.commits![0], /feat\(api\): limit 20/);
+  const msg = gitOk(["log", "-1", "--format=%B", rel.branch], backend);
+  assert.match(msg, /Co-Authored-By: Claude/);
+  assert.equal(gitOk(["show", `${rel.branch}:src/api.js`], backend).trim(), "export const LIMIT = 20;");
+  assert.equal(gitOk(["show", "main:src/api.js"], backend).trim(), "export const LIMIT = 10;", "backend main'e dokunulmadı");
+  assert.ok(!fs.existsSync(rel.wt), "worktree temizlendi");
+  assert.ok(s.checks.flat().some((c) => c.repo === "backend" && c.name === "testler" && c.status === "ok"), "backend testleri flowloop tarafından çalıştırıldı");
+  const { buildJiraComment } = await import("../src/orchestrator.js");
+  assert.match(buildJiraComment("", s), /\*backend:\*[\s\S]*feat\(api\): limit 20/);
+});
+
+test("ilgili repo: değişiklik sadece ilgili repodaysa ana repoda commit/branch kalmaz", async () => {
+  const backend = makeBackend();
+  const main = makeRepo("");
+  fs.appendFileSync(path.join(main, ".flowloop/flowloop.yaml"), relatedCfg(main, backend));
+  gitOk(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "chore: related"], main);
+  const agent = new FakeAgent({
+    ...good,
+    developer: backendDev,
+    reviewer: () => "VERDICT: PASS",
+    committer: (req) => void fs.writeFileSync(path.join(req.runRoot, "commit-msg-backend.txt"), "fix(api): limit"),
+  });
+  const s = await runTask({ root: main, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true });
+  assert.equal(s.status, "success");
+  assert.equal(s.mainChanged, false);
+  assert.equal(s.commits.length, 0);
+  assert.equal(sh("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${s.branch}`], main).code, 1, "ana repoda boş branch bırakılmadı");
+  assert.equal(s.related![0].commits!.length, 1);
+});
+
+test("ilgili repo: izin verilmeyen yola yazmak ve sadece okunur repoda değişiklik reddedilir", async () => {
+  const backend = makeBackend();
+  const main = makeRepo("");
+  fs.appendFileSync(path.join(main, ".flowloop/flowloop.yaml"), relatedCfg(main, backend, '["src/**"]'));
+  gitOk(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "chore: related"], main);
+  const agent = new FakeAgent({ ...good, developer: (req) => void fs.writeFileSync(path.join(backendWt(req), "README.md"), "x") });
+  await assert.rejects(runTask({ root: main, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true }), /backend: izinli yollar dışında değişiklik: README\.md/);
+});
+
+test("ilgili repo yetkileri: okuma, düzenleme ve gizli dosyalar", async () => {
+  const { evaluate, DEFAULT_FORBIDDEN_FLAGS } = await import("../src/policy.js");
+  const { permissionsFor } = await import("../src/roles.js");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-relpol-"));
+  for (const d of ["wt/src", "run", "wt-backend/src", "wt-ro/src"]) fs.mkdirSync(path.join(base, d), { recursive: true });
+  const cfg = {
+    commands: { testRelated: "x {{files}}", typecheck: "", lint: "", format: "", install: "", commitCheck: "" },
+    paths: { edit: ["src/**"], readDeny: [] }, mutation: { enabled: false }, roles: {}, mcp: { servers: [], tools: [], roles: [] },
+    related: [{ name: "backend", path: "../b", edit: ["src/**"], baseBranch: "" }, { name: "ro", path: "../r", edit: [], baseBranch: "" }],
+  } as any;
+  const ctx = {
+    repoRoot: path.join(base, "wt"), runRoot: path.join(base, "run"), readDeny: [], forbiddenFlags: DEFAULT_FORBIDDEN_FLAGS,
+    extraRoots: [{ name: "backend", root: path.join(base, "wt-backend"), readDeny: [".env"] }, { name: "ro", root: path.join(base, "wt-ro"), readDeny: [] }],
+  };
+  const dev = permissionsFor("developer", cfg);
+  const P = (tool: string, p: string) => evaluate(dev, ctx, tool, { file_path: path.join(base, p) }).allow;
+  assert.equal(P("Write", "wt-backend/src/a.js"), true);
+  assert.equal(P("Write", "wt-backend/README.md"), false);
+  assert.equal(P("Read", "wt-backend/README.md"), true);
+  assert.equal(P("Read", "wt-backend/.env"), false, "ilgili reponun gizlileri okunamaz");
+  assert.equal(P("Write", "wt-ro/src/a.js"), false, "sadece okunur repo");
+  assert.equal(P("Read", "wt-ro/src/a.js"), true);
+  assert.equal(P("Write", "wt-backend/.git/config"), false);
+  const rev = permissionsFor("reviewer", cfg);
+  assert.equal(evaluate(rev, ctx, "Edit", { file_path: path.join(base, "wt-backend/src/a.js") }).allow, false, "reviewer yazamaz");
+  assert.equal(evaluate(permissionsFor("committer", cfg), ctx, "Write", { file_path: path.join(base, "run/commit-msg-backend.txt") }).allow, true);
+});
+
+test("birden fazla ilgili repo: düzenlenen için branch ve commit, sadece okunan için branch açılmaz", async () => {
+  const backend = makeBackend();
+  const shared = makeBackend();
+  const main = makeRepo("");
+  fs.appendFileSync(
+    path.join(main, ".flowloop/flowloop.yaml"),
+    `related:\n  - name: backend\n    path: ${JSON.stringify(path.relative(main, backend))}\n    edit: ["src/**", "test/**"]\n  - name: shared\n    path: ${JSON.stringify(shared)}\n`,
+  );
+  gitOk(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "chore: related"], main);
+  const agent = new FakeAgent({
+    ...good,
+    analist: (req) => {
+      assert.equal(req.extraDirs!.length, 2);
+      assert.match(req.prompt, /shared: `[^`]+` — SADECE OKUNUR/);
+      good.analist!(req, 1);
+    },
+    developer: (req, n) => {
+      good.developer!(req, n);
+      backendDev(req, n);
+    },
+    reviewer: () => "VERDICT: PASS",
+    committer: (req, n) => {
+      fs.writeFileSync(path.join(req.runRoot, "commit-msg-backend.txt"), "feat(api): limit 20");
+      good.committer!(req, n);
+    },
+  });
+  const s = await runTask({ root: main, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true });
+  assert.equal(s.status, "success");
+  assert.equal(s.related!.find((r) => r.name === "backend")!.commits!.length, 1);
+  const ro = s.related!.find((r) => r.name === "shared")!;
+  assert.equal(ro.branch, "");
+  assert.equal(gitOk(["branch", "--list"], shared).trim(), "* main", "sadece okunan repoda branch yok");
+});

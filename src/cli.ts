@@ -8,9 +8,10 @@ import { SdkAgentRunner, type AgentRunner } from "./agent.js";
 import { BackendError, chooseBackend, createRunner, type Backend } from "./backend.js";
 import type { MutantContext } from "./cursor.js";
 import { MutantSandbox } from "./mutant.js";
+import { RelatedRepo } from "./related.js";
 import { currentVersion, readInstallInfo, runUpdate, updateNotice } from "./update.js";
 import { printStatus, runSetup, systemDeps, terminalIO } from "./setup.js";
-import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, FLOWLOOP_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor , globalJiraBase, parseJiraLink } from "./config.js";
+import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, FLOWLOOP_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor , globalJiraBase, parseJiraLink, relatedPath } from "./config.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { mergeConfig } from "./configmerge.js";
 import { detectBaseBranch, detectProject, renderConfig } from "./tech.js";
@@ -365,6 +366,11 @@ async function main(): Promise<number> {
         console.log(`  ajan     : ${b.backend === "cursor" ? `Cursor CLI (${b.cursorBin})` : "Claude (Agent SDK)"} — ${b.reason}`);
       } catch (e) {
         console.log(color.yellow(`  ajan     : ${(e as Error).message}`));
+      }
+      for (const r of cfg.related) {
+        const p = relatedPath(root, r.path);
+        const st = RelatedRepo.projectSettings(p);
+        console.log(`  ilgili   : ${r.name} → ${p} · ${r.edit.length ? `değiştirilebilir: ${r.edit.join(", ")}` : "sadece okunur"} · test: ${st.commands.testRelated || "—"} (${st.source})`);
       }
       await printStatus(systemDeps(jiraBaseUrl(cfg)), { log: console.log });
       const roles = loadRoles(root, cfg);
