@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ScopedChecks, type CheckResult, type CheckRunner } from "./checks.js";
-import { CONFIG_FILE, loadConfig, relatedPath, type FlowloopConfig } from "./config.js";
+import { CONFIG_FILE, isGitRepo, loadConfig, relatedPath, type FlowloopConfig } from "./config.js";
 import { changedExisting, changedPaths, diffAgainst, git, gitOk, headSha, sh, statusPorcelain, workingTreeHash } from "./git.js";
 import type { Logger } from "./log.js";
 import { remoteLinks } from "./remote.js";
@@ -21,6 +21,8 @@ export interface RelatedSummary {
   baseSha: string;
   edit: string[];
   linkDirs: string[];
+  /** false: git reposu olmayan ortak klasör; doğrudan (salt okunur) kullanılır */
+  git?: boolean;
   approvedTree?: string;
   commits?: string[];
   pushed?: boolean;
@@ -86,6 +88,13 @@ export class RelatedRepo {
   }): RelatedRepo {
     const root = relatedPath(opts.mainRoot, opts.path);
     const st = RelatedRepo.projectSettings(root);
+    if (!isGitRepo(root)) {
+      // ortak dosya klasörü: kopya/branch yok, olduğu yerden sadece okunur
+      if (opts.edit.length) throw new Error(`${opts.name}: git reposu değil; sadece okunur eklenebilir`);
+      opts.log.ok(`İlgili klasör hazır: ${opts.name} (git değil, sadece okunur: ${root})`);
+      const s: RelatedSummary = { name: opts.name, root, wt: root, baseWt: root, branch: "", baseBranch: "", baseRef: "", baseSha: "", edit: [], linkDirs: [], git: false };
+      return new RelatedRepo(s, st.commands, st.readDeny, opts.runner);
+    }
     const baseBranch = opts.baseBranch || st.baseBranch || detectBaseBranch(root);
     if (!baseBranch) throw new Error(`${opts.name}: base branch bulunamadı (production/main/master yok); related.baseBranch ile belirt.`);
     if (opts.fetch && git(["remote"], root).stdout.includes("origin")) {
@@ -123,18 +132,23 @@ export class RelatedRepo {
     return new RelatedRepo(s, st.commands, st.readDeny, runner);
   }
 
+  /** git dışı ortak klasörde değişiklik takibi yapılmaz (yazma zaten yetkiyle engellidir) */
+  private get isGit(): boolean {
+    return this.s.git !== false;
+  }
   changed(): string[] {
-    return changedExisting(this.s.wt, this.s.linkDirs);
+    return this.isGit ? changedExisting(this.s.wt, this.s.linkDirs) : [];
   }
   hasChanges(): boolean {
-    return statusPorcelain(this.s.wt, this.s.linkDirs).length > 0;
+    return this.isGit && statusPorcelain(this.s.wt, this.s.linkDirs).length > 0;
   }
   treeHash(): string {
-    return workingTreeHash(this.s.wt, this.s.linkDirs);
+    return this.isGit ? workingTreeHash(this.s.wt, this.s.linkDirs) : "git-dışı";
   }
 
   /** Developer kapsam kontrolü: hata metni ya da undefined */
   scopeViolation(): string | undefined {
+    if (!this.isGit) return undefined;
     if (headSha(this.s.wt) !== this.s.baseSha) return `${this.name} reposunda commit atılmış`;
     const outside = changedPaths(this.s.wt, this.s.linkDirs).filter((p) => !this.editMatch(p));
     if (outside.length) return `${this.name}: izinli yollar dışında değişiklik: ${outside.join(", ")}`;
@@ -185,11 +199,13 @@ export class RelatedRepo {
 
   /** Commit'lenmiş yarım işi geri al (resume için) */
   softReset(): void {
+    if (!this.isGit) return;
     if (headSha(this.s.wt) !== this.s.baseSha) gitOk(["reset", "-q", "--soft", this.s.baseSha], this.s.wt);
     gitOk(["reset", "-q"], this.s.wt);
   }
 
   removeWorktrees(): void {
+    if (!this.isGit) return; // kullanıcının kendi klasörü: dokunulmaz
     git(["worktree", "remove", "--force", this.s.baseWt], this.s.root);
     git(["worktree", "remove", "--force", this.s.wt], this.s.root);
     if (!this.s.commits?.length && this.s.branch) git(["branch", "-D", this.s.branch], this.s.root); // boş kalan branch'i bırakma
@@ -212,7 +228,7 @@ export class RelatedRepo {
   describe(): string {
     return this.editable
       ? `- ${this.name}: \`${this.s.wt}\` — değiştirilebilir yollar: ${this.s.edit.join(", ")} (testleri, tip ve lint kontrollerini flowloop çalıştırır)`
-      : `- ${this.name}: \`${this.s.wt}\` — SADECE OKUNUR (bu repoda değişiklik yapma)`;
+      : `- ${this.name}: \`${this.s.wt}\` — SADECE OKUNUR (${this.isGit ? "bu repoda" : "bu ortak klasörde"} değişiklik yapma)`;
   }
 }
 

@@ -684,3 +684,29 @@ test("birden fazla ilgili repo: düzenlenen için branch ve commit, sadece okuna
   assert.equal(ro.branch, "");
   assert.equal(gitOk(["branch", "--list"], shared).trim(), "* main", "sadece okunan repoda branch yok");
 });
+
+test("ortak klasör (git değil): sadece okunur eklenir, olduğu yerden okunur; edit verilirse hata", async () => {
+  const shared = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-shared-"));
+  fs.mkdirSync(path.join(shared, "models"));
+  fs.writeFileSync(path.join(shared, "models/Gonderi.cs"), "public class Gonderi {}\n");
+  fs.writeFileSync(path.join(shared, "CLAUDE.md"), "# ortak kurallar\n- DTO'lar değiştirilmez\n");
+  const main = makeRepo("");
+  fs.appendFileSync(path.join(main, ".flowloop/flowloop.yaml"), `related:\n  - name: ortak\n    path: ${JSON.stringify(shared)}\n`);
+  gitOk(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "chore: related"], main);
+  const agent = new FakeAgent({
+    ...good,
+    analist: (req) => {
+      assert.equal(req.extraDirs![0], shared, "ortak klasör olduğu yerden okunur");
+      assert.match(req.prompt, /ortak: `[^`]+` — SADECE OKUNUR \(bu ortak klasörde değişiklik yapma\)/);
+      assert.match(fs.readFileSync(path.join(req.runRoot, "rules.md"), "utf8"), /DTO'lar değiştirilmez/);
+      good.analist!(req, 1);
+    },
+  });
+  const s = await runTask({ root: main, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true });
+  assert.equal(s.status, "success");
+  assert.ok(fs.existsSync(path.join(shared, "models/Gonderi.cs")), "ortak klasöre dokunulmadı");
+
+  const { loadConfig } = await import("../src/config.js");
+  fs.appendFileSync(path.join(main, ".flowloop/flowloop.yaml"), "    edit: [\"**\"]\n");
+  assert.throws(() => loadConfig(main), /git reposu değil; sadece okunur eklenebilir/);
+});

@@ -281,7 +281,9 @@ related:
                               # edit yok → sadece okunur
 ```
 
-İstediğin kadar repo ekleyebilirsin. Her biri için:
+İstediğin kadar repo ekleyebilirsin. `path` git reposu olmayan bir klasör de olabilir (ör. ortak modeller, şemalar, dokümanlar). Böyle bir klasör **sadece okunur** eklenebilir: kopyası açılmaz, olduğu yerden okunur, branch ya da commit oluşmaz; `edit` verilirse `flowloop check` hata verir.
+
+Git reposu olan her biri için:
 
 - **Temiz kopya:** kendi base branch'inden (o reponun `flowloop.yaml`'ı ya da production → main → master) ayrı bir çalışma kopyası açılır. Bilgisayarındaki repoya dokunulmaz.
 - **Okuma:** analist, developer, reviewer ve committer hepsini okuyabilir. O reponun `.env` gibi gizli dosyaları (kendi `readDeny` listesi) okunamaz. O reponun `CLAUDE.md` gibi kural dosyaları da ajanlara verilir.

@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -273,12 +274,21 @@ export function loadConfig(root: string): FlowloopConfig {
     if (names.has(rel.name)) throw new ConfigError(`related: "${rel.name}" adı birden fazla kez kullanılmış`);
     names.add(rel.name);
     const p = path.resolve(root, rel.path.replace(/^~(?=\/|$)/, os.homedir()));
-    if (!fs.existsSync(path.join(p, ".git"))) throw new ConfigError(`related.${rel.name}: ${rel.path} bir git reposu değil (${p})`);
+    if (!fs.existsSync(p) || !fs.statSync(p).isDirectory()) throw new ConfigError(`related.${rel.name}: ${rel.path} klasörü bulunamadı (${p})`);
+    // git reposu olmayan klasörler (ortak dosyalar) sadece okunur eklenebilir: branch/commit açılamaz
+    if (rel.edit.length && !isGitRepo(p)) {
+      throw new ConfigError(`related.${rel.name}: ${rel.path} bir git reposu değil; sadece okunur eklenebilir (edit satırını kaldır)`);
+    }
   }
   for (const rf of r.data.rules) {
     if (!fs.existsSync(path.join(root, rf))) throw new ConfigError(`rules: ${rf} bulunamadı`);
   }
   return r.data;
+}
+
+/** Klasör bir git çalışma kopyası mı (alt klasör de olabilir) */
+export function isGitRepo(dir: string): boolean {
+  return spawnSync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: dir, encoding: "utf8" }).stdout.trim() === "true";
 }
 
 /** related.path'i mutlak yola çevirir (~ ve göreli yollar desteklenir) */

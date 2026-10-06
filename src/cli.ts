@@ -11,7 +11,7 @@ import { MutantSandbox } from "./mutant.js";
 import { RelatedRepo } from "./related.js";
 import { currentVersion, readInstallInfo, runUpdate, updateNotice } from "./update.js";
 import { printStatus, runSetup, systemDeps, terminalIO } from "./setup.js";
-import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, FLOWLOOP_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor , globalJiraBase, parseJiraLink, relatedPath } from "./config.js";
+import { CONFIG_FILE, ConfigError, DEFAULT_PROJECT_DOCS, FLOWLOOP_DIR, jiraBaseUrl, ensureGitignore, loadConfig, migrateLegacyProject, workDirFor, workDirsFor , globalJiraBase, parseJiraLink, relatedPath, isGitRepo } from "./config.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { mergeConfig } from "./configmerge.js";
 import { detectBaseBranch, detectProject, renderConfig } from "./tech.js";
@@ -370,7 +370,8 @@ async function main(): Promise<number> {
       for (const r of cfg.related) {
         const p = relatedPath(root, r.path);
         const st = RelatedRepo.projectSettings(p);
-        console.log(`  ilgili   : ${r.name} → ${p} · ${r.edit.length ? `değiştirilebilir: ${r.edit.join(", ")}` : "sadece okunur"} · test: ${st.commands.testRelated || "—"} (${st.source})`);
+        const gitRepo = isGitRepo(p);
+        console.log(`  ilgili   : ${r.name} → ${p} · ${r.edit.length ? `değiştirilebilir: ${r.edit.join(", ")}` : "sadece okunur"}${gitRepo ? ` · test: ${st.commands.testRelated || "—"} (${st.source})` : " · git değil (ortak klasör)"}`);
       }
       await printStatus(systemDeps(jiraBaseUrl(cfg)), { log: console.log });
       const roles = loadRoles(root, cfg);

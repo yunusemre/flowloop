@@ -373,7 +373,9 @@ function attachRelated(related: RelatedRepo[], policy: PolicyContext, vars: Reco
   // ilgili repoların kural dosyaları da ajanlara verilir
   const parts: string[] = [];
   for (const r of related) {
-    const docs = findProjectDocs(r.s.baseWt, ["CLAUDE.md", "AGENTS.md", ".cursorrules", ".cursor/rules/*.mdc"]);
+    const docs = r.s.git === false
+      ? ["CLAUDE.md", "AGENTS.md", ".cursorrules"].filter((f) => fs.existsSync(path.join(r.s.baseWt, f)))
+      : findProjectDocs(r.s.baseWt, ["CLAUDE.md", "AGENTS.md", ".cursorrules", ".cursor/rules/*.mdc"]);
     if (!docs.length) continue;
     parts.push(`# İlgili repo kuralları: ${r.name}`);
     for (const d of docs) parts.push(`## ${r.name}/${d}\n\n${fs.readFileSync(path.join(r.s.baseWt, d), "utf8").trim()}`);
