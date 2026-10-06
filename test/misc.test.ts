@@ -118,7 +118,7 @@ test("Jira adresi önceliği: flowloop.yaml → JIRA_BASE_URL → flowloop setup
   }
 });
 
-test("init: .NET projesinde src yoksa proje klasörleri düzenlenebilir yollar olur; boş edit anlaşılır hata verir", async () => {
+test("init: .NET projesinde düzenlenebilir yol bütün repo; boş edit anlaşılır hata verir", async () => {
   const { detectProject } = await import("../src/tech.js");
   const { loadConfig } = await import("../src/config.js");
   const fs = await import("node:fs");
@@ -133,27 +133,10 @@ test("init: .NET projesinde src yoksa proje klasörleri düzenlenebilir yollar o
   fs.writeFileSync(path.join(d, "AyJob.sln"), "");
   execFileSync("git", ["init", "-q"], { cwd: d });
   execFileSync("git", ["add", "-A"], { cwd: d });
-  assert.deepEqual([...detectProject(d).edit].sort(), ["AyJob.Tests/**", "AyJob/**"].sort());
+  assert.deepEqual(detectProject(d).edit, ["**"], "varsayılan: bütün repo");
 
   fs.mkdirSync(path.join(d, ".flowloop"));
   fs.writeFileSync(path.join(d, ".flowloop/flowloop.yaml"), 'version: 2\ncommands:\n  testRelated: "dotnet test {{testFiles}}"\npaths:\n  edit:\n');
   assert.throws(() => loadConfig(d), /paths\.edit: boş olamaz[\s\S]*src\/\*\*/);
 });
 
-test("init: bilinen klasör yoksa repodaki üst klasörler önerilir", async () => {
-  const { detectProject } = await import("../src/tech.js");
-  const fs = await import("node:fs");
-  const os = await import("node:os");
-  const path = await import("node:path");
-  const { execFileSync } = await import("node:child_process");
-  const d = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-gen-"));
-  for (const f of ["package.json", "jobs/a.js", "utils/b.js", ".github/workflows/x.yml", "node_modules/y/index.js"]) {
-    fs.mkdirSync(path.dirname(path.join(d, f)), { recursive: true });
-    fs.writeFileSync(path.join(d, f), f === "package.json" ? '{"name":"x","devDependencies":{"jest":"29"}}' : "x");
-  }
-  execFileSync("git", ["init", "-q"], { cwd: d });
-  execFileSync("git", ["add", "package.json", "jobs", "utils", ".github"], { cwd: d });
-  const det = detectProject(d);
-  assert.deepEqual(det.edit, ["jobs/**", "utils/**"]);
-  assert.ok(det.notes.some((n) => /tahmin edildi/.test(n)));
-});

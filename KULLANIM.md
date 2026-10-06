@@ -275,7 +275,7 @@ Bir projede çalışırken başka bir repoya da bakmak ya da onu da değiştirme
 related:
   - name: backend
     path: ../backend          # bilgisayardaki yol; bu projeye göre göreli ya da ~/... olabilir
-    edit: ["src/**"]          # developer'ın değiştirebileceği yollar
+    edit: ["**"]              # developer'ın değiştirebileceği yollar ("**" = bütün repo; ör. "src/**" ile daralt)
   - name: shared-models
     path: ~/projeler/shared-models
                               # edit yok → sadece okunur
@@ -352,7 +352,7 @@ En çok değiştirilenler:
 | `commands.typecheck` | Ör. `npx tsc --noEmit -p .`; sadece yeni hatalar sayılır |
 | `commands.lint` | Ör. `npx eslint --quiet {{files}}`; sadece yeni **hatalar** sayılır, uyarılar bloklamaz |
 | `commands.format` | Ör. `npx prettier --write {{files}}`; her turdan sonra otomatik çalışır |
-| `paths.edit` | Developer'ın değiştirebileceği yollar |
+| `paths.edit` | Developer'ın değiştirebileceği yollar. Varsayılan `**` (bütün repo); gizli dosyalara (`readDeny`), `.git`'e ve `.flowloop`'a yine yazılamaz. Daraltmak için ör. `src/**` |
 | `paths.readDeny` | Hiçbir rolün okuyamayacağı dosyalar (`.env` gibi) |
 | `budgets` | Rol başına ve toplam dolar limiti |
 | `maxIterations` | Developer ⇄ reviewer tur sayısı (varsayılan 3) |

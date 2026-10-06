@@ -104,3 +104,19 @@ test("arama araçları çalışma alanı dışına çıkamaz", () => {
   deny("developer", "Grep", { pattern: "x", path: "/etc" });
   deny("developer", "Glob", { pattern: "*", path: os.homedir() });
 });
+
+test("edit \"**\" (bütün repo) olsa da gizli dosyalara, .git'e, .flowloop'a ve bağlı klasörlere yazılamaz", () => {
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-all-"));
+  fs.mkdirSync(path.join(base, "wt"), { recursive: true });
+  fs.mkdirSync(path.join(base, "run"), { recursive: true });
+  const c = { repoRoot: path.join(base, "wt"), runRoot: path.join(base, "run"), readDeny: [".env", "node_modules", "node_modules/**"], forbiddenFlags: {} };
+  const perms = { tools: ["Write"], read: ["**"], edit: ["**"], bash: [] };
+  const W = (p: string) => evaluate(perms, c, "Write", { file_path: path.join(c.repoRoot, p) }).allow;
+  assert.equal(W("src/a.ts"), true);
+  assert.equal(W("package.json"), true);
+  assert.equal(W(".env"), false);
+  assert.equal(W(".git/config"), false);
+  assert.equal(W(".flowloop/flowloop.yaml"), false);
+  assert.equal(W("node_modules/x/index.js"), false);
+  assert.equal(W("../dışarı.ts"), false);
+});

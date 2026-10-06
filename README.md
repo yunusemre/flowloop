@@ -85,7 +85,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 | `commands.lint` | `{{files}}` ile; sadece yeni hatalar sayılır (uyarılar bloklamaz) |
 | `commands.format` | `{{files}}` ile; her developer turundan sonra otomatik çalışır |
 | `linkDirs` | Repodan worktree'ye bağlanan klasörler (`node_modules` gibi) |
-| `paths.edit` / `paths.readDeny` | Developer'ın yazabileceği yollar / hiçbir rolün okuyamayacağı dosyalar |
+| `paths.edit` / `paths.readDeny` | Developer'ın yazabileceği yollar (varsayılan `**`, bütün repo) / hiçbir rolün okuyamayacağı ve yazamayacağı dosyalar |
 | `agent` / `cursor.*` | Ajan aracı (`auto`, `claude`, `cursor`) ve Cursor ayarları |
 | `related` | Bağımlı repolar (ör. backend): okunur ya da `edit` ile değiştirilebilir; her repo ayrı branch/commit/PR |
 | `budgets` / `maxIterations` | Dolar bütçeleri (Claude) / developer ⇄ reviewer tur sayısı |

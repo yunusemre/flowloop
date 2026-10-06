@@ -30,23 +30,6 @@ function readJson(file: string): Record<string, any> | undefined {
 
 const ver = (v: string | undefined) => (v ? v.replace(/^[\^~>=<\s]+/, "") : "");
 
-function existingDirs(root: string, candidates: string[]): string[] {
-  return candidates.filter((d) => fs.existsSync(path.join(root, d)) && fs.statSync(path.join(root, d)).isDirectory());
-}
-
-/** Kaynak kodu olmayan, developer'ın değiştirmemesi gereken üst klasörler */
-const NON_SOURCE_DIRS = new Set([".git", ".github", ".husky", ".vscode", ".idea", ".flowloop", ".kgflow", ".ekip", ".cursor", ".claude", "node_modules", "dist", "build", "out", "bin", "obj", "coverage", "docs", "android", "ios", "packages", "vendor"]);
-
-/** Bilinen klasör adları yoksa: repoda izlenen dosya içeren üst klasörler (kaynak olmayanlar hariç) */
-function trackedTopDirs(root: string): string[] {
-  const dirs = new Set<string>();
-  for (const f of gitLsFiles(root)) {
-    const i = f.indexOf("/");
-    if (i > 0) dirs.add(f.slice(0, i));
-  }
-  return [...dirs].filter((d) => !NON_SOURCE_DIRS.has(d) && !d.startsWith(".")).sort();
-}
-
 function detectNode(root: string, pkg: Record<string, any>): Detected {
   const deps: Record<string, string> = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
   const has = (d: string) => d in deps;
@@ -106,14 +89,13 @@ function detectNode(root: string, pkg: Record<string, any>): Detected {
   if (fs.existsSync(path.join(root, ".husky"))) notes.push("Husky hook'ları var: committer'ın commit'i sırasında çalışır. Hook dosya değiştirirse flowloop bunu yakalar ve durur.");
 
   const install = file("pnpm-lock.yaml") ? "pnpm install --frozen-lockfile" : file("yarn.lock") ? "yarn install --frozen-lockfile" : file("package-lock.json") ? "npm ci" : "npm install";
-  const edit = existingDirs(root, ["src", "app", "components", "lib", "pages", "screens", "test", "tests", "__tests__", "__mocks__"]).map((d) => `${d}/**`);
   const deny = rn ? ["google-services.json", "GoogleService-Info.plist", "**/*.p8", "android/app/*.keystore"] : [];
   return {
     stack,
     tech,
     commands: { install, testRelated, typecheck, lint, format, commitCheck },
     linkDirs: ["node_modules"],
-    edit: edit.length ? edit : ["src/**"],
+    edit: ["**"],
     readDeny: [...COMMON_DENY, ...deny],
     notes,
   };
@@ -149,30 +131,12 @@ function detectDotnet(root: string): Detected {
       commitCheck: "",
     },
     linkDirs: [],
-    edit: dotnetEditPaths(root, csprojs),
+    edit: ["**"],
     readDeny: [...COMMON_DENY, "**/appsettings.*.json", "**/secrets.json", "**/*.pfx"],
     notes: ["dotnet testRelated: {{testFiles}} yerine test projesi yolu ya da --filter ile daraltmak isteyebilirsin."],
   };
 }
 
-/**
- * .NET'te kod genelde proje adlı klasörlerdedir (Api/, Api.Tests/), "src" olmayabilir.
- * src/test(s) varsa onlar; yoksa .csproj'ların bulunduğu üst klasörler; .csproj kökteyse *.cs dosyaları.
- */
-function dotnetEditPaths(root: string, csprojs: string[]): string[] {
-  const known = existingDirs(root, ["src", "tests", "test"]).map((d) => `${d}/**`);
-  if (known.length) return known;
-  const tops = new Set<string>();
-  let atRoot = false;
-  for (const p of csprojs) {
-    const i = p.indexOf("/");
-    if (i < 0) atRoot = true;
-    else tops.add(p.slice(0, i));
-  }
-  const out = [...tops].sort().map((d) => `${d}/**`);
-  if (atRoot) out.push("**/*.cs");
-  return out.length ? out : ["**/*.cs"];
-}
 
 function gitLsFiles(root: string): string[] {
   const r = git(["ls-files"], root);
@@ -180,14 +144,7 @@ function gitLsFiles(root: string): string[] {
 }
 
 export function detectProject(root: string): Detected {
-  const d = detectStack(root);
-  if (!d.edit.length || (d.edit.length === 1 && d.edit[0] === "src/**" && !existingDirs(root, ["src"]).length)) {
-    // bilinen kaynak klasörü yok: repodaki üst klasörlerden çıkar
-    const tops = trackedTopDirs(root).map((x) => `${x}/**`);
-    d.edit = tops.length ? tops : ["src/**"];
-    d.notes.push(`Kaynak klasörü tahmin edildi (paths.edit: ${d.edit.join(", ")}); developer'ın değiştirebileceği yolları kontrol et.`);
-  }
-  return d;
+  return detectStack(root);
 }
 
 function detectStack(root: string): Detected {
@@ -202,7 +159,7 @@ function detectStack(root: string): Detected {
     tech: [],
     commands: { install: "", testRelated: "make test FILES='{{files}}'", typecheck: "", lint: "", format: "", commitCheck: "" },
     linkDirs: [],
-    edit: ["src/**"],
+    edit: ["**"],
     readDeny: COMMON_DENY,
     notes: ["Stack algılanamadı; komutları elle doldur."],
   };
@@ -246,7 +203,9 @@ commands:
 linkDirs: [${d.linkDirs.map(q).join(", ")}]   # repodan worktree'ye bağlanır (kurulum gerekmez)
 
 paths:
-  edit:                          # developer SADECE bunları değiştirebilir
+  edit:                          # developer'ın değiştirebileceği yollar; "**" = bütün repo
+                                 # (readDeny'daki gizli dosyalara, .git'e ve .flowloop'a yine yazamaz).
+                                 # Daraltmak için ör. - "src/**"
 ${list(d.edit)}
   readDeny:                      # hiçbir rol okuyamaz
 ${list(d.readDeny)}
@@ -272,7 +231,7 @@ related: []
 # related:
 #   - name: backend
 #     path: ../backend            # bilgisayardaki yol (bu projeye göre)
-#     edit: ["src/**"]            # boş bırakılırsa sadece okunur
+#     edit: ["**"]                # "**" = bütün repo; ör. "src/**" ile daralt; boş bırakılırsa sadece okunur
 
 tech: |
 ${d.tech.map((t) => `  - ${t}`).join("\n") || "  - (doldur)"}

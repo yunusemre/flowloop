@@ -11,6 +11,9 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 ### Yeni
 - **Birbirine bağımlı projeler (`related`):** bir görevde birden fazla repo. Her ilgili repo için temiz çalışma kopyası; ajanlar hepsini okuyabilir, `edit` verilen yollarda değişiklik yapılabilir. Kontroller her repoda o reponun komutlarıyla çalışır; onayda bütün farklar birlikte görünür; değişen her repo ayrı branch, commit, push ve PR ile teslim edilir; Jira yorumunda hepsi listelenir. Yetkiler Claude'da da Cursor'da da aynı kurallarla zorlanır.
 
+### Değişen
+- `paths.edit` varsayılanı artık `**` (bütün repo). Gizli dosyalara (`readDeny`), `.git`'e, `.flowloop`'a ve bağlanan klasörlere (`node_modules`) yine yazılamaz. İstenirse `src/**` gibi daraltılabilir.
+
 ### Düzeltme
 - `src` klasörü olmayan projelerde (ör. .NET) `flowloop init` düzenlenebilir yolları boş bırakıyordu.
 
