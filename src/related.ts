@@ -57,6 +57,16 @@ export class RelatedRepo {
     return this.s.edit.length > 0;
   }
 
+  /**
+   * Bu görevin kapsamına göre yazma yollarını ayarlar (tavan flowloop.yaml'dadır, kontrolü
+   * çağıran yapar). Worktree yazılabilir olarak (branch'li) hazırlanmadıysa yazma açılamaz.
+   */
+  setEdit(edit: string[]): void {
+    if (edit.length && (this.s.git === false || !this.s.branch)) throw new Error(`${this.name}: sadece okunur hazırlandı; bu çalıştırmada yazma açılamaz`);
+    this.s.edit = [...edit];
+    this.editMatch = edit.length ? picomatch(edit, { dot: true }) : () => false;
+  }
+
   /** İlgili reponun ayarı: kendi flowloop.yaml'ı varsa o, yoksa otomatik tespit */
   static projectSettings(root: string): { commands: Commands; readDeny: string[]; linkDirs: string[]; baseBranch: string; source: string } {
     if (fs.existsSync(path.join(root, CONFIG_FILE))) {

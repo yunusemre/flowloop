@@ -32,6 +32,7 @@ flowloop run PROJ-1234 --approve-plan -v
 | `flowloop setup` | Hesapları adım adım kurar: git kimliği, Claude/Cursor, Jira, Bitbucket. Kurulum sonunda kendiliğinden açılır |
 | `flowloop update` | flowloop'u günceller. Yeni sürüm çıkınca flowloop ekranın başında haber verir |
 | `flowloop runs` / `flowloop resume <id>` | Çalıştırmaları listeler / yarım kalanı sürdürür |
+| `flowloop stats [--since 30d]` | Ölçüm özeti: başarı, ilk incelemede PASS, tur, insan müdahalesi, kapsam talepleri, reddedilen işlemler, maliyet |
 | `flowloop --version` | Sürümü ve kurulum kaynağını gösterir |
 
 Gereksinimler: macOS ya da Linux ve git. Node.js 20+ yoksa kurulum betiği kurar. Push için projenin kendi reposuna (ör. Bitbucket) erişimin olmalı.
@@ -40,9 +41,9 @@ Gereksinimler: macOS ya da Linux ve git. Node.js 20+ yoksa kurulum betiği kurar
 
 | Rol | Yapabilir | Yapamaz |
 |---|---|---|
-| Analist | Kodu ve proje kurallarını okur, kabul kriterli plan yazar | Kod değiştirmek, komut çalıştırmak |
-| Developer | `paths.edit` altını düzenler; bu işin testlerini ve lint'i çalıştırır | Başka dosya, tüm test suite'i, commit |
-| Reviewer | Okur, testleri çalıştırır, kodu **kopyada** bozarak testleri dener (mutasyon testi), PASS/FAIL verir | Gerçek dosyaya yazmak, commit |
+| Analist | Kodu ve proje kurallarını okur, kabul kriterli plan yazar; ilgili repolar varsa görevin repo kapsamını ve repolar arası sözleşmeyi planlar | Kod değiştirmek, komut çalıştırmak, `flowloop.yaml`'ın izin vermediği bir repoyu yazılabilir yapmak |
+| Developer | `paths.edit` ve onaylanan repo kapsamı altını düzenler; bu işin testlerini ve lint'i çalıştırır; kapsam dışı bir değişiklik gerekirse kapsam talebi yazar | Başka dosya, kapsamı kendi genişletmek, tüm test suite'i, commit |
+| Reviewer | Okur, testleri çalıştırır, kodu **kopyada** bozarak testleri dener (mutasyon testi), repolar arası sözleşme uyumunu kontrol eder, PASS/FAIL verir | Gerçek dosyaya yazmak, commit |
 | Committer | `git add`, `git commit`, Jira özeti | Dosya düzenlemek, push, `--no-verify`, `--amend` |
 
 Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) ile çalışır; Claude erişimi yoksa otomatik olarak Cursor CLI kullanılır (`agent: auto | claude | cursor`). İki durumda da yetkiler aynı kodla zorlanır.
@@ -66,6 +67,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
   - Analist ve reviewer gerçek dosyalara dokunmamış olmalı; developer commit atmamış ve izinli yolların dışına yazmamış olmalı.
   - Commit'lenen içerik, reviewer'ın onayladığı içeriğin tree hash'iyle birebir aynı olmalı. Commit hook'ları dosya değiştirirse bu kontrol yakalar.
   - Commit mesajları Conventional Commits formatında olmalı ya da `commitlint`'ten geçmeli.
+- **Görev başına kapsam.** İlgili repolarda `edit` bir tavandır; analist planında bu görev için gereken repoları seçer, sen planla birlikte onaylarsın. Plan tavanı sadece daraltabilir; planda kapsam bölümü yoksa ilgili repolar salt okunur kalır. Developer kapsam dışı bir değişiklik gerektiğinde workaround yazmak yerine kapsam talebi yazar; döngü durur ve kararı sen verirsin (genişlet / genişletmeden devam / durdur).
 - **Merge her zaman insandadır.** Force push asla yapılmaz; branch push'lanır ve PR bağlantısı verilir.
 
 ## Jira
@@ -87,7 +89,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 | `linkDirs` | Repodan worktree'ye bağlanan klasörler (`node_modules` gibi) |
 | `paths.edit` / `paths.readDeny` | Developer'ın yazabileceği yollar (varsayılan `**`, bütün repo) / hiçbir rolün okuyamayacağı ve yazamayacağı dosyalar |
 | `agent` / `cursor.*` | Ajan aracı (`auto`, `claude`, `cursor`) ve Cursor ayarları |
-| `related` | Bağımlı repolar (ör. backend): okunur ya da `edit` ile değiştirilebilir; her repo ayrı branch/commit/PR |
+| `related` | Bağımlı repolar (ör. backend): okunur ya da `edit` ile değiştirilebilir; her repo ayrı branch/commit/PR. `edit` tavandır: analist planda görev için gereken repoları seçer, plan sadece daraltabilir |
 | `budgets` / `maxIterations` | Dolar bütçeleri (Claude) / developer ⇄ reviewer tur sayısı |
 | `tech` | Teknoloji özeti (init üretir, düzenlenebilir) |
 
@@ -97,7 +99,7 @@ flowloop'un kendisi üzerinde çalışacaksan istediğin bir klasöre clone'lay�
 
 ```bash
 git clone https://github.com/yunusemre/flowloop.git && cd flowloop && ./install.sh
-npm test   # 104 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
+npm test   # 116 test: politika, kabuk ayrıştırıcı, odaklı kontroller, Cursor hook'ları, kurulum ve sahte ajanla uçtan uca akış
 ```
 
 ### Sürüm çıkarmak

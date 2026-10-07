@@ -41,6 +41,9 @@ Kontroller:
 {{#relatedChanges}}
 {{relatedChanges}}
 Bu değişiklikleri de aynı ölçütlerle incele (kabul kriterleri, kurallar, kapsam).
+Repolar arası sözleşme: plandaki "Repolar arası sözleşme" bölümüne göre sağlayan ve tüketen taraf
+birbiriyle uyumlu mu (alan adları, tipler, zorunlu/opsiyonel alanlar, uç noktalar)? Bir tarafta
+değişip diğerinde karşılığı olmayan sözleşme değişikliği = FAIL.
 {{/relatedChanges}}
 {{#memory}}
 {{memory}}

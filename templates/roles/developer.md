@@ -26,6 +26,12 @@ Reviewer her AK için kodu bilerek bozup testlerinin kırıldığını kontrol e
 {{#related}}
 {{related}}
 {{/related}}
+
+Kapsam dışı bir değişiklik gerekiyorsa (izin verilmeyen bir yol ya da SADECE OKUNUR bir repo):
+o dosyayı değiştirmeye çalışma ve etrafından dolaşan bir çözüm (workaround) yazma. Bunun yerine
+`{{scopeRequestFile}}` dosyasına şunları yaz ve turunu bitir: hangi repo/dosyada, ne değişmeli,
+neden gerekli ve mevcut kapsamda neden yapılamıyor. Kararı kullanıcı verir; kapsam genişletilirse
+ya da genişletilmezse sana ayrıca bildirilir.
 {{#memory}}
 {{memory}}
 {{/memory}}

@@ -6,13 +6,29 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.4.0 — 2026-10-07
+
+### Yeni
+- **Görev başına repo kapsamı:** `related[].edit` artık bir tavan. Analist planına `## Repo kapsamı` bölümü yazar ve bu görev için hangi ilgili repoların yazılabilir olacağını seçer; kapsam plan onayında ayrıca gösterilir. Plan tavanı sadece daraltabilir; listede olmayan repo salt okunur kalır. Kayıtlı kapsam `resume`'da da korunur.
+- **Kapsam talebi:** developer kapsam dışı bir değişiklik gerektiğinde workaround yazmak yerine `run/scope-request.md` yazar; döngü durur ve kullanıcı karar verir: tavan içinde genişlet, genişletmeden devam et ya da durdur. Etkileşimsiz çalıştırmada durur. Talepler ve kararlar `run/scope-requests.md` ve `run.json`'da saklanır.
+- **Repolar arası sözleşme:** birden fazla repo değiştiğinde analist sözleşme değişikliğini ve sırasını (önce sağlayan, sonra tüketen) planlar; reviewer iki tarafın uyumunu kontrol eder.
+- **`flowloop stats`:** çalıştırmaların ölçüm özeti (başarı, ilk incelemede PASS, reviewer ve kontrol hata oranları, tur, insan müdahalesi, kapsam talepleri, reddedilen işlemler, başarısızlık nedenleri, maliyet, süre). `--since 30d`, `--json`.
+- **Kalıcı geçmiş:** her çalıştırma bitince özeti `.flowloop/history.jsonl`'a eklenir (git'te yerel olarak yok sayılır, `flowloop clean` silmez). Çalıştırma özetine başlangıç ve bitiş zamanı eklendi.
+
+### Değişen
+- **Planda kapsam bölümü yoksa ilgili repolar salt okunur.** Önceden `edit` verilen ilgili repolar her görevde yazılabilirdi; artık yazma için planın `## Repo kapsamı` bölümünde o reponun "yazılabilir" olarak seçilmesi gerekir. Bölümsüz planlarda (ör. önceki bir çalıştırmadan devralınan plan) uyarı verilir; gerekirse plan onayında yorumla güncellenir ya da geliştirme sırasında kapsam talebiyle genişletilir.
+
+## 1.3.0 — 2026-10-07
+
+### Değişen
+- **Bütçe dolunca durmak yerine sorulur:** bir rolün bütçesi dolarsa ("reached maximum budget") etkileşimli terminalde ek bütçe istenir; onaylanırsa ajan aynı oturumdan, kaldığı yerden devam eder (maliyet çift sayılmaz). Onaylanmazsa hangi ayarın artırılacağı yazılır.
+
 ## 1.2.0 — 2026-10-06
 
 ### Yeni
 - **Birbirine bağımlı projeler (`related`):** bir görevde birden fazla repo. Her ilgili repo için temiz çalışma kopyası; ajanlar hepsini okuyabilir, `edit` verilen yollarda değişiklik yapılabilir. Kontroller her repoda o reponun komutlarıyla çalışır; onayda bütün farklar birlikte görünür; değişen her repo ayrı branch, commit, push ve PR ile teslim edilir; Jira yorumunda hepsi listelenir. Yetkiler Claude'da da Cursor'da da aynı kurallarla zorlanır. Git reposu olmayan ortak klasörler de sadece okunur olarak eklenebilir.
 
 ### Değişen
-- **Bütçe dolunca durmak yerine sorulur:** bir rolün bütçesi dolarsa ("reached maximum budget") etkileşimli terminalde ek bütçe istenir; onaylanırsa ajan aynı oturumdan, kaldığı yerden devam eder (maliyet çift sayılmaz). Onaylanmazsa hangi ayarın artırılacağı yazılır.
 - `paths.edit` varsayılanı artık `**` (bütün repo). Gizli dosyalara (`readDeny`), `.git`'e, `.flowloop`'a ve bağlanan klasörlere (`node_modules`) yine yazılamaz. İstenirse `src/**` gibi daraltılabilir.
 
 ### Düzeltme

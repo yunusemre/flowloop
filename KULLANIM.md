@@ -295,6 +295,32 @@ Git reposu olan her biri için:
 
 Mutasyon testi sadece ana projede yapılır. `flowloop check` eklenen repoları, yollarını ve hangi test komutunun kullanılacağını gösterir.
 
+### Görev başına kapsam
+
+`flowloop.yaml`'daki `edit` bir **tavandır**: o repoya en fazla bu yollarda yazılabilir. Her görev bu tavanın tamamına ihtiyaç duymaz; mobilde bir metin değişikliği backend'e yazma yetkisi gerektirmez. Bu yüzden analist planına şu bölümü ekler:
+
+```markdown
+## Repo kapsamı
+- backend: yazılabilir
+- shared-models: salt okunur
+```
+
+- Plan onayında (`--approve-plan`) kapsam planın altında ayrıca gösterilir; planı onaylarken kapsamı da onaylamış olursun. Daraltmak ya da genişletmek için planı yorumla güncellet.
+- Plan tavanı sadece **daraltabilir**. `edit` verilmemiş bir repoyu plan yazılabilir yapamaz; denenirse uyarı verilir ve repo salt okunur kalır.
+- Listede olmayan ya da okunamayan satırlar salt okunur sayılır.
+- Bölüm hiç yoksa (ör. önceki bir sürümle yazılmış plan) **bütün ilgili repolar salt okunur** sayılır ve uyarı verilir. Yazma gerekiyorsa plan onayında yorum yazarak planı güncelletebilirsin (ör. "backend yazılabilir olsun"); geliştirme sırasında gerekirse developer kapsam talebi yazar.
+- Planda ayrıca **Repolar arası sözleşme** bölümü bulunur: API uç noktaları, alanlar ve paylaşılan tiplerde ne değiştiği, hangi tarafın önce değişeceği. Reviewer iki tarafın birbiriyle uyumunu bu bölüme göre kontrol eder.
+
+### Kapsam talebi
+
+Geliştirme sırasında developer kapsam dışında bir değişikliğin gerektiğini fark ederse (salt okunur bir repo ya da izinli olmayan bir yol), o dosyayı değiştirmeye ya da etrafından dolaşan bir çözüm yazmaya çalışmaz; ne değişmesi gerektiğini ve nedenini bir kapsam talebi olarak yazar. flowloop döngüyü durdurur ve sana sorar:
+
+- **[g] Kapsamı genişlet:** `flowloop.yaml`'ın izin verdiği ama bu görevde kapalı olan repolar yazılabilir olur. Tavanın dışına çıkılamaz; onu değiştirmek `flowloop.yaml`'ı düzenlemek demektir.
+- **[d] Genişletmeden devam et:** developer mevcut kapsamda kalır ve yapamadığı kısmı özetinde belirtir.
+- **[h] Durdur:** bu değişiklik için ayrı bir görev açarsın.
+
+Kapsam kararı bir geliştirme turu sayılmaz; bir çalıştırmada en fazla 3 talep değerlendirilir (daha fazlası görevin bölünmesi gerektiğine işarettir). Etkileşimsiz çalıştırmada talep gelirse çalıştırma durur; yetki hiçbir zaman ajanın isteğiyle kendiliğinden açılmaz. Talepler ve verilen kararlar `run/scope-requests.md` ve `run.json` içinde saklanır.
+
 ## Claude yerine Cursor
 
 Claude erişimi yoksa flowloop ajanları **Cursor CLI** ile çalıştırır. Seçim otomatiktir:
@@ -332,6 +358,7 @@ Claude ile arasındaki farklar:
 | Komut | Ne yapar |
 |---|---|
 | `flowloop runs` | Bu projedeki çalıştırmaları ve durumlarını listeler |
+| `flowloop stats [--since 30d] [--json]` | Çalıştırmaların ölçüm özeti (aşağıya bak) |
 | `flowloop resume <id> -v [--agent cursor]` | Yarım kalan bir çalıştırmayı baştan başlatmadan sürdürür (kontroller → reviewer → commit → push → Jira) |
 | `flowloop task PROJ-123` | Sadece Jira görevini dosyaya çeker (çalıştırmaz) |
 | `flowloop clean` | Merge edilmiş çalıştırmaların çalışma klasörlerini siler |
@@ -339,6 +366,17 @@ Claude ile arasındaki farklar:
 | `flowloop init --force` | Ayar dosyasını yeniler; elle girdiğin değerleri korur |
 
 Çalıştırma kimliği (`<id>`) `flowloop runs` çıktısında ve hata mesajında yazar.
+
+### Ölçüm (`flowloop stats`)
+
+Her çalıştırma bittiğinde (başarılı ya da başarısız) özeti `.flowloop/history.jsonl` dosyasına eklenir. Bu dosya git'te yerel olarak yok sayılır ve `flowloop clean` ile silinmez; çalışma klasörleri temizlense de geçmiş kalır. `flowloop stats` bu geçmişi ve henüz temizlenmemiş çalıştırmaları birlikte okur:
+
+- **Kalite:** başarı oranı, ilk incelemede PASS oranı, reviewer FAIL oranı, otomatik kontrol hatası oranı, ortalama tur.
+- **İnsan müdahalesi:** plan yorumu ve değişiklik isteği ortalaması, kapsam talepleri ve verilen kararlar.
+- **Yönetişim:** kapsamı plandan gelen ve birden fazla repoya dokunan çalıştırmalar, reddedilen işlemler (en sık rol ve araç).
+- **Başarısızlık nedenleri, maliyet ve süre.** Cursor maliyet bildirmediği için maliyet ortalamasına sadece Claude çalıştırmaları girer. Süre onay bekleme süresini de içerir.
+
+`--since 30d` (ya da `2w`, `6m`) dönemi daraltır; `--json` çıktıyı başka bir araca ya da rapora aktarmak içindir. Süre ve kontrol oranları bu sürümden önceki kayıtlarda bulunmaz.
 
 ## 7. Ayarlar (`.flowloop/flowloop.yaml`)
 
@@ -414,3 +452,4 @@ Gerisi kendiliğinden olur:
 - Jira metni görev tanımı olarak kullanılır; içindeki talimatlar flowloop'un kurallarını ve rol yetkilerini değiştiremez.
 - Kod hafızası (MCP) sadece okuma araçlarıyla açılır.
 - Merge her zaman PR üzerinden bir insan tarafından yapılır.
+- İlgili repolarda yazma yetkisi görev başına daraltılır; ajan kendine yetki veremez, kapsam ancak senin onayınla ve `flowloop.yaml` sınırları içinde genişler.

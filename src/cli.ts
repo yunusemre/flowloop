@@ -19,7 +19,8 @@ import { detectMemoryServers, expandServerNames, loadMcpServers, userClaudeMdPat
 
 import { git } from "./git.js";
 import { color, consoleLogger } from "./log.js";
-import { FlowloopError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type RunSummary } from "./orchestrator.js";
+import { FlowloopError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type RunSummary, type ScopeDecision, type ScopeReviewInfo } from "./orchestrator.js";
+import { computeStats, loadRecords, parseSince, renderStats } from "./stats.js";
 import { PACKAGE_ROOT, loadRoles } from "./roles.js";
 import { JIRA_KEY, JiraError, fetchIssue, issueToTask } from "./jira.js";
 
@@ -40,6 +41,9 @@ Kullanım:
   flowloop resume <id> [-v] [--agent claude|cursor] [--skip-review]
                                    Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
   flowloop runs                      Bu repo için yapılan çalıştırmaları listeler
+  flowloop stats [--since 30d] [--json]
+                                   Çalıştırmaların ölçüm özeti: başarı, ilk incelemede PASS, tur, insan
+                                   müdahalesi, kapsam talepleri, reddedilen işlemler, maliyet ve süre
   flowloop setup [--force]           Hesap bilgilerini (Claude/Cursor, Jira, git, Bitbucket) adım adım kurar
   flowloop setup --check             Hesapların durumunu gösterir (soru sormaz)
   flowloop update                    flowloop'u kurulduğu kaynaktan günceller
@@ -211,6 +215,46 @@ async function reviewChangesPrompt(info: ChangeReviewInfo): Promise<ChangeDecisi
   }
 }
 
+/** Developer kapsam dışı bir değişiklik istediğinde: kararı kullanıcı verir */
+async function reviewScopePrompt(info: ScopeReviewInfo): Promise<ScopeDecision> {
+  console.log("\n" + color.bold(`━━ KAPSAM TALEBİ (tur ${info.turn}) — senin kararın gerekiyor ━━`));
+  console.log(info.request);
+  const options = [
+    ...(info.expandable.length ? [`  [g] Kapsamı genişlet — yazılabilir yapılabilecek repolar: ${info.expandable.join(", ")} (flowloop.yaml sınırları içinde)`] : []),
+    "  [d] Genişletmeden devam et — developer mevcut kapsamda kalır, yapamadığını özetler",
+    "  [h] Durdur — bu değişiklik için ayrı bir görev açarsın (talep run klasöründe saklanır)",
+  ];
+  if (!info.expandable.length) console.log(color.dim("\nflowloop.yaml'ın izin verdiği kapalı repo yok; kapsam genişletilemez (tavanı değiştirmek senin kararın: flowloop.yaml → related[].edit)."));
+  for (;;) {
+    console.log(color.bold("\nNe yapalım?") + "\n" + options.join("\n"));
+    const a = (await ask(`Seçimin [${info.expandable.length ? "g/" : ""}d/h]: `)).trim().toLowerCase();
+    if (a === "g" && info.expandable.length) {
+      if (info.expandable.length === 1) return { action: "expand", repos: info.expandable };
+      const picked = (await ask(`Hangi repolar? (virgülle; boş = hepsi: ${info.expandable.join(", ")}): `)).split(",").map((x) => x.trim()).filter(Boolean);
+      const repos = picked.length ? picked.filter((x) => info.expandable.includes(x)) : info.expandable;
+      if (repos.length) return { action: "expand", repos };
+      console.log(color.yellow("Geçerli repo adı yok; tekrar seç."));
+      continue;
+    }
+    if (a === "d") return { action: "continue" };
+    if (a === "h" || a === "iptal") return { action: "cancel" };
+  }
+}
+
+function cmdStats(root: string, args: string[]): void {
+  const { values } = parseArgs({ args, options: { since: { type: "string" }, json: { type: "boolean", default: false } } });
+  let since: Date | undefined;
+  try {
+    since = values.since ? parseSince(values.since) : undefined;
+  } catch (e) {
+    throw new FlowloopError((e as Error).message);
+  }
+  const cfg = loadConfig(root);
+  const stats = computeStats(loadRecords(root, workDirsFor(cfg, root), since));
+  if (values.json) console.log(JSON.stringify(stats, null, 2));
+  else console.log(renderStats(stats, values.since ? `Son ${values.since}` : "Tüm kayıtlar"));
+}
+
 /** Eski Türkçe bayraklar (--plan-onayi, --onaysiz) uyarıyla yeni adlarına çevrilir */
 const LEGACY_FLAGS: Record<string, string> = { "--plan-onayi": "--approve-plan", "--onaysiz": "--skip-review" };
 function mapLegacyFlags(args: string[]): string[] {
@@ -282,6 +326,8 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     log,
     confirm,
     reviewPlan,
+    // etkileşimsiz çalıştırmada kapsam talebi gelirse çalıştırma durur (yetki kendiliğinden açılmaz)
+    reviewScope: process.stdin.isTTY ? reviewScopePrompt : undefined,
     // etkileşimli terminalde iş bitince commit'ten önce sorulur; --skip-review ile atlanır
     reviewChanges: !values["dry-run"] && !values["skip-review"] && process.stdin.isTTY ? reviewChangesPrompt : undefined,
     extendBudget: process.stdin.isTTY ? extendBudgetPrompt : undefined,
@@ -466,6 +512,9 @@ async function main(): Promise<number> {
       return 0;
     case "clean":
       cmdClean(root, rest.includes("--all"));
+      return 0;
+    case "stats":
+      cmdStats(root, rest);
       return 0;
     default:
       console.log(HELP);

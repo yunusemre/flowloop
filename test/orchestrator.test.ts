@@ -7,7 +7,7 @@ import type { AgentRequest, AgentResult, AgentRunner } from "../src/agent.js";
 import { gitOk, sh } from "../src/git.js";
 import { silentLogger } from "../src/log.js";
 import { MutantSandbox } from "../src/mutant.js";
-import { FlowloopError, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision } from "../src/orchestrator.js";
+import { FlowloopError, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type ScopeReviewInfo } from "../src/orchestrator.js";
 import type { RoleName } from "../src/roles.js";
 
 // ───────────── küçük örnek repo ─────────────
@@ -539,6 +539,8 @@ function makeBackend(): string {
 const relatedCfg = (main: string, backend: string, edit = '["src/**", "test/**"]') =>
   `related:\n  - name: backend\n    path: ${JSON.stringify(path.relative(main, backend))}\n    edit: ${edit}\n`;
 const backendWt = (req: AgentRequest) => req.extraDirs![0];
+/** İlgili repolu testlerde analistin planı: kapsam bölümü yoksa ilgili repolar salt okunur olur */
+const planWritingBackend: Script = (req) => void fs.writeFileSync(planFile(req), "# Plan\nAK-1: ekspres +50\n\n## Repo kapsamı\n- backend: yazılabilir\n");
 const backendDev: Script = (req) => {
   fs.writeFileSync(path.join(backendWt(req), "src/api.js"), "export const LIMIT = 20;\n");
   fs.mkdirSync(path.join(backendWt(req), "test"), { recursive: true });
@@ -557,7 +559,7 @@ test("ilgili repo: iki repoda değişiklik, her biri ayrı branch ve commit; Jir
     ...good,
     analist: (req) => {
       assert.match(req.prompt, /backend: `[^`]+wt-backend` — değiştirilebilir yollar: src\/\*\*, test\/\*\*/);
-      good.analist!(req, 1);
+      planWritingBackend(req, 1);
     },
     developer: (req, n) => {
       good.developer!(req, n);
@@ -602,6 +604,7 @@ test("ilgili repo: değişiklik sadece ilgili repodaysa ana repoda commit/branch
   gitOk(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "chore: related"], main);
   const agent = new FakeAgent({
     ...good,
+    analist: planWritingBackend,
     developer: backendDev,
     reviewer: () => "VERDICT: PASS",
     committer: (req) => void fs.writeFileSync(path.join(req.runRoot, "commit-msg-backend.txt"), "fix(api): limit"),
@@ -665,7 +668,7 @@ test("birden fazla ilgili repo: düzenlenen için branch ve commit, sadece okuna
     analist: (req) => {
       assert.equal(req.extraDirs!.length, 2);
       assert.match(req.prompt, /shared: `[^`]+` — SADECE OKUNUR/);
-      good.analist!(req, 1);
+      planWritingBackend(req, 1);
     },
     developer: (req, n) => {
       good.developer!(req, n);
@@ -754,4 +757,158 @@ test("bütçe dolar ve ek bütçe verilmezse ne yapılacağı söylenir", async 
     runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true }),
     /analist için ayrılan bütçe doldu[\s\S]*budgets\.analist \(şu an \$1\.00\)/,
   );
+});
+
+// ───────────── görev başına repo kapsamı ve kapsam talebi ─────────────
+const scopedPlan = (backend: "yazılabilir" | "salt okunur") => (req: AgentRequest) => {
+  assert.match(req.prompt, /## Repo kapsamı/, "analiste kapsam bölümü istendi");
+  fs.writeFileSync(planFile(req), `# Plan\nAK-1: ekspres +50\n\n## Repo kapsamı\n- backend: ${backend}\n\n## Repolar arası sözleşme\nSözleşme değişmiyor\n`);
+};
+function relatedMain(): { main: string; backend: string } {
+  const backend = makeBackend();
+  const main = makeRepo("");
+  fs.appendFileSync(path.join(main, ".flowloop/flowloop.yaml"), relatedCfg(main, backend));
+  gitOk(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "chore: related"], main);
+  return { main, backend };
+}
+
+test("repo kapsamı: plan ilgili repoyu salt okunur yaparsa developer'ın yetkisi kapanır, yazarsa rol ihlali", async () => {
+  const { main } = relatedMain();
+  let devPerms: string[] = [];
+  let devPrompt = "";
+  const agent = new FakeAgent({
+    ...good,
+    analist: scopedPlan("salt okunur"),
+    developer: (req) => {
+      devPerms = req.perms.edit;
+      devPrompt = req.prompt;
+      backendDev(req, 1);
+    },
+  });
+  await assert.rejects(
+    runTask({ root: main, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true }),
+    /backend: izinli yollar dışında değişiklik/,
+  );
+  assert.ok(!devPerms.some((p) => p.startsWith("@backend:")), "backend'e yazma yetkisi verilmedi");
+  assert.ok(devPerms.includes("run:scope-request.md"), "kapsam talebi yazılabilir");
+  assert.match(devPrompt, /backend: `[^`]+` — SADECE OKUNUR/);
+});
+
+test("repo kapsamı: planda bölüm yoksa ilgili repolar salt okunur, plan onayında uyarı görünür", async () => {
+  const { main } = relatedMain();
+  let devPerms: string[] = [];
+  const warns: string[] = [];
+  const log = { ...silentLogger(), warn: (m: string) => void warns.push(m) };
+  const agent = new FakeAgent({ ...good, developer: (req, n) => ((devPerms = req.perms.edit), good.developer!(req, n)) });
+  const s = await runTask({ root: main, taskFile: ".flowloop/tasks/ekspres.md", agent, log, noFetch: true, planApproval: true, reviewPlan: async () => ({ action: "approve" }) });
+  assert.equal(s.status, "success");
+  assert.deepEqual(s.scope, { fromPlan: false, edit: { backend: [] } });
+  assert.ok(!devPerms.some((p) => p.startsWith("@backend:")), "backend'e yazma yetkisi yok");
+  assert.ok(warns.some((w) => /bölümü yok; bütün ilgili repolar salt okunur/.test(w)));
+  assert.equal(s.related![0].commits?.length ?? 0, 0);
+});
+
+test("repo kapsamı: plan yazılabilir derse tavan kadar yetki; kapsam run.json'a yazılır", async () => {
+  const { main } = relatedMain();
+  const agent = new FakeAgent({
+    ...good,
+    analist: scopedPlan("yazılabilir"),
+    developer: (req, n) => {
+      assert.ok(req.perms.edit.includes("@backend:src/**"));
+      good.developer!(req, n);
+      backendDev(req, n);
+    },
+    reviewer: () => "VERDICT: PASS",
+    committer: (req, n) => {
+      fs.writeFileSync(path.join(req.runRoot, "commit-msg-backend.txt"), "feat(api): limit 20");
+      good.committer!(req, n);
+    },
+  });
+  const s = await runTask({ root: main, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true });
+  assert.equal(s.status, "success");
+  assert.deepEqual(s.scope, { fromPlan: true, edit: { backend: ["src/**", "test/**"] } });
+  assert.equal(s.related![0].commits!.length, 1);
+});
+
+test("repo kapsamı: developer kapsam talebi yazar, kullanıcı genişletir, iş tamamlanır", async () => {
+  const { main, backend } = relatedMain();
+  const asked: ScopeReviewInfo[] = [];
+  const agent = new FakeAgent({
+    ...good,
+    analist: scopedPlan("salt okunur"),
+    developer: (req, n) => {
+      if (n === 1) {
+        assert.match(req.prompt, /scope-request\.md/);
+        fs.writeFileSync(path.join(req.runRoot, "scope-request.md"), "backend/src/api.js: LIMIT 20 olmalı, mobil bunu bekliyor");
+        return;
+      }
+      assert.match(req.prompt, /KAPSAM GENİŞLETİLDİ/);
+      assert.ok(req.perms.edit.includes("@backend:src/**"), "genişletme sonrası yetki açıldı");
+      good.developer!(req, n);
+      backendDev(req, n);
+    },
+    reviewer: () => "VERDICT: PASS",
+    committer: (req, n) => {
+      fs.writeFileSync(path.join(req.runRoot, "commit-msg-backend.txt"), "feat(api): limit 20");
+      good.committer!(req, n);
+    },
+  });
+  const s = await runTask({
+    root: main, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true,
+    reviewScope: async (i) => (asked.push(i), { action: "expand", repos: ["backend"] }),
+  });
+  assert.equal(s.status, "success");
+  assert.equal(asked.length, 1);
+  assert.deepEqual(asked[0].expandable, ["backend"]);
+  assert.match(asked[0].request, /LIMIT 20/);
+  assert.equal(s.scopeRequests![0].decision, "expand");
+  assert.deepEqual(s.scopeRequests![0].expanded, ["backend"]);
+  assert.equal(s.iterations, 2);
+  assert.equal(gitOk(["show", `${s.related![0].branch}:src/api.js`], backend).trim(), "export const LIMIT = 20;");
+  assert.ok(fs.readFileSync(path.join(s.runDir!, "run", "scope-requests.md"), "utf8").includes("LIMIT 20"), "talep kayıt altında");
+});
+
+test("repo kapsamı: genişletilmezse developer'a bildirilir; onay verecek kimse yoksa çalıştırma durur", async () => {
+  const { main } = relatedMain();
+  const request: Script = (req) => void fs.writeFileSync(path.join(req.runRoot, "scope-request.md"), "backend değişmeli");
+  // etkileşimsiz: durur
+  const a1 = new FakeAgent({ ...good, analist: scopedPlan("salt okunur"), developer: request });
+  await assert.rejects(runTask({ root: main, taskFile: ".flowloop/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true }), /onay verecek kimse olmadığı için durduruldu/);
+  // "devam et": developer mevcut kapsamda kalır
+  let second = "";
+  const a2 = new FakeAgent({
+    ...good,
+    analist: scopedPlan("salt okunur"),
+    developer: (req, n) => {
+      if (n === 1) return request(req, n);
+      second = req.prompt;
+      good.developer!(req, n);
+    },
+  });
+  const s = await runTask({ root: relatedMain().main, taskFile: ".flowloop/tasks/ekspres.md", agent: a2, log: silentLogger(), noFetch: true, reviewScope: async () => ({ action: "continue" }) });
+  assert.equal(s.status, "success");
+  assert.match(second, /KAPSAM TALEBİN ONAYLANMADI/);
+  assert.equal(s.scopeRequests![0].decision, "continue");
+});
+
+test("geçmiş: her çalıştırma history.jsonl'a yazılır ve stats onu okur", async () => {
+  const { computeStats, loadRecords } = await import("../src/stats.js");
+  const ok = await run({});
+  assert.equal(ok.s!.status, "success");
+  const bad = await run({ reviewer: () => "VERDICT: FAIL\n- test yok" });
+  assert.ok(bad.err);
+  for (const r of [ok.root, bad.root]) {
+    const lines = fs.readFileSync(path.join(r, ".flowloop/history.jsonl"), "utf8").trim().split("\n");
+    assert.equal(lines.length, 1);
+    const rec = JSON.parse(lines[0]);
+    assert.ok(rec.startedAt && rec.finishedAt);
+    assert.equal(rec.checks, undefined, "ağır kontrol çıktısı geçmişe yazılmaz");
+    assert.equal(typeof rec.checkRounds, "number");
+  }
+  assert.ok(!sh("git", ["status", "--porcelain"], ok.root).stdout.includes("history.jsonl"), "geçmiş git'te görünmez");
+  const st = computeStats(loadRecords(bad.root, []));
+  assert.equal(st.runs, 1);
+  assert.equal(st.failed, 1);
+  assert.equal(st.reviewerFailRate, 1);
+  assert.deepEqual(st.failReasons, [["tur sınırı", 1]]);
 });

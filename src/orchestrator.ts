@@ -9,7 +9,8 @@ import type { Logger } from "./log.js";
 import { MutantSandbox } from "./mutant.js";
 import { DEFAULT_FORBIDDEN_FLAGS, type PolicyContext } from "./policy.js";
 import { composeRules } from "./projectdocs.js";
-import { PACKAGE_ROOT, loadRoles, render, type RoleName, type RoleSpec } from "./roles.js";
+import { PACKAGE_ROOT, loadRoles, permissionsFor, render, type RoleName, type RoleSpec } from "./roles.js";
+import { SCOPE_REQUEST_FILE, describeScope, expandableRepos, resolveScope, takeScopeRequest, type ScopeRepo, type ScopeRequest } from "./scope.js";
 import { detectBaseBranch } from "./tech.js";
 import { expandServerNames, loadMcpServers } from "./usermcp.js";
 import os from "node:os";
@@ -120,6 +121,11 @@ export interface RunOptions {
    * devam eder. 0 = durdur. Verilmezse bütçe dolunca çalıştırma durur.
    */
   extendBudget?: (b: BudgetRequest) => Promise<number>;
+  /**
+   * Developer kapsam dışı bir değişiklik talep ettiğinde sorulur: tavan içinde genişlet / genişletmeden
+   * devam et / durdur. Verilmezse çalıştırma durur (yetki ajan isteğiyle asla kendiliğinden açılmaz).
+   */
+  reviewScope?: (info: ScopeReviewInfo) => Promise<ScopeDecision>;
   now?: () => Date;
   /** Testlerde kontrol komutlarını taklit etmek için */
   checkRunner?: CheckRunner;
@@ -157,6 +163,18 @@ export interface ChangeReviewInfo {
   /** false ise sadece onay/iptal sunulur (ör. resume'da) */
   canRevise: boolean;
 }
+
+/** Developer'ın kapsam talebi karşısında kullanıcının kararı */
+export type ScopeDecision = { action: "expand"; repos: string[] } | { action: "continue" } | { action: "cancel" };
+export interface ScopeReviewInfo {
+  turn: number;
+  request: string;
+  /** flowloop.yaml'ın izin verdiği ama bu görevde kapalı olan repolar */
+  expandable: string[];
+}
+
+/** Bir çalıştırmada en fazla kaç kapsam talebi değerlendirilir */
+export const MAX_SCOPE_REQUESTS = 3;
 
 export type PlanDecision = { action: "approve" } | { action: "revise"; comment: string } | { action: "cancel" } | { action: "restart" };
 
@@ -205,6 +223,32 @@ export interface RunSummary {
   approvedTree?: string;
   /** İşi başlatan kişi (git user.name / user.email) */
   initiator?: string;
+  /** Bu görevde geçerli repo kapsamı (plandan ya da flowloop.yaml'dan) */
+  scope?: { fromPlan: boolean; edit: Record<string, string[]> };
+  /** Developer'ın kapsam dışı talepleri ve verilen kararlar */
+  scopeRequests?: ScopeRequest[];
+  startedAt?: string;
+  finishedAt?: string;
+}
+
+const HISTORY_FILE = path.join(FLOWLOOP_DIR, "history.jsonl");
+
+/**
+ * Çalıştırma bitince (başarılı ya da başarısız) özeti kalıcı geçmişe ekler. Çalışma klasörleri
+ * `flowloop clean` ile silinse de `flowloop stats` bu dosyadan beslenir. Yerel olarak yok sayılır.
+ */
+export function appendHistory(root: string, s: RunSummary, now: Date): void {
+  try {
+    s.finishedAt = now.toISOString();
+    const { checks, ...rest } = s;
+    const rec = { ...rest, checkRounds: checks.length, failedCheckRounds: checks.filter((r) => r.some((c) => c.status === "fail")).length };
+    const f = path.join(root, HISTORY_FILE);
+    fs.mkdirSync(path.dirname(f), { recursive: true });
+    fs.appendFileSync(f, JSON.stringify(rec) + "\n");
+    if (git(["rev-parse", "--git-dir"], root).code === 0) ensureExcluded(root, [HISTORY_FILE]);
+  } catch {
+    /* geçmiş yazılamadı; çalıştırmanın sonucunu etkilemez */
+  }
 }
 
 const CONVENTIONAL = /^(feat|fix|test|refactor|docs|chore|perf|style|build|ci)(\([a-zA-Z0-9._/-]+\))?!?: .+/;
@@ -436,7 +480,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const jira = jiraKey(taskText);
   const date = stamp(now());
   const id = `${slugify(jira || "gorev")}-${slug}-${date}`.replace(/^gorev-/, "");
-  const summary: RunSummary = { status: "failed", id, projectDocs: [], commits: [], totalCostUsd: 0, iterations: 0, phases: [], checks: [], denials: [], warnings: [], jiraKey: jira || undefined };
+  const summary: RunSummary = { status: "failed", id, projectDocs: [], commits: [], totalCostUsd: 0, iterations: 0, phases: [], checks: [], denials: [], warnings: [], jiraKey: jira || undefined, startedAt: now().toISOString() };
 
   // ───────────── base branch ─────────────
   if (git(["rev-parse", "--is-inside-work-tree"], root).code !== 0) throw new FlowloopError("Bu klasör bir git deposu değil.");
@@ -470,6 +514,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const vars: Record<string, string | boolean> = {
     taskFile: files.task,
     planFile: files.plan,
+    scopeRequestFile: path.join(runRoot, SCOPE_REQUEST_FILE),
     rulesFile: files.rules,
     mutantDir: files.mutant,
     summaryFile: files.summary,
@@ -510,7 +555,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     return summary;
   }
 
-  const dirty = statusPorcelain(root, cfg.linkDirs).filter((l) => !l.slice(3).startsWith(LESSONS_FILE));
+  const dirty = statusPorcelain(root, cfg.linkDirs).filter((l) => !l.slice(3).startsWith(LESSONS_FILE) && !l.slice(3).startsWith(HISTORY_FILE));
   if (dirty.length) log.warn(`Yerel çalışma alanında ${dirty.length} commit'lenmemiş değişiklik var; bu çalışma onları İÇERMEZ (temiz ${baseRef} üzerinden başlar).`);
 
   // ───────────── temiz çalışma alanı ─────────────
@@ -526,6 +571,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const fail = (msg: string): never => {
     summary.status = "failed";
     summary.error = msg;
+    appendHistory(root, summary, now());
     saveSummary();
     throw new FlowloopError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
   };
@@ -578,6 +624,17 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   attachRelated(related, policy, vars, files.rules, runRoot);
   summary.related = related.map((x) => x.s);
   saveSummary();
+  // flowloop.yaml'daki yazma yolları tavandır; görevin kapsamı plan onayından sonra belirlenir
+  const ceilings: ScopeRepo[] = cfg.related.map((r) => ({ name: r.name, ceiling: [...r.edit] }));
+  const applyScope = (edit: Record<string, string[]>) => {
+    for (const r of related) r.setEdit(edit[r.name] ?? []);
+    for (const r of cfg.related) r.edit = [...(edit[r.name] ?? [])];
+    roles.developer.perms = permissionsFor("developer", cfg);
+    roles.committer.perms = permissionsFor("committer", cfg);
+    vars.editPaths = cfg.paths.edit.join(", ");
+    attachRelated(related, policy, vars, undefined, runRoot); // kurallar dosyası zaten yazılı
+    summary.related = related.map((x) => x.s);
+  };
   const mutant = cfg.mutation.enabled
     ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed()), X, cfg.mutation.testTimeoutSec)
     : undefined;
@@ -652,6 +709,11 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       const planText = fs.readFileSync(files.plan, "utf8");
       if (PLAN_SMELLS.test(planText)) log.warn("Plan rollerle çelişen talimat içeriyor (commit/push ya da dış skill). Developer bunları uygulayamaz.");
       log.info("\n──── PLAN" + (round > 1 ? ` (${round}. sürüm)` : reused ? " (önceki çalıştırmadan)" : "") + " ────\n" + planText + "\n──────────────");
+      if (ceilings.length) {
+        const sc = resolveScope(planText, ceilings);
+        log.info(describeScope(sc, ceilings));
+        for (const w of sc.warnings) log.warn(w);
+      }
       const d: PlanDecision = opts.reviewPlan
         ? await opts.reviewPlan(planText, { round, reused })
         : (await opts.confirm?.("Plan uygun mu, geliştirmeye geçilsin mi?")) ? { action: "approve" } : { action: "cancel" };
@@ -685,6 +747,56 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     }
   }
 
+  // ───────────── görevin repo kapsamı ─────────────
+  if (ceilings.length) {
+    const sc = resolveScope(fs.readFileSync(files.plan, "utf8"), ceilings);
+    applyScope(sc.edit);
+    summary.scope = { fromPlan: sc.fromPlan, edit: sc.edit };
+    if (!opts.planApproval) for (const w of sc.warnings) log.warn(w);
+    log.ok(describeScope(sc, ceilings));
+    saveSummary();
+  }
+  summary.scopeRequests = [];
+
+  /** Developer kapsam dışı bir değişiklik istediyse: insan karar verir. Developer'a gidecek geri bildirimi döner. */
+  const handleScopeRequest = async (req: ScopeRequest, userRequests: string): Promise<string> => {
+    summary.scopeRequests!.push(req);
+    log.warn(`Developer kapsam dışı bir değişiklik talep etti (tur ${req.turn}):`);
+    log.info(req.text.split("\n").map((l) => "  │ " + l).join("\n"));
+    const current = Object.fromEntries(related.map((r) => [r.name, r.s.edit]));
+    const expandable = expandableRepos(current, ceilings);
+    const where = path.join(runRoot, "scope-requests.md");
+    if (!opts.reviewScope) {
+      req.decision = "cancel";
+      fail(`Developer kapsam genişletme talep etti; onay verecek kimse olmadığı için durduruldu (yetki kendiliğinden açılmaz).\n  Talep: ${where}`);
+    }
+    if (summary.scopeRequests!.length > MAX_SCOPE_REQUESTS) {
+      req.decision = "cancel";
+      fail(`${MAX_SCOPE_REQUESTS}'ten fazla kapsam talebi geldi; görev muhtemelen bölünmeli. Talepler: ${where}`);
+    }
+    const d = await opts.reviewScope!({ turn: req.turn, request: req.text, expandable });
+    if (d.action === "cancel") {
+      req.decision = "cancel";
+      fail(`Kapsam talebi kabul edilmedi, çalıştırma durduruldu. Bu değişiklik için ayrı bir görev açabilirsin.\n  Talep: ${where}`);
+    }
+    const tail = userRequests ? `\n\n${userRequests}` : "";
+    const names = d.action === "expand" ? d.repos.filter((n) => expandable.includes(n)) : [];
+    if (names.length) {
+      const next: Record<string, string[]> = { ...current };
+      for (const n of names) next[n] = [...ceilings.find((c) => c.name === n)!.ceiling];
+      applyScope(next);
+      summary.scope = { fromPlan: summary.scope?.fromPlan ?? false, edit: next };
+      req.decision = "expand";
+      req.expanded = names;
+      log.ok(describeScope({ fromPlan: false, edit: next, warnings: [] }, ceilings, "kullanıcı genişletti"));
+      saveSummary();
+      return `KAPSAM GENİŞLETİLDİ (kullanıcı onayladı): ${names.join(", ")} artık yazılabilir.\n${vars.related}\nTalebindeki değişikliği yap ve göreve devam et.${tail}`;
+    }
+    req.decision = "continue";
+    saveSummary();
+    return `KAPSAM TALEBİN ONAYLANMADI: kapsam değişmedi. Mevcut kapsamda kal; workaround yazma. Görevin mevcut kapsamda yapılabilen kısmını tamamla, yapılamayan kısmı özetinde açıkça belirt.${tail}`;
+  };
+
   // ───────────── 2) DEVELOPER ⇄ (KONTROLLER) ⇄ REVIEWER ─────────────
   log.step("2/3 DEVELOPER ⇄ REVIEWER  (geliştirir/inceler — commit atamaz)");
   const editMatch = picomatch(cfg.paths.edit, { dot: true });
@@ -711,6 +823,12 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       const d = await call(roles.developer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { feedback }, turn);
       gelistirSpent += d.costUsd;
       assertDevScope("Developer");
+      const scopeReq = takeScopeRequest(runRoot, turn);
+      if (scopeReq) {
+        feedback = await handleScopeRequest(scopeReq, userRequests);
+        i--; // kapsam kararı bir geliştirme turu sayılmaz (talep sayısı ayrıca sınırlı)
+        continue;
+      }
 
       // Deterministik, işe odaklı kontroller
       const files_ = changed();
@@ -928,6 +1046,7 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
       log.warn(w);
     }
   }
+  appendHistory(root, summary, opts.now?.() ?? new Date());
   saveSummary();
   return summary;
 }
@@ -941,7 +1060,6 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   const cfg = loadConfig(root);
   const home = opts.home ?? os.homedir();
   cfg.mcp.servers = expandServerNames(cfg.mcp.servers, root, home);
-  const roles = loadRoles(root, cfg);
   const runDir = fs.existsSync(path.join(opts.resume, "run.json"))
     ? opts.resume
     : [...workDirsFor(cfg, root), workDirFor(cfg, root)].map((d) => path.join(d, opts.resume)).find((d) => fs.existsSync(path.join(d, "run.json"))) ?? path.join(workDirFor(cfg, root), opts.resume);
@@ -951,6 +1069,12 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   summary.warnings = summary.warnings ?? [];
   if (opts.backend) summary.backend = opts.backend;
   if (summary.status === "success") throw new FlowloopError("Bu çalıştırma zaten başarıyla bitmiş.");
+  // görevin kaydedilen kapsamı geçerlidir; tavan (flowloop.yaml) o arada daraldıysa dar olan kazanır
+  for (const r of cfg.related) {
+    const recorded = summary.related?.find((x) => x.name === r.name);
+    if (recorded && !recorded.edit.length) r.edit = [];
+  }
+  const roles = loadRoles(root, cfg);
   const wt = path.join(runDir, "wt");
   const baseWt = path.join(runDir, "base");
   const runRoot = path.join(runDir, "run");
@@ -980,7 +1104,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
 
   const files = { task: path.join(runRoot, "task.md"), plan: path.join(runRoot, "plan.md"), summary: path.join(runRoot, "summary.md"), mutant: path.join(runRoot, "mutant"), rules: path.join(runRoot, "rules.md") };
   const vars: Record<string, string | boolean> = {
-    taskFile: files.task, planFile: files.plan, summaryFile: files.summary, rulesFile: files.rules, mutantDir: files.mutant,
+    taskFile: files.task, planFile: files.plan, scopeRequestFile: path.join(runRoot, SCOPE_REQUEST_FILE), summaryFile: files.summary, rulesFile: files.rules, mutantDir: files.mutant,
     testCmd: cfg.commands.testRelated, typecheckCmd: cfg.commands.typecheck, lintCmd: cfg.commands.lint, editPaths: cfg.paths.edit.join(", "),
     mutation: cfg.mutation.enabled, lessons: readLessons(root), baseBranch: summary.baseRef ?? baseBranch, memory: "",
   };
@@ -995,6 +1119,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   const fail = (msg: string): never => {
     summary.status = "failed";
     summary.error = msg;
+    appendHistory(root, summary, opts.now?.() ?? new Date());
     saveSummary();
     throw new FlowloopError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
   };

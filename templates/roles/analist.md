@@ -57,6 +57,24 @@ Son olarak planı 3-4 cümleyle özetle.
 
 {{#related}}
 {{related}}
+
+İlgili repolar olduğu için plana şu iki bölümü de ekle:
+
+## Repo kapsamı
+Bu görev için hangi ilgili reponun gerçekten DEĞİŞMESİ gerektiğini yaz. Her ilgili repo için
+tam olarak bir satır, şu biçimde:
+- <repo-adı>: yazılabilir
+- <repo-adı>: salt okunur
+Sadece bu görevin değiştirmesi gereken repoyu "yazılabilir" yap; okunması yeterliyse "salt okunur".
+Yukarıda SADECE OKUNUR yazan bir repoyu yazılabilir yapamazsın (flowloop.yaml izin vermiyor);
+o repoda değişiklik gerekiyorsa bunu Riskler'e yaz. Bu listede olmayan repo salt okunur sayılır.
+
+## Repolar arası sözleşme
+Birden fazla repo değişecekse: repolar arasındaki sözleşmede (API uç noktası, istek/yanıt alanları,
+paylaşılan tipler, olay/mesaj biçimleri) ne değişiyor? Önce sağlayan taraf (ör. backend), sonra
+tüketen taraf (ör. mobil, web) değişmeli; sırayı ve her iki tarafın bu değişikliği hangi testle
+doğrulayacağını yaz. Geriye dönük uyumsuz bir değişiklik varsa açıkça belirt. Tek repo değişiyorsa
+"Sözleşme değişmiyor" yaz.
 {{/related}}
 {{#memory}}
 {{memory}}

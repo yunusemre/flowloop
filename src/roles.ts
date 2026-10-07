@@ -67,7 +67,8 @@ function basePermissions(name: RoleName, cfg: FlowloopConfig): RolePermissions {
       return {
         tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "TodoWrite"],
         read: readAll,
-        edit: [...cfg.paths.edit, ...relatedEdit],
+        // run:scope-request.md: kapsam dışı bir değişiklik gerekirse yazdığı talep (yetki vermez; insan karar verir)
+        edit: [...cfg.paths.edit, ...relatedEdit, "run:scope-request.md"],
         // tip kontrolü developer'a açık değil: tüm proje çıktısı çok büyük; flowloop her turdan sonra yeni hataları kendisi raporlar
         bash: prefixes([c.testRelated, c.lint, c.format, "git status", "git diff", ...extra]),
       };
