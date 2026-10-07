@@ -238,7 +238,8 @@ test("projede önceden var olan tip hatası bloklamaz", async () => {
 });
 
 test("formatter onaydan önce çalışır; commit'lenen = formatlanmış hâl", async () => {
-  const fmt = `  format: "sed -i 's/ekspres = false/ekspres=false/' {{files}}"`;
+  // sed -i macOS (BSD) ve Linux (GNU) arasında farklı çalışır; perl ikisinde de aynı
+  const fmt = `  format: "perl -pi -e 's/ekspres = false/ekspres=false/' {{files}}"`;
   const { s: sum, root } = await run({}, "", 0.1, { commands: `  testRelated: "node --test {{testFiles}}"\n${fmt}` });
   assert.equal(sum!.status, "success");
   assert.match(gitOk(["show", `${sum!.branch}:src/fiyat.js`], root), /ekspres=false/);

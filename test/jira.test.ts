@@ -84,11 +84,18 @@ test("kabul kriteri alanı yoksa analiste not düşülür", async () => {
 test("hata durumları anlaşılır mesaj verir", async () => {
   await assert.rejects(fetchIssue("PROJ-1", "https://x.atlassian.net", { email: "a", token: "t", fetchFn: fakeFetch(401, {}) }), /yetki hatası/);
   await assert.rejects(fetchIssue("PROJ-1", "https://x.atlassian.net", { email: "a", token: "t", fetchFn: fakeFetch(404, {}) }), /bulunamadı/);
-  const saved = { e: process.env.JIRA_EMAIL, t: process.env.JIRA_API_TOKEN };
+  const saved = { e: process.env.JIRA_EMAIL, t: process.env.JIRA_API_TOKEN, f: process.env.FLOWLOOP_SECRET_FILE };
   delete process.env.JIRA_EMAIL;
   delete process.env.JIRA_API_TOKEN;
-  await assert.rejects(fetchIssue("PROJ-1", "https://x.atlassian.net"), /JIRA_API_TOKEN/);
-  Object.assign(process.env, saved.e ? { JIRA_EMAIL: saved.e } : {}, saved.t ? { JIRA_API_TOKEN: saved.t } : {});
+  // makinedeki anahtar zincirinde gerçek token olsa bile kullanılmasın (yoksa gerçek ağ isteği atılır)
+  process.env.FLOWLOOP_SECRET_FILE = "/nonexistent/flowloop-test-credentials.json";
+  try {
+    await assert.rejects(fetchIssue("PROJ-1", "https://x.atlassian.net"), /JIRA_API_TOKEN/);
+  } finally {
+    if (saved.f === undefined) delete process.env.FLOWLOOP_SECRET_FILE;
+    else process.env.FLOWLOOP_SECRET_FILE = saved.f;
+    Object.assign(process.env, saved.e ? { JIRA_EMAIL: saved.e } : {}, saved.t ? { JIRA_API_TOKEN: saved.t } : {});
+  }
   await assert.rejects(fetchIssue("proj-1", "https://x.atlassian.net"), /Geçersiz/);
 });
 

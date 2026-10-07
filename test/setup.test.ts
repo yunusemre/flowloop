@@ -4,9 +4,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runSetup, printStatus, type SetupDeps, type SetupIO } from "../src/setup.js";
-import { FileStore, getCredential, mask, scrubEnv } from "../src/secrets.js";
+import { FileStore, PLAIN_NAMES, SECRET_NAMES, getCredential, mask, scrubEnv } from "../src/secrets.js";
 import { runConfigured } from "../src/git.js";
 import { fetchIssue } from "../src/jira.js";
+
+// Geliştiricinin kabuğundaki gerçek kimlik bilgileri (ör. ~/.zshrc'de JIRA_API_TOKEN) testlere sızmasın:
+// ortam değişkeni saklama yerinden önce okunduğu için sahte depodaki değerleri ezerdi.
+for (const k of [...SECRET_NAMES, ...PLAIN_NAMES]) delete process.env[k];
 
 function tmp() {
   return fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-setup-"));
