@@ -103,3 +103,19 @@ import { markdownToWiki } from "../src/jira.js";
 test("markdown → Jira wiki", () => {
   assert.equal(markdownToWiki("## Sorun\n- **pin** `yeşil`\n  - alt\n1. bir\n[PR](https://x/y)"), "h3. Sorun\n* *pin* {{yeşil}}\n** alt\n# bir\n[PR|https://x/y]");
 });
+
+test("epic alt işleri: JQL araması, bitmemişler Jira sırasıyla", async () => {
+  const { epicChildren } = await import("../src/jira.js");
+  let req: { url: string; body: any } | undefined;
+  const kids = await epicChildren("IDT-100", "https://x.atlassian.net/", {
+    email: "a@b.com", token: "t",
+    fetchFn: async (url, init) => {
+      req = { url, body: JSON.parse(init.body) };
+      return { ok: true, status: 200, json: async () => ({ issues: [{ key: "IDT-101", fields: { summary: "API", status: { name: "To Do" } } }, { key: "IDT-102", fields: { summary: "Ekran", status: { name: "In Progress" } } }] }), text: async () => "" };
+    },
+  });
+  assert.equal(req!.url, "https://x.atlassian.net/rest/api/3/search/jql");
+  assert.equal(req!.body.jql, "parent = IDT-100 AND statusCategory != Done ORDER BY Rank ASC");
+  assert.deepEqual(kids.map((k) => k.key), ["IDT-101", "IDT-102"]);
+  await assert.rejects(epicChildren("bad key", "https://x.atlassian.net"), /Geçersiz/);
+});

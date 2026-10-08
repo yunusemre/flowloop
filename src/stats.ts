@@ -21,6 +21,7 @@ export interface RunRecord {
   planFeedback?: unknown[];
   changeRequests?: unknown[];
   scopeRequests?: { decision?: string }[];
+  questions?: { answer?: string; assumed?: string }[];
   scope?: { fromPlan: boolean };
   userApproved?: boolean;
   related?: { commits?: string[] }[];
@@ -49,6 +50,8 @@ export interface Stats {
   multiRepoRuns: number;
   scopeFromPlan: number;
   scopeRequests: { total: number; expand: number; continue: number; cancel: number };
+  /** Analistin açık soruları: kaç çalıştırmada soruldu, kaçı cevaplandı, kaçı varsayılanla geçildi */
+  questions: { runs: number; total: number; answered: number; assumed: number };
   denials: { total: number; runsWithDenials: number; top: [string, number][] };
   cost: { total: number; avg: number; runsCounted: number };
   /** Dakika; sadece başlangıç/bitiş zamanı olan kayıtlar */
@@ -68,6 +71,7 @@ function median(xs: number[]): number {
 export function failReason(error = ""): string {
   if (/rol ihlali/i.test(error)) return "rol ihlali";
   if (/bütçe (bitti|doldu)/i.test(error)) return "bütçe";
+  if (/açık sorular/i.test(error)) return "açık sorular";
   if (/kapsam/i.test(error)) return "kapsam talebi";
   if (/turda onay alınamadı|turda tamamlanamadı/i.test(error)) return "tur sınırı";
   if (/plan onaylanmadı|plan .* onaylanmadı/i.test(error)) return "plan onaylanmadı";
@@ -103,6 +107,7 @@ export function computeStats(records: RunRecord[]): Stats {
   }
 
   const sr = done.flatMap((r) => r.scopeRequests ?? []);
+  const qs = done.flatMap((r) => r.questions ?? []);
   const denialGroups = new Map<string, number>();
   for (const r of done) for (const d of r.denials ?? []) denialGroups.set(`${d.role} · ${d.tool}`, (denialGroups.get(`${d.role} · ${d.tool}`) ?? 0) + 1);
 
@@ -132,6 +137,12 @@ export function computeStats(records: RunRecord[]): Stats {
       expand: sr.filter((x) => x.decision === "expand").length,
       continue: sr.filter((x) => x.decision === "continue").length,
       cancel: sr.filter((x) => x.decision === "cancel").length,
+    },
+    questions: {
+      runs: done.filter((r) => r.questions?.length).length,
+      total: qs.length,
+      answered: qs.filter((q) => q.answer).length,
+      assumed: qs.filter((q) => q.assumed).length,
     },
     denials: {
       total: done.reduce((n, r) => n + (r.denials?.length ?? 0), 0),
@@ -204,6 +215,7 @@ export function renderStats(s: Stats, label: string): string {
     `  Plan yorumu (ortalama)  : ${s.avgPlanRevisions.toFixed(1)}`,
     `  Değişiklik isteği (ort.): ${s.avgChangeRequests.toFixed(1)}`,
     `  Kapsam talepleri        : ${s.scopeRequests.total}${s.scopeRequests.total ? ` (genişletildi ${s.scopeRequests.expand} · genişletmeden devam ${s.scopeRequests.continue} · durduruldu ${s.scopeRequests.cancel})` : ""}`,
+    `  Açık sorular            : ${s.questions.total}${s.questions.total ? ` (${s.questions.runs} çalıştırmada · cevaplandı ${s.questions.answered} · varsayılanla ${s.questions.assumed})` : ""}`,
     "",
     "Yönetişim",
     `  Kapsamı plandan gelen   : ${s.scopeFromPlan} çalıştırma`,

@@ -51,3 +51,5 @@ Ekibin önceki çalışmalarda düştüğü hatalar (tekrarlama):
 </geri-bildirim>
 {{/feedback}}
 Son mesajın kurallarındaki `## Handoff` biçiminde olsun; `Checked:` satırında AK → test eşlemesini de yaz.
+`Risks:` ve `Skipped / not checked:` satırları onay ekranında ve Jira yorumunda kullanıcıya gösterilir: somut yaz
+(nerede, neye bakılmalı), yoksa "none" yaz.

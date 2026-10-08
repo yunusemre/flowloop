@@ -189,6 +189,7 @@ jira:
   baseUrl: ${q(jiraBase)}                    # boş = flowloop setup'ta girilen adres (~/.flowloop/config.json) ya da JIRA_BASE_URL
   comment: true                  # iş bitince Jira'ya kısa özet yorumu (sorun / yapılan / neden + branch, PR)
                                  # kimlik: flowloop setup (anahtar zincirinde saklanır)
+questions: ask                   # analistin açık soruları: ask (terminalde sor) | jira (Jira'ya yaz ve dur) | assume (varsayılanla devam)
 
 # {{files}} = bu işte değişen dosyalar, {{testFiles}} = bunlardan test olanlar.
 # typecheck ve lint için SADECE bu işin getirdiği YENİ hatalar sayılır.

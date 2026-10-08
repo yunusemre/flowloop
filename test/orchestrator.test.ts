@@ -958,3 +958,118 @@ test("projede .flowloop/rulesets/<rol>.md varsa yerleşik kural seti yerine o ku
   assert.equal(roles.reviewer.ruleset, "Reviewer kuralı.");
   assert.equal(roles.committer.ruleset, "");
 });
+
+// ───────────── açık sorular ve incelenmesi önerilenler ─────────────
+const PLAN_WITH_QUESTIONS = `# Plan
+## Kabul kriterleri
+AK-1: ekspres +50
+Varsayım: ekspres sadece 5 kg altı için geçerli
+
+## Açık sorular
+- S-1: Ekspres ücreti KDV dahil mi?
+  Neden önemli: fiyat yanlış gösterilir
+  Cevap gelmezse: KDV dahil
+- S-2: Hafta sonu ekspres var mı?
+  Cevap gelmezse: yok
+`;
+const questionAnalist: Script = (req) => {
+  if (/KULLANICI AÇIK SORULARI CEVAPLADI/.test(req.prompt)) {
+    fs.writeFileSync(planFile(req), "# Plan\nAK-1: ekspres +50 (KDV hariç)\nVarsayım: hafta sonu ekspres yok\n\n## Açık sorular\nYok\n");
+    return "cevaplar işlendi";
+  }
+  fs.writeFileSync(planFile(req), PLAN_WITH_QUESTIONS);
+};
+
+test("açık sorular: kullanıcı cevaplar, analist planı günceller, cevaplar developer'a da gider", async () => {
+  const root = makeRepo("");
+  const agent = new FakeAgent({ ...good, analist: questionAnalist });
+  const asked: { ids: string[]; round: number }[] = [];
+  const s = await runTask({
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true,
+    answerQuestions: async (qs, ctx) => {
+      asked.push({ ids: qs.map((q) => q.id), round: ctx.round });
+      assert.equal(qs[0].fallback, "KDV dahil");
+      assert.match(qs[0].text, /KDV dahil mi\?\nNeden önemli/);
+      return { action: "answer", answers: { "S-1": "KDV hariç", "S-2": "" } };
+    },
+  });
+  assert.equal(s.status, "success");
+  assert.deepEqual(asked, [{ ids: ["S-1", "S-2"], round: 1 }], "plan güncellenince tekrar sorulmaz");
+  assert.deepEqual(agent.calls.map((c) => c.role).slice(0, 3), ["analist", "analist", "developer"]);
+  const an2 = agent.calls.filter((c) => c.role === "analist")[1].prompt;
+  assert.match(an2, /S-1: Ekspres ücreti KDV dahil mi\?.*\n  Cevap: KDV hariç/);
+  assert.match(an2, /S-2: .*\n  Cevap: \(cevap verilmedi — önerdiğin varsayılanla ilerle: yok\)/);
+  const dev = agent.calls.find((c) => c.role === "developer")!.prompt;
+  assert.match(dev, /## Kullanıcının açık sorulara cevapları[\s\S]*Cevap: KDV hariç/);
+  assert.deepEqual(s.questions!.map((q) => [q.id, q.answer, q.assumed]), [["S-1", "KDV hariç", undefined], ["S-2", undefined, "yok"]]);
+  assert.match(fs.readFileSync(path.join(s.runDir!, "run", "answers.md"), "utf8"), /KDV hariç/);
+  assert.ok(s.assumptions!.some((a) => /hafta sonu ekspres yok/.test(a)), "plandaki varsayım");
+  assert.ok(s.assumptions!.some((a) => /^S-2 cevaplanmadı .* → yok$/.test(a)), "cevapsız soru varsayım olarak");
+});
+
+test("açık sorular: etkileşimsiz çalıştırmada (questions: ask) geliştirmeye geçmeden durur", async () => {
+  const { err, agent, root } = await run({ analist: questionAnalist });
+  assert.match(err!, /Açık sorular cevaplanmadı; geliştirmeye geçilmedi/);
+  assert.match(err!, /questions: jira/);
+  assert.deepEqual(agent.calls.map((c) => c.role), ["analist"]);
+  const work = path.join(root, "..", path.basename(root) + "-work");
+  const runDir = fs.readdirSync(work, { recursive: true }).map(String).find((p) => p.endsWith("questions.md"));
+  assert.ok(runDir, "sorular run klasörüne yazıldı");
+  const { computeStats, loadRecords, failReason } = await import("../src/stats.js");
+  assert.equal(failReason(err), "açık sorular");
+  assert.equal(computeStats(loadRecords(root, [])).questions.total, 2);
+});
+
+test("açık sorular: questions: jira → sorular Jira'ya yazılır ve durur; assume → varsayılanla devam, Jira yorumunda listelenir", async () => {
+  const posts: { url: string; body: string }[] = [];
+  const fetchFn = async (url: string, init: any) => {
+    posts.push({ url, body: JSON.parse(init.body).body });
+    return { ok: true, status: 201, json: async () => ({ id: String(posts.length) }), text: async () => "" };
+  };
+  const jiraCfg = 'jira: { baseUrl: "https://kg.atlassian.net", comment: true }';
+  const r1 = makeRepo(`${jiraCfg}\nquestions: jira`);
+  const a1 = new FakeAgent({ ...good, analist: questionAnalist });
+  await assert.rejects(
+    runTask({ root: r1, taskFile: ".flowloop/tasks/ekspres.md", agent: a1, log: silentLogger(), noFetch: true, jira: { fetchFn, email: "a", token: "t" } }),
+    (e: Error) => /Jira'ya yazıldı, cevap bekleniyor: https:\/\/kg\.atlassian\.net\/browse\/KG-42\?focusedCommentId=1[\s\S]*flowloop run KG-42 --refresh/.test(e.message),
+  );
+  assert.equal(posts.length, 1);
+  assert.match(posts[0].body, /netleşmesi gerekenler/);
+  assert.match(posts[0].body, /# \*S-1:\* Ekspres ücreti KDV dahil mi\? — Neden önemli: fiyat yanlış gösterilir _\(Cevap gelmezse: KDV dahil\)_/);
+  assert.deepEqual(a1.calls.map((c) => c.role), ["analist"]);
+
+  const r2 = makeRepo(`${jiraCfg}`);
+  const a2 = new FakeAgent({
+    ...good,
+    analist: questionAnalist,
+    developer: (req, n) => {
+      good.developer!(req, n);
+      assert.match(req.prompt, /Cevaplanmadan geçilen açık sorular[\s\S]*S-1/);
+      return "## Handoff\nChanged: src/fiyat.js: ekspres\nChecked: AK-1 → test/ekspres.test.js\nSkipped / not checked: hafta sonu senaryosu cihazda denenmedi\nRisks:\n- fiyat API'sini kullanan web ekranı etkilenebilir\nPre-existing issues seen (not touched): src/eski.js'de kullanılmayan değişken";
+    },
+    reviewer: () => "✅ tamam\n\n## İncelenmesi önerilenler\n- Sepette ekspres seçilince toplamın güncellendiğini cihazda dene\n\nVERDICT: PASS",
+  });
+  const infos: ChangeReviewInfo[] = [];
+  const s = await runTask({
+    root: r2, taskFile: ".flowloop/tasks/ekspres.md", agent: a2, log: silentLogger(), noFetch: true, questionsMode: "assume",
+    jira: { fetchFn, email: "a", token: "t" },
+    answerQuestions: async () => assert.fail("assume modunda sorulmaz"),
+    reviewChanges: async (info) => (infos.push(info), { action: "approve" }),
+  });
+  assert.equal(s.status, "success");
+  assert.deepEqual(infos[0].attention.map((a) => [a.from, a.kind]), [["reviewer", "review"], ["developer", "skipped"], ["developer", "risk"], ["developer", "preexisting"]]);
+  assert.ok(infos[0].assumptions.some((a) => /S-1 cevaplanmadı .* → KDV dahil/.test(a)));
+  const body = posts.at(-1)!.body;
+  assert.match(body, /h3\. Varsayımlar\n\* ekspres sadece 5 kg altı için geçerli\n\* S-1 cevaplanmadı/);
+  assert.match(body, /h3\. İncelenmesi önerilenler\n\* Sepette ekspres seçilince[^\n]*\n\* Doğrulanmadı: hafta sonu senaryosu cihazda denenmedi\n\* fiyat API'sini kullanan web ekranı etkilenebilir/);
+  assert.match(body, /h3\. Projede önceden var olan sorunlar \(bu işte dokunulmadı\)\n\* src\/eski\.js/);
+  assert.ok(body.indexOf("Varsayımlar") < body.indexOf("h3. Teslim"), "notlar teslim bilgisinden önce");
+});
+
+test("açık soru yoksa (\"Yok\") hiçbir şey sorulmaz", async () => {
+  const root = makeRepo("");
+  const agent = new FakeAgent({ ...good, analist: (req) => fs.writeFileSync(planFile(req), "# Plan\nAK-1\n\n## Açık sorular\nYok\n\n## Riskler\n- yok\n") });
+  const s = await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, answerQuestions: async () => assert.fail("sorulmamalı") });
+  assert.equal(s.status, "success");
+  assert.deepEqual(s.questions, []);
+});

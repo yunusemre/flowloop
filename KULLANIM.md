@@ -3,9 +3,10 @@
 flowloop, bir Jira görevini dört rollü bir AI ekibine yaptırır ve sonucu push'lanmış bir branch, PR bağlantısı ve Jira yorumu olarak teslim eder. Merge her zaman insandadır.
 
 ```
-Jira görevi ─► ANALİST ─► plan ─► DEVELOPER ─► otomatik kontroller ─► REVIEWER ─(PASS)─► COMMITTER ─► push + Jira yorumu
-                                     ▲                                    │
-                                     └──────────── FAIL (geri bildirim) ◄─┘
+Jira görevi ─► ANALİST ─► plan ─► DEVELOPER ─► otomatik kontroller ─► REVIEWER ─(PASS)─► SENİN ONAYIN ─► COMMITTER ─► push + Jira yorumu
+                 ▲           │          ▲                                    │
+                 └─ cevabın ─┘          └──────────── FAIL (geri bildirim) ◄─┘
+               (açık sorular varsa)
 ```
 
 | Rol | Ne yapar | Ne yapamaz |
@@ -189,18 +190,20 @@ flowloop run PROJ-1234 --approve-plan -v
 | `--agent claude\|cursor` | Ajan aracını bu seferlik seç |
 | `--dry-run` | Ajan çalıştırmadan prompt'ları ve yetkileri gösterir (ücretsiz) |
 | `--skip-review` | İş bitince değişiklikleri sormadan commit/push eder (önerilmez) |
+| `--epic`, `--branch`, `--approve-each-plan`, `--restart` | Birden fazla görev için (bkz. [Birbirine bağlı görevler](#birbirine-bağlı-görevler-toplu-çalışma)) |
+| `--questions ask\|jira\|assume` | Analistin açık sorularında ne yapılacağı (bkz. [Açık sorular](#açık-sorular)); varsayılan `flowloop.yaml → questions` |
 
 Akış:
 
 1. **Görev:** Jira kaydı `.flowloop/tasks/PROJ-1234.md` dosyasına çekilir. Bu dosyayı düzenleyip tekrar çalıştırabilirsin; `--refresh` vermedikçe üzerine yazılmaz.
 2. **Çalışma alanı:** base branch'ten temiz bir kopya (git worktree) açılır. Senin çalışma klasörüne hiç dokunulmaz.
-3. **Plan:** analist planı yazar. `--approve-plan` verdiysen planı okursun; onaylayabilir, yorum yazıp güncelletebilir ya da iptal edebilirsin (bkz. [Plan onayı](#plan-onayı)).
+3. **Plan:** analist planı yazar. Görevde ürün kararı gerektiren belirsizlik varsa planın **Açık sorular** bölümüne yazar; flowloop bunları sana sorar ve cevaplar plana işlenmeden geliştirmeye geçmez (bkz. [Açık sorular](#açık-sorular)). `--approve-plan` verdiysen planı okursun; onaylayabilir, yorum yazıp güncelletebilir ya da iptal edebilirsin (bkz. [Plan onayı](#plan-onayı)).
 4. **Geliştirme döngüsü** (en fazla 3 tur):
    - Developer kodu yazar.
    - flowloop değişen dosyaları formatlar ve otomatik kontrolleri çalıştırır: bu işin testleri, **yeni** tip hataları, **yeni** lint hataları. Projede zaten var olan hatalar sayılmaz.
    - Kontroller geçerse reviewer inceler. FAIL verirse geri bildirimi developer'a döner ve yeni tur başlar.
-5. **Senin onayın:** reviewer PASS verince iş **commit'lenmeden önce** sana gösterilir; onaylayabilir, değişiklik isteyebilir ya da bekletebilirsin (bkz. [Değişiklik onayı](#değişiklik-onayı)).
-6. **Teslim:** onay verince committer commit'ler. Branch push'lanır, PR bağlantısı verilir ve Jira kaydına özet yorum düşer.
+5. **Senin onayın:** reviewer PASS verince iş **commit'lenmeden önce** sana gösterilir: değişen dosyalar, planın varsayımları ve **incelenmesi önerilenler** (reviewer'ın notları, developer'ın riskleri ve doğrulayamadıkları). Onaylayabilir, değişiklik isteyebilir ya da bekletebilirsin (bkz. [Değişiklik onayı](#değişiklik-onayı)).
+6. **Teslim:** onay verince committer commit'ler. Branch push'lanır, PR bağlantısı verilir ve Jira kaydına özet yorum düşer; varsayımlar ve incelenmesi önerilenler yorumda ayrı başlıklarla yer alır.
 
 Bittiğinde ekranda şunlar görünür:
 
@@ -217,6 +220,83 @@ Bittiğinde ekranda şunlar görünür:
 ```
 
 Sonra PR'ı açıp normal kod incelemesini yaparsın.
+
+### Birbirine bağlı görevler (toplu çalışma)
+
+Birden fazla görev verirsen flowloop onları tek tek değil, birlikte ele alır:
+
+```bash
+flowloop run IDT-101 IDT-102 IDT-103 --approve-plan -v
+flowloop run --epic IDT-100 --approve-plan -v      # epic'in bitmemiş alt işleri, Jira'daki sırayla
+```
+
+1. **Toplu plan:** analist bütün görevleri (epic verdiysen epic'in açıklamasıyla birlikte) ve kodu okur; planına şunları yazar:
+   - **Sıra:** hangi görev önce (ör. önce API, sonra onu kullanan ekran).
+   - **Bağımlılıklar:** görevler arasındaki bağımlılıklar ve aynı dosyayı değiştirecek görevler.
+   - **Görev notları:** her görev için kısa notlar.
+   - **Ortak riskler.**
+   - **Açık sorular:** bütün görevlerin açık soruları tek listede, her biri ait olduğu görevle (`S-1 (IDT-102): …`).
+2. **Sorular bir kez:** sorular tek seferde sorulur (bkz. [Açık sorular](#açık-sorular)); cevaplanmadan hiçbir görevin geliştirmesine geçilmez. **[j]** seçilirse her soru kendi Jira kaydına yazılır.
+3. **Plan onayı:** `--approve-plan` verdiysen toplu planı onaylar ya da yorumla güncelletirsin (sırayı değiştirmek dahil).
+4. **Görevler sırayla, tek branch'te:** her görev kendi akışıyla yürür (analist → developer ⇄ reviewer → senin onayın → committer) ve **bir öncekinin commit'lerinin üzerinden** başlar.
+   - Her görevin ajanları şunları görür: toplu planı, cevaplarını ve önceki görevlerin commit'leri ile özetlerini.
+   - "Sadece yeni hatalar" kuralı her görevde bir önceki görevin bıraktığı noktaya göre uygulanır.
+   - Her görevin kendi commit'leri ve kendi Jira yorumu olur; yorumda "Toplu çalışma 2/3" satırı yer alır.
+   - Branch her görevden sonra push'lanır; tek PR açarsın.
+5. **Durursa kaldığı yerden:** bir görev durursa (reviewer onay vermedi, kapsam talebi reddedildi, bütçe…) toplu çalışma da durur. Aynı komutu tekrar çalıştırınca toplu plan yeniden yapılmaz ve tamamlanan görevler atlanır; duran görev baştan denenir.
+   - Duran görevin yarım denemesi branch'e commit eklediyse bu commit'ler `flowloop-arsiv/...` branch'ine alınır ve branch görevin başladığı noktaya döner.
+   - Görev commit onayında kaldıysa önce `flowloop resume <id>` ile tamamlarsın, sonra aynı komutla devam edersin.
+   - Baştan başlamak için `--restart` verirsin.
+
+| Seçenek | Anlamı |
+|---|---|
+| `--epic IDT-100` | Görevleri epic'in bitmemiş alt işlerinden al (Jira sırasıyla); ek anahtarlar da yazılabilir |
+| `--branch <ad>` | Toplu çalışmanın branch adı (varsayılan: ilk görevden, `branchName` kalıbıyla) |
+| `--approve-plan` | Toplu planı onaya sun (her görevin planı ayrıca sorulmaz) |
+| `--approve-each-plan` | Her görevin kendi planını da onaya sun |
+| `--restart` | Yarım kalan aynı toplu çalışmayı sürdürme, baştan başla |
+| `--skip-review` | Görevlerin commit onayını sorma (başında olmayacaksan; önerilmez) |
+
+Etkileşimli terminalde her görevin sonunda değişiklikler commit'ten önce sana sorulur. Başında olmayacaksan iki ayar yeterli: `--questions jira` sorularda Jira'ya yazıp durur, `--skip-review` commit onayını atlar. Merge yine PR'da insanla yapılır.
+
+Toplu çalışmalar `flowloop runs` listesinin başında görünür (`batch-...`, kaç görevin bittiği ve branch). Kayıt: `~/.flowloop/work/<repo>/batch-.../batch.json`, toplu plan: `run/plan.md`.
+
+### Açık sorular
+
+Analist görevdeki belirsizlikleri ikiye ayırır:
+
+- **Varsayım:** kodu okuyarak ya da projenin mevcut davranışından makul biçimde çözebildiği noktalar. Planda ilgili kabul kriterinin altına `Varsayım: ...` diye yazılır, sana sorulmaz; ama onay ekranında ve Jira yorumunda listelenir.
+- **Açık soru:** yanlış varsayılırsa işi boşa çıkaracak ya da ürün kararı gerektiren noktalar (iş kuralı, kullanıcıya görünen metin ya da davranış, veri/sözleşme değişikliği, kapsamın sınırı). Planın `## Açık sorular` bölümüne en fazla 5 soru yazılır; her birinde neden önemli olduğu ve **cevap gelmezse** önerilen varsayılan bulunur.
+
+Açık soru varsa flowloop geliştirmeye geçmeden durur:
+
+```
+━━ AÇIK SORULAR — geliştirmeye geçmeden önce cevabın gerekiyor ━━
+
+S-1  Ekspres ücreti KDV dahil mi?
+      Neden önemli: sepette fiyat yanlış görünür
+      Cevap gelmezse: KDV dahil
+
+Ne yapalım?
+  [c] Cevapla — sorular sırayla sorulur; boş bırakırsan analistin önerdiği varsayılan kullanılır
+  [v] Varsayılanlarla devam et — Jira yorumunda "Varsayımlar" olarak listelenir
+  [j] Soruları Jira'ya yorum olarak yaz ve dur — cevaplar gelince: flowloop run <KEY> --refresh
+  [h] Durdur — plan saklanır
+```
+
+- **[c] Cevapla:** cevapların analiste gider; analist planı (kabul kriterleri, test planı, riskler) günceller ve cevaplanan soruları bölümden çıkarır. Cevaplar görev metnine de eklenir; developer ve reviewer da görür. Cevaplar yeni soru doğurursa tekrar sorulur (en fazla 3 tur; sonra kalanlar varsayılanla geçilir). Sonra `--approve-plan` verdiysen güncel plan onayına gelir.
+- **[j] Jira'ya yaz:** cevabı ürün sahibi verecekse sorular Jira kaydına yorum olarak yazılır ve çalıştırma durur. Cevaplar Jira'ya yazılınca `flowloop run PROJ-1234 --refresh` görevi (son yorumlarla birlikte) yeniden çeker; görev değiştiği için analiz baştan yapılır.
+- **[v] Varsayılanla devam:** sorular cevaplanmadan geçilir; önerilen varsayılanlar onay ekranında ve Jira yorumunda "Varsayımlar" başlığıyla görünür.
+
+Etkileşimsiz çalıştırmada (CI, zamanlanmış iş) ne olacağını `flowloop.yaml → questions` belirler; `--questions` ile bu seferlik ezilir:
+
+| Değer | Etkileşimli terminal | Etkileşimsiz çalıştırma |
+|---|---|---|
+| `ask` (varsayılan) | Sorar | Durur; sorular `run/questions.md` dosyasında |
+| `jira` | Sorar (Jira seçeneği de var) | Soruları Jira'ya yazar ve durur |
+| `assume` | Sormaz, varsayılanla devam eder | Varsayılanla devam eder |
+
+Sorular ve cevaplar `run.json` (`questions`) ve `run/answers.md` içinde durur; `flowloop stats` kaç soru sorulduğunu ve kaçının cevaplandığını gösterir.
 
 ### Plan onayı
 
@@ -241,6 +321,18 @@ Reviewer işi onayladıktan sonra hiçbir şey commit'lenmeden, push'lanmadan ve
 ━━ İŞ TAMAMLANDI — commit'ten önce senin onayın gerekiyor ━━
 Reviewer: (değerlendirmenin özeti)
 
+Varsayımlar (doğru değilse değişiklik iste):
+  - Liste 20'şerli sayfalanır
+  - S-2 cevaplanmadı (hafta sonu ekspres var mı?) → yok
+
+İncelenmesi önerilenler:
+  - Sepette ekspres seçilince toplamın güncellendiğini cihazda dene
+  - [doğrulanmadı] Android'de klavye açıkken buton görünürlüğü
+  - [risk] fiyat API'sini kullanan web ekranı etkilenebilir
+
+Projede önceden var olan sorunlar (bu işte dokunulmadı):
+  - src/utils/date.ts: kullanılmayan import
+
 Değişen dosyalar:
  src/screens/Map/MapScreen.tsx      | 42 +++++++++----
  src/screens/Map/MapScreen.test.tsx | 88 ++++++++++++++++++++++++
@@ -254,6 +346,9 @@ Değişiklikler uygun mu?
   [h] Şimdilik onaylama — commit yapılmaz, sonra: flowloop resume
 ```
 
+- **Varsayımlar:** planın `Varsayım:` satırları ve cevaplanmadan geçilen sorular. Biri yanlışsa **[y]** ile düzelttir.
+- **İncelenmesi önerilenler:** reviewer PASS verse bile bir insanın bakması gereken noktalar (cihazda elle deneme, testle doğrulanamayan davranış, geriye dönük uyumluluk, performans, güvenlik, başka ekipleri etkileyen değişiklik) ve developer'ın Handoff'undaki riskler ile doğrulayamadıkları. Aynı liste bitiş ekranında ve Jira yorumunda da yer alır.
+- **Önceden var olan sorunlar:** developer'ın gördüğü ama bu işin kapsamı dışında olduğu için dokunmadığı sorunlar; ayrı bir görev açmak için.
 - **[d] Fark:** bütün değişiklikler satır satır gösterilir (yeni dosyalar dahil). Gösterilen yol editörde de açılabilir.
 - **[y] Değişiklik iste:** birden fazla satır yazabilirsin, bitirmek için boş satırda Enter. Yorumun developer'a öncelikli istek olarak gider; developer mevcut çalışmanın üzerine uygular, otomatik kontroller çalışır ve reviewer isteğinin karşılanıp karşılanmadığını da kontrol eder. Sonuç sana tekrar sorulur. Önceki isteklerin de hatırlatılır.
 - **[h] Şimdilik onaylama:** commit yapılmaz, çalışma alanı olduğu gibi kalır. İncelemeyi bitirince `flowloop resume <id>` aynı soruyu tekrar sorar ve onay verirsen commit/push/Jira yapılır. (Sürdürmede değişiklik isteği yoktur; o durumda isteği görev dosyasına ekleyip görevi yeniden çalıştır.)
@@ -264,7 +359,7 @@ Soru sadece etkileşimli bir terminalde sorulur. Sormadan commit'lemek için `--
 ### Jira'ya düşen yorum
 
 - **Committer'ın yazdığı kısım:** Sorun, Yapılan, Neden bu yaklaşım, Nasıl test edildi.
-- **flowloop'un eklediği kısım:** branch, commit'ler, PR bağlantısı.
+- **flowloop'un eklediği kısım:** varsayımlar, incelenmesi önerilenler, projede önceden var olan sorunlar (varsa), branch, commit'ler, PR bağlantısı.
 - **İmza:** "Claude ile hazırlandı", kullanılan modeller ve işi başlatan kişi. Commit'lerdeki `Co-Authored-By: Claude` satırı da işi kimin yaptığını gösterir.
 
 ## Birbirine bağımlı projeler
@@ -388,6 +483,7 @@ En çok değiştirilenler:
 | `branchName` | `{{jira}}-{{slug}}` → `PROJ-1234-siparis-listesine...` |
 | `push` | İş bitince branch'i push'la (force push asla yapılmaz) |
 | `jira.comment` | İş bitince Jira'ya yorum ekle |
+| `questions` | Analistin açık soruları: `ask` (terminalde sor, etkileşimsizse dur), `jira` (etkileşimsizse Jira'ya yaz ve dur), `assume` (varsayılanla devam). Bkz. [Açık sorular](#açık-sorular) |
 | `commands.testRelated` | Bu işin testleri, ör. `npx jest --findRelatedTests {{files}} --passWithNoTests` |
 | `commands.typecheck` | Ör. `npx tsc --noEmit -p .`; sadece yeni hatalar sayılır |
 | `commands.lint` | Ör. `npx eslint --quiet {{files}}`; sadece yeni **hatalar** sayılır, uyarılar bloklamaz |

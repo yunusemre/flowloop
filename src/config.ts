@@ -119,6 +119,14 @@ export const configSchema = z
     push: z.boolean().default(false),
     /** Başlamadan önce origin'den base branch'i çek. */
     fetch: z.boolean().default(true),
+    /**
+     * Analist planına "## Açık sorular" yazarsa (cevapsız ilerlenmemesi gereken sorular):
+     *   ask    → etkileşimli terminalde sorar; etkileşimsiz çalıştırmada durur
+     *   jira   → etkileşimsiz çalıştırmada soruları Jira kaydına yorum olarak yazar ve durur
+     *            (etkileşimli terminalde yine sorar; Jira'ya yazma seçeneği de sunulur)
+     *   assume → sormaz; analistin önerdiği varsayılanlarla devam eder, Jira yorumunda listelenir
+     */
+    questions: z.enum(["ask", "jira", "assume"]).default("ask"),
     commands: z
       .object({
         /** Worktree'de bağımlılık kurulumu. Boşsa linkDirs ile repodaki klasörler bağlanır. */

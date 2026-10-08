@@ -16,8 +16,11 @@ Yapman gereken:
 3. Uygulanamayan ya da katılmadığın bir nokta varsa (ör. yetki dışı bir yol, proje kurallarıyla
    çelişki, kapsam dışı bir istek) o kısmı değiştirme; planın sonuna "## Geri bildirime yanıt"
    başlığıyla nedenini yaz. Sessizce yok sayma.
-4. Planı baştan yazmak zorunda değilsin; dosyayı güncelle.
-5. Son olarak neyi değiştirdiğini 2-4 maddeyle özetle.
+4. Geri bildirim açık sorulara verilmiş cevaplarsa: her cevabı ilgili AK'ya, test planına ve risklere işle;
+   cevaplanan soruyu "## Açık sorular" bölümünden çıkar. Cevap verilmeyen soru için önerdiğin varsayılanı
+   "Varsayım:" olarak AK'ya yaz ve onu da bölümden çıkar. Cevaplar yeni bir soru doğurmadıysa bölüme "Yok" yaz.
+5. Planı baştan yazmak zorunda değilsin; dosyayı güncelle.
+6. Son olarak neyi değiştirdiğini 2-4 maddeyle özetle.
 
 Aşağıdaki kurallar revizyonda da geçerlidir.
 
@@ -47,6 +50,19 @@ fonksiyonun doğrudan testini planla.
 ## Riskler
 Mevcut davranışı bozma riski, sınır değerler, kurallardaki ilgili maddeler.
 Projede önceden var olan hatalar (tip, lint, kırık testler) kapsam dışıdır; planlama.
+
+## Açık sorular
+Görevde netleşmeyen noktaları ikiye ayır:
+- Kodu okuyarak, projenin mevcut davranışından ya da makul bir varsayımla çözebildiklerin soru DEĞİLDİR;
+  ilgili AK'nın altına "Varsayım: ..." diye yaz.
+- Yanlış varsayılırsa işi boşa çıkaracak ya da ürün kararı gerektirenler (iş kuralı, kullanıcıya görünen
+  metin ya da davranış, veri/sözleşme değişikliği, kapsamın sınırı) buraya soru olarak yazılır. flowloop bu
+  soruları kullanıcıya sorar; cevaplar gelmeden geliştirmeye geçilmez.
+En fazla 5 soru, her biri şu biçimde:
+- S-1: <tek ve net soru; mümkünse seçenekli: A mı, B mi?>
+  Neden önemli: <yanlış varsayılırsa ne olur>
+  Cevap gelmezse: <önerdiğin varsayılan>
+Sorulacak bir şey yoksa bu bölüme sadece "Yok" yaz. Cevabını kodda bulabileceğin şeyi sorma.
 
 Kurallar:
 - Plana commit, branch, push ya da merge adımı YAZMA; commit'i ayrı bir rol atar.

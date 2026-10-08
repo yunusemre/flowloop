@@ -53,6 +53,13 @@ Ekibin önceki çalışmalarda düştüğü hatalar (özellikle kontrol et):
 {{lessons}}
 {{/lessons}}
 
+VERDICT'ten önce, PASS versen bile, şu bölümü yaz (onay ekranında ve Jira yorumunda kullanıcıya gösterilir):
+
+## İncelenmesi önerilenler
+Merge'den önce bir insanın bakması gereken noktalar: cihazda ya da ekranda elle denenmesi gerekenler, testle
+doğrulanamayan davranışlar, geriye dönük uyumluluk, performans, güvenlik, veri, başka ekipleri etkileyen
+değişiklikler. Her biri tek satır ve somut (nerede, neye bakılmalı). Yoksa "Yok" yaz.
+
 Her kontrol için ✅/❌ + tek cümle kanıt. FAIL ise developer'ın tek talimatı senin
 yazdıkların: `dosya:satır — sorun — öneri`.
 

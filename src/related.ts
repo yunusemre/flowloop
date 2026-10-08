@@ -24,6 +24,8 @@ export interface RelatedSummary {
   /** false: git reposu olmayan ortak klasör; doğrudan (salt okunur) kullanılır */
   git?: boolean;
   approvedTree?: string;
+  /** Toplu çalışmada önceki görevin branch'inden devam edildi (baseSha = o branch'in ucu) */
+  continued?: boolean;
   commits?: string[];
   pushed?: boolean;
   branchUrl?: string;
@@ -95,6 +97,8 @@ export class RelatedRepo {
     fetch: boolean;
     log: Logger;
     runner?: CheckRunner;
+    /** Toplu çalışma: aynı adlı branch varsa yenisini açma, ondan devam et */
+    continueBranch?: boolean;
   }): RelatedRepo {
     const root = relatedPath(opts.mainRoot, opts.path);
     const st = RelatedRepo.projectSettings(root);
@@ -113,13 +117,17 @@ export class RelatedRepo {
     }
     const remoteRef = `refs/remotes/origin/${baseBranch}`;
     const baseRef = git(["rev-parse", "--verify", "--quiet", remoteRef], root).code === 0 ? `origin/${baseBranch}` : baseBranch;
-    const baseSha = gitOk(["rev-parse", baseRef], root);
+    let baseSha = gitOk(["rev-parse", baseRef], root);
     let branch = opts.wantedBranch;
-    for (let n = 2; git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], root).code === 0; n++) branch = `${opts.wantedBranch}-${n}`;
+    const exists = (b: string) => git(["rev-parse", "--verify", "--quiet", `refs/heads/${b}`], root).code === 0;
+    // toplu çalışma: önceki görevlerin bu repodaki commit'lerinin üzerinden devam edilir
+    const continued = !!opts.continueBranch && exists(branch);
+    if (continued) baseSha = gitOk(["rev-parse", `refs/heads/${branch}`], root);
+    else for (let n = 2; exists(branch); n++) branch = `${opts.wantedBranch}-${n}`;
     const wt = path.join(opts.runDir, `wt-${opts.name}`);
     const baseWt = path.join(opts.runDir, `base-${opts.name}`);
     // sadece okunan repoda branch açmaya gerek yok: detached kopya yeterli
-    if (opts.edit.length) gitOk(["worktree", "add", "-q", wt, "-b", branch, baseSha], root);
+    if (opts.edit.length) gitOk(["worktree", "add", "-q", wt, ...(continued ? [branch] : ["-b", branch, baseSha])], root);
     else gitOk(["worktree", "add", "-q", "--detach", wt, baseSha], root);
     gitOk(["worktree", "add", "-q", "--detach", baseWt, baseSha], root);
     // bağımlılık klasörleri (node_modules vb.) repodan bağlanır
@@ -131,8 +139,8 @@ export class RelatedRepo {
       linked.push(d);
     }
     if (linked.length) ensureExcludedIn(root, linked);
-    opts.log.ok(`İlgili repo hazır: ${opts.name} (${opts.edit.length ? `branch ${branch}` : "sadece okunur"}, base ${baseRef} ${baseSha.slice(0, 7)}, ayar: ${st.source})`);
-    const s: RelatedSummary = { name: opts.name, root, wt, baseWt, branch: opts.edit.length ? branch : "", baseBranch, baseRef, baseSha, edit: opts.edit, linkDirs: linked };
+    opts.log.ok(`İlgili repo hazır: ${opts.name} (${opts.edit.length ? `branch ${branch}` : "sadece okunur"}, ${continued ? `önceki görevlerin üzerinden ${baseSha.slice(0, 7)}` : `base ${baseRef} ${baseSha.slice(0, 7)}`}, ayar: ${st.source})`);
+    const s: RelatedSummary = { name: opts.name, root, wt, baseWt, branch: opts.edit.length ? branch : "", baseBranch, baseRef, baseSha, edit: opts.edit, linkDirs: linked, continued: continued || undefined };
     return new RelatedRepo(s, st.commands, st.readDeny, opts.runner);
   }
 
@@ -218,7 +226,8 @@ export class RelatedRepo {
     if (!this.isGit) return; // kullanıcının kendi klasörü: dokunulmaz
     git(["worktree", "remove", "--force", this.s.baseWt], this.s.root);
     git(["worktree", "remove", "--force", this.s.wt], this.s.root);
-    if (!this.s.commits?.length && this.s.branch) git(["branch", "-D", this.s.branch], this.s.root); // boş kalan branch'i bırakma
+    // boş kalan branch'i bırakma (toplu çalışmada önceki görevlerin branch'i silinmez)
+    if (!this.s.commits?.length && this.s.branch && !this.s.continued) git(["branch", "-D", this.s.branch], this.s.root);
   }
 
   push(log: Logger): string | undefined {

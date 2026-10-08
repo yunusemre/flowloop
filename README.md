@@ -11,6 +11,10 @@ Jira görevi ─► ANALİST ─► plan ─(senin onayın)─► DEVELOPER ─�
 
 Sen onaylamadan hiçbir şey commit'lenmez, push'lanmaz ve Jira'ya yazılmaz.
 
+- **Belirsizlikte sorar:** analist ürün kararı gerektiren noktaları "Açık sorular" olarak yazar; cevaplanmadan geliştirmeye geçilmez. Cevabı sen verirsin ya da sorular Jira'ya yazılır, ürün sahibi cevaplar.
+- **Birbirine bağlı görevleri birlikte ele alır:** `flowloop run IDT-1 IDT-2 IDT-3` (ya da `--epic IDT-100`) önce bütün görevleri okuyup sırayı, bağımlılıkları ve bütün soruları tek seferde çıkarır; sonra görevleri sırayla, aynı branch'te, her biri ayrı commit ve Jira yorumuyla yapar. Durursa aynı komut kaldığı yerden devam eder.
+- **Bitince neye bakman gerektiğini söyler:** varsayımlar, reviewer'ın "incelenmesi önerilenler" notları ve developer'ın riskleri onay ekranında ve Jira yorumunda listelenir.
+
 Ayrıntılı kılavuz: **[KULLANIM.md](KULLANIM.md)**
 
 ## Hızlı başlangıç
@@ -24,6 +28,7 @@ cd ~/projeler/my-app
 flowloop init && flowloop check
 
 # 3) Jira görevini çalıştır (--approve-plan: planı onayla, yorumla güncellet ya da iptal et)
+#    Birbirine bağlı görevler: flowloop run IDT-1 IDT-2 IDT-3 --approve-plan -v  (ya da --epic IDT-100)
 flowloop run PROJ-1234 --approve-plan -v
 ```
 
@@ -31,7 +36,8 @@ flowloop run PROJ-1234 --approve-plan -v
 |---|---|
 | `flowloop setup` | Hesapları adım adım kurar: git kimliği, Claude/Cursor, Jira, Bitbucket. Kurulum sonunda kendiliğinden açılır |
 | `flowloop update` | flowloop'u günceller. Yeni sürüm çıkınca flowloop ekranın başında haber verir |
-| `flowloop runs` / `flowloop resume <id>` | Çalıştırmaları listeler / yarım kalanı sürdürür |
+| `flowloop run IDT-1 IDT-2 …` / `--epic IDT-100` | Birbirine bağlı görevler: toplu plan, sonra sırayla tek branch'te |
+| `flowloop runs` / `flowloop resume <id>` | Çalıştırmaları (toplu çalışmalar dahil) listeler / yarım kalanı sürdürür |
 | `flowloop stats [--since 30d]` | Ölçüm özeti: başarı, ilk incelemede PASS, tur, insan müdahalesi, kapsam talepleri, reddedilen işlemler, maliyet |
 | `flowloop --version` | Sürümü ve kurulum kaynağını gösterir |
 
@@ -72,7 +78,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 
 ## Jira
 
-`flowloop run PROJ-1234` görevi Jira'dan çeker. İş bitince kayda kısa bir yorum eklenir: sorun / yapılan / neden bu yaklaşım / nasıl test edildi (committer yazar), branch, commit'ler, PR bağlantısı, kullanılan modeller ve "insan incelemesi gerekir" notu. Commit'lerdeki `Co-Authored-By` satırı işi kimin yaptığını gösterir.
+`flowloop run PROJ-1234` görevi Jira'dan çeker. Analistin açık soruları istenirse kayda yorum olarak yazılır (`questions: jira` ya da onay ekranında **[j]**); cevaplar gelince `flowloop run PROJ-1234 --refresh` görevi yeniden çeker. İş bitince kayda kısa bir yorum eklenir: sorun / yapılan / neden bu yaklaşım / nasıl test edildi (committer yazar), varsayımlar, incelenmesi önerilenler, branch, commit'ler, PR bağlantısı, kullanılan modeller ve "insan incelemesi gerekir" notu. Commit'lerdeki `Co-Authored-By` satırı işi kimin yaptığını gösterir.
 
 ## Yapılandırma (`.flowloop/flowloop.yaml`)
 
@@ -82,6 +88,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 | `branchName` | `{{jira}}-{{slug}}` ya da `flowloop/{{slug}}-{{date}}` |
 | `push` | İş bitince branch'i origin'e gönder (`--no-push` ile tek seferlik kapatılır) |
 | `jira.baseUrl` / `jira.comment` | Projeye özel Jira adresi (boşsa `flowloop setup`'ta girilen) / iş bitince kayda özet yorumu |
+| `questions` | Analistin açık soruları: `ask` (terminalde sor; etkileşimsizse dur), `jira` (etkileşimsizse Jira'ya yaz ve dur), `assume` (varsayılanla devam). `--questions` ile tek seferlik ezilir |
 | `commands.testRelated` | Bu işin testleri; `{{files}}` ya da `{{testFiles}}` içermek zorunda |
 | `commands.typecheck` | Tüm projenin tip kontrolü; sadece yeni hatalar sayılır |
 | `commands.lint` | `{{files}}` ile; sadece yeni hatalar sayılır (uyarılar bloklamaz) |

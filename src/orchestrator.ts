@@ -20,6 +20,25 @@ import { remoteLinks, type RemoteLinks } from "./remote.js";
 import { RelatedRepo, type RelatedSummary } from "./related.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { CURSOR_CO_AUTHOR } from "./cursor.js";
+import { createHash } from "node:crypto";
+import { collectAttention, extractAssumptions, type AttentionItem, type OpenQuestion } from "./notes.js";
+import { resolveQuestions as questionLoop, type QuestionDecision, type QuestionRecord, type QuestionsMode } from "./questions.js";
+export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
+
+/** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
+export function noteSections(s: Pick<RunSummary, "assumptions" | "attention">): string[] {
+  const out: string[] = [];
+  const list = (title: string, items: string[]) => {
+    if (!items.length) return;
+    const shown = items.slice(0, 8).map((t) => `- ${t.replace(/\s*\n\s*/g, " ")}`);
+    out.push("", `## ${title}`, ...shown, ...(items.length > 8 ? [`- … ve ${items.length - 8} madde daha`] : []));
+  };
+  list("Varsayımlar", s.assumptions ?? []);
+  const att = s.attention ?? [];
+  list("İncelenmesi önerilenler", att.filter((a) => a.kind !== "preexisting").map((a) => (a.kind === "skipped" ? `Doğrulanmadı: ${a.text}` : a.text)));
+  list("Projede önceden var olan sorunlar (bu işte dokunulmadı)", att.filter((a) => a.kind === "preexisting").map((a) => a.text));
+  return out;
+}
 
 /** Jira yorumu: committer'ın özeti + flowloop'in eklediği kesin bilgiler */
 export function buildJiraComment(aiSummary: string, s: RunSummary, links?: RemoteLinks): string {
@@ -38,11 +57,13 @@ export function buildJiraComment(aiSummary: string, s: RunSummary, links?: Remot
         return `  - \`${c.slice(0, i)}\` ${c.slice(i + 1)}`;
       }),
     ]),
+    s.batch ? `- *Toplu çalışma:* ${s.batch.index}/${s.batch.total} — aynı branch'te sırayla: ${s.batch.keys.join(", ")}` : "",
     `- *Kontroller:* bu işin testleri yeşil, yeni tip/lint hatası yok, reviewer onayı ${s.iterations}. turda`,
   ].filter(Boolean);
   void links;
   return [
     aiSummary.trim() || "## Yapılan\n(özet üretilemedi; commit mesajlarına bakın)",
+    ...noteSections(s),
     "",
     "## Teslim",
     ...facts,
@@ -126,6 +147,18 @@ export interface RunOptions {
    * devam et / durdur. Verilmezse çalıştırma durur (yetki ajan isteğiyle asla kendiliğinden açılmaz).
    */
   reviewScope?: (info: ScopeReviewInfo) => Promise<ScopeDecision>;
+  /**
+   * Analist planına açık soru yazdığında sorulur: cevapla / varsayılanlarla devam / Jira'ya yaz ve dur / iptal.
+   * Verilmezse flowloop.yaml → questions ayarına göre davranılır (ask: durur, jira: Jira'ya yazar ve durur, assume: devam).
+   */
+  answerQuestions?: (questions: OpenQuestion[], ctx: { round: number; canPostToJira: boolean }) => Promise<QuestionDecision>;
+  /**
+   * Toplu çalışma: görevler aynı branch'te sırayla yapılır. Branch varsa yenisi açılmaz; iş önceki
+   * görevlerin commit'lerinin üzerinden başlar ve "sadece yeni hatalar" o noktaya göre sayılır.
+   */
+  batch?: BatchRef;
+  /** flowloop.yaml → questions ayarını bu çalıştırma için ezer (--questions) */
+  questionsMode?: QuestionsMode;
   now?: () => Date;
   /** Testlerde kontrol komutlarını taklit etmek için */
   checkRunner?: CheckRunner;
@@ -159,6 +192,10 @@ export interface ChangeReviewInfo {
   diff: () => string;
   /** Reviewer'ın son değerlendirmesi */
   reviewerNote: string;
+  /** İnsanın bakması önerilenler (reviewer notları, developer'ın riskleri ve doğrulayamadıkları) */
+  attention: AttentionItem[];
+  /** Plandaki varsayımlar ve cevaplanmadan geçilen sorular */
+  assumptions: string[];
   worktree: string;
   /** false ise sadece onay/iptal sunulur (ör. resume'da) */
   canRevise: boolean;
@@ -180,6 +217,20 @@ export type PlanDecision = { action: "approve" } | { action: "revise"; comment: 
 
 /** Plan turunda en fazla kaç kez yorumla yenileme yapılır */
 export const MAX_PLAN_ROUNDS = 5;
+
+/** Toplu çalışmanın bir görevi */
+export interface BatchRef {
+  id: string;
+  /** 1'den başlar */
+  index: number;
+  total: number;
+  keys: string[];
+  branch: string;
+  /** Görev metnine eklenen bağlam: toplu plan, cevaplar, tamamlanan görevler */
+  context?: string;
+  /** Bu görev başladığında branch zaten vardı (önceki görevlerin commit'leri) */
+  continued?: boolean;
+}
 
 export interface RunSummary {
   status: "success" | "failed" | "dry-run";
@@ -227,6 +278,18 @@ export interface RunSummary {
   scope?: { fromPlan: boolean; edit: Record<string, string[]> };
   /** Developer'ın kapsam dışı talepleri ve verilen kararlar */
   scopeRequests?: ScopeRequest[];
+  /** Analistin açık soruları ve verilen cevaplar (assumed: cevapsız geçildi, varsayılan) */
+  questions?: QuestionRecord[];
+  /** Sorular Jira'ya yazıldıysa yorumun bağlantısı */
+  questionsUrl?: string;
+  /** Plandaki varsayımlar + cevaplanmadan geçilen sorular (Jira yorumunda listelenir) */
+  assumptions?: string[];
+  /** İnsanın bakması önerilenler */
+  attention?: AttentionItem[];
+  /** Toplu çalışmanın parçasıysa */
+  batch?: BatchRef;
+  /** Görev metninin özeti: görev değiştiyse (ör. Jira'dan cevaplarla yeniden çekildi) eski plan kullanılmaz */
+  taskHash?: string;
   startedAt?: string;
   finishedAt?: string;
 }
@@ -300,7 +363,7 @@ export function cleanupStaleBranch(root: string, branch: string, baseSha: string
   return del.code === 0;
 }
 
-function stamp(d: Date): string {
+export function stamp(d: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
@@ -314,7 +377,7 @@ export function jiraKey(task: string): string {
 }
 
 /** Görev başlığından slug (dosya adı yerine) */
-function taskSlug(task: string, fallback: string): string {
+export function taskSlug(task: string, fallback: string): string {
   const title = (task.split("\n").find((l) => l.startsWith("#")) ?? "").replace(/^#+\s*/, "").replace(/^görev\s*:\s*/i, "");
   const cleaned = title.replace(/\b[A-Z][A-Z0-9]+-\d+\b/g, "").trim();
   return slugify(cleaned || fallback);
@@ -375,7 +438,7 @@ export function ensureExcluded(root: string, dirs: string[]): void {
 }
 
 /** Aynı görevin (Jira anahtarı ya da görev adı) en son yazılmış ama geliştirmeye geçmemiş planı */
-export function findPreviousPlan(cfg: ReturnType<typeof loadConfig>, root: string, taskKey: string, currentId: string): { id: string; plan: string; baseSha?: string } | undefined {
+export function findPreviousPlan(cfg: ReturnType<typeof loadConfig>, root: string, taskKey: string, currentId: string, taskHash?: string): { id: string; plan: string; baseSha?: string } | undefined {
   const found: { id: string; plan: string; baseSha?: string; mtime: number }[] = [];
   for (const base of workDirsFor(cfg, root)) {
     for (const id of fs.readdirSync(base)) {
@@ -388,7 +451,9 @@ export function findPreviousPlan(cfg: ReturnType<typeof loadConfig>, root: strin
         const key = s.taskKey ?? s.jiraKey;
         // sadece plan aşamasında kalmış çalıştırmalar: geliştirmeye geçmiş olanın planı onaylanmış ve kullanılmıştır
         const developed = s.phases?.some((p) => p.role === "developer");
-        if (key === taskKey && s.status === "failed" && !developed && fs.readFileSync(plan, "utf8").trim()) {
+        // görev metni değiştiyse (ör. sorulara Jira'da cevap verildi, --refresh ile çekildi) eski plan geçersizdir
+        const sameTask = !taskHash || !s.taskHash || s.taskHash === taskHash;
+        if (key === taskKey && s.status === "failed" && !developed && sameTask && fs.readFileSync(plan, "utf8").trim()) {
           found.push({ id, plan, baseSha: s.baseSha, mtime: fs.statSync(plan).mtimeMs });
         }
       } catch {
@@ -484,7 +549,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
   const taskPath = path.resolve(root, opts.taskFile);
   if (!fs.existsSync(taskPath)) throw new FlowloopError(`Görev dosyası yok: ${opts.taskFile}`);
-  const taskText = fs.readFileSync(taskPath, "utf8");
+  let taskText = fs.readFileSync(taskPath, "utf8");
   const slug = taskSlug(taskText, path.basename(taskPath, path.extname(taskPath)));
   const jira = jiraKey(taskText);
   const date = stamp(now());
@@ -502,17 +567,29 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const remoteRef = `refs/remotes/origin/${baseBranch}`;
   const baseRef = git(["rev-parse", "--verify", "--quiet", remoteRef], root).code === 0 ? `origin/${baseBranch}` : baseBranch;
   if (git(["rev-parse", "--verify", "--quiet", baseRef], root).code !== 0) throw new FlowloopError(`Base branch yok: ${baseRef}`);
-  const baseSha = gitOk(["rev-parse", baseRef], root);
-  const wanted = branchNameFor(cfg.branchName, { jira, slug, date });
+  const baseShaFromRef = gitOk(["rev-parse", baseRef], root);
+  const wanted = opts.batch?.branch ?? branchNameFor(cfg.branchName, { jira, slug, date });
   let branch = wanted;
-  if (!opts.dryRun) cleanupStaleBranch(root, wanted, baseSha, log);
-  for (let n = 2; git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], root).code === 0; n++) branch = `${wanted}-${n}`;
-  if (branch !== wanted) log.warn(`${wanted} zaten var ve içinde commit'ler var; yeni branch: ${branch}`);
+  let baseSha = baseShaFromRef;
+  const branchExists = (b: string) => git(["rev-parse", "--verify", "--quiet", `refs/heads/${b}`], root).code === 0;
+  const continued = !!opts.batch && branchExists(wanted);
+  if (continued) {
+    // toplu çalışma: önceki görevlerin commit'lerinin üzerinden devam
+    baseSha = gitOk(["rev-parse", `refs/heads/${wanted}`], root);
+    log.info(`Toplu çalışma ${opts.batch!.index}/${opts.batch!.total}: ${wanted} branch'inden devam (${baseSha.slice(0, 7)})`);
+  } else if (!opts.batch) {
+    if (!opts.dryRun) cleanupStaleBranch(root, wanted, baseSha, log);
+    for (let n = 2; branchExists(branch); n++) branch = `${wanted}-${n}`;
+    if (branch !== wanted) log.warn(`${wanted} zaten var ve içinde commit'ler var; yeni branch: ${branch}`);
+  }
+  if (opts.batch) summary.batch = { ...opts.batch, context: undefined, continued };
   Object.assign(summary, { baseBranch, baseRef, baseSha, branch });
   const who = [git(["config", "user.name"], root).stdout.trim(), git(["config", "user.email"], root).stdout.trim()].filter(Boolean);
   summary.initiator = who.length === 2 ? `${who[0]} <${who[1]}>` : who[0];
   summary.backend = opts.backend ?? "claude";
   summary.taskKey = jira || slug;
+  summary.taskHash = createHash("sha256").update(taskText).digest("hex").slice(0, 16);
+  const jiraBase = cfg.jira.baseUrl || jiraBaseFromTask(taskText) || jiraBaseUrl(cfg);
 
   const workBase = workDirFor(cfg, root);
   const runDir = path.join(workBase, id);
@@ -569,11 +646,21 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
   // ───────────── temiz çalışma alanı ─────────────
   fs.mkdirSync(runRoot, { recursive: true });
-  gitOk(["worktree", "add", "-q", wt, "-b", branch, baseSha], root);
+  const wtAdd = git(["worktree", "add", "-q", wt, ...(continued ? [branch] : ["-b", branch, baseSha])], root);
+  if (wtAdd.code !== 0) {
+    throw new FlowloopError(
+      `Çalışma kopyası açılamadı: ${wtAdd.stderr.trim().split("\n")[0]}` +
+        (continued ? `\n  ${branch} branch'i başka bir klasörde açık olabilir (ör. kendi repon). Orada başka bir branch'e geç ve tekrar çalıştır.` : ""),
+    );
+  }
   gitOk(["worktree", "add", "-q", "--detach", baseWt, baseSha], root);
   summary.worktree = wt;
   summary.runDir = runDir;
   fs.copyFileSync(taskPath, files.task);
+  if (opts.batch?.context) {
+    taskText = `${taskText.trimEnd()}\n\n${opts.batch.context.trim()}\n`;
+    fs.writeFileSync(files.task, taskText);
+  }
   log.ok(`Temiz çalışma alanı: ${wt}`);
 
   const saveSummary = () => fs.writeFileSync(path.join(runDir, "run.json"), JSON.stringify(summary, null, 2));
@@ -624,7 +711,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const related: RelatedRepo[] = [];
   for (const r of cfg.related) {
     try {
-      related.push(RelatedRepo.prepare({ ...r, mainRoot: root, runDir, wantedBranch: branch, fetch: cfg.fetch && !opts.noFetch, log, runner: opts.checkRunner }));
+      related.push(RelatedRepo.prepare({ ...r, mainRoot: root, runDir, wantedBranch: branch, fetch: cfg.fetch && !opts.noFetch, log, runner: opts.checkRunner, continueBranch: !!opts.batch }));
     } catch (e) {
       summary.related = related.map((x) => x.s);
       fail(`İlgili repo hazırlanamadı (${r.name}): ${(e as Error).message}`);
@@ -702,10 +789,43 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   };
 
   // Aynı görevin önceki bir çalıştırmasında yazılmış plan varsa analizi boşa harcama
-  const prev = opts.planApproval && (opts.reviewPlan || opts.confirm) ? findPreviousPlan(cfg, root, summary.taskKey!, id) : undefined;
+  /** Görev metnine (ve görev dosyasının kopyasına) ek: sonraki roller de görür */
+  const appendTask = (block: string) => {
+    taskText = `${taskText.trimEnd()}\n\n${block.trim()}\n`;
+    fs.writeFileSync(files.task, taskText);
+  };
+
+  // ───────────── açık sorular ─────────────
+  summary.questions = [];
+  const resolveQuestions = () =>
+    questionLoop({
+      planFile: files.plan,
+      runRoot,
+      mode: opts.questionsMode ?? cfg.questions,
+      ask: opts.answerQuestions,
+      jiraKeys: jira && jiraBase ? [jira] : [],
+      postToJira: (key, body) => postComment(key, jiraBase, body, opts.jira ?? {}),
+      footer: `🤖 flowloop ${toolVersions().flowloop}${summary.initiator ? ` · Başlatan: ${summary.initiator}` : ""}`,
+      records: summary.questions!,
+      log,
+      reanalyze: async (fb) => void (await runAnalist(fb)),
+      appendContext: appendTask,
+      save: saveSummary,
+      fail,
+      rerun: `flowloop run ${jira || opts.taskFile}${opts.planApproval ? " --approve-plan" : ""}`,
+      onPosted: (urls) => void (summary.questionsUrl = urls[0]),
+    });
+
+  const prev = opts.planApproval && (opts.reviewPlan || opts.confirm) ? findPreviousPlan(cfg, root, summary.taskKey!, id, summary.taskHash) : undefined;
   let reused = false;
   if (prev) {
     fs.copyFileSync(prev.plan, files.plan);
+    // önceki çalıştırmada açık sorulara verilen cevaplar da taşınır
+    const prevAnswers = path.join(path.dirname(prev.plan), "answers.md");
+    if (fs.existsSync(prevAnswers)) {
+      fs.copyFileSync(prevAnswers, path.join(runRoot, "answers.md"));
+      appendTask(`## Kullanıcının açık sorulara cevapları (önceki çalıştırmadan)\n\n${fs.readFileSync(prevAnswers, "utf8").replace(/^## \d+\. tur\n/gm, "")}`);
+    }
     summary.planFrom = prev.id;
     reused = true;
     log.ok(`Önceki çalıştırmanın planı kullanılıyor: ${prev.id}${prev.baseSha && prev.baseSha !== baseSha ? ` (o zamanki base ${prev.baseSha.slice(0, 7)}, şimdiki ${baseSha.slice(0, 7)})` : ""}`);
@@ -713,6 +833,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     await runAnalist();
     log.ok("Plan hazır, kod değişmedi.");
   }
+  await resolveQuestions();
 
   if (opts.planApproval) {
     for (let round = 1; ; round++) {
@@ -738,6 +859,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
         fs.rmSync(files.plan, { force: true });
         log.step("ANALİST  (baştan analiz)");
         await runAnalist();
+        await resolveQuestions();
         continue;
       }
       if (d.action !== "revise") continue;
@@ -754,6 +876,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
         : "";
       const res = await runAnalist(history + comment);
       if (res.text.trim()) log.info("\nAnalist: " + res.text.trim().split("\n").slice(-8).join("\n"));
+      await resolveQuestions();
     }
   }
 
@@ -821,7 +944,16 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   };
   summary.changeRequests = [];
   let lastReviewerNote = "";
+  let lastDevText = "";
   let turn = 0;
+  /** Onay ekranı ve Jira için: varsayımlar ve insanın bakması gerekenler */
+  const refreshNotes = () => {
+    summary.attention = collectAttention(lastDevText, lastReviewerNote);
+    summary.assumptions = [
+      ...extractAssumptions(fs.readFileSync(files.plan, "utf8")),
+      ...(summary.questions ?? []).filter((q) => q.assumed).map((q) => `${q.id} cevaplanmadı (${q.text.replace(/\s*\n\s*/g, " ")}) → ${q.assumed}`),
+    ];
+  };
   /** developer ⇄ kontroller ⇄ reviewer; reviewer PASS verince true */
   const developLoop = async (initialFeedback: string, userRequests: string): Promise<boolean> => {
     let feedback = initialFeedback;
@@ -832,6 +964,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       log.info(`\n· Tur ${i}/${cfg.maxIterations}${summary.changeRequests!.length ? ` (${summary.changeRequests!.length}. değişiklik isteği)` : ""}`);
       const d = await call(roles.developer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { feedback }, turn);
       gelistirSpent += d.costUsd;
+      if (d.text.trim()) lastDevText = d.text;
       assertDevScope("Developer");
       const scopeReq = takeScopeRequest(runRoot, turn);
       if (scopeReq) {
@@ -897,12 +1030,15 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     for (let round = 1; ; round++) {
       summary.approvedTree = workingTreeHash(wt, X); // iptal edilirse resume bu içerikten devam eder
       for (const r of related) r.s.approvedTree = r.treeHash();
+      refreshNotes();
       saveSummary();
       const d = await opts.reviewChanges({
         round,
         diffStat: combinedDiff(wt, baseSha, X, related, true),
         diff: () => combinedDiff(wt, baseSha, X, related, false),
         reviewerNote: lastReviewerNote,
+        attention: summary.attention ?? [],
+        assumptions: summary.assumptions ?? [],
         worktree: wt,
         canRevise: true,
       });
@@ -934,6 +1070,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   log.ok(`Onaylanan içerik: ${approved.slice(0, 12)}${related.filter((r) => r.hasChanges()).map((r) => ` · ${r.name} ${r.s.approvedTree!.slice(0, 12)}`).join("")}`);
 
   summary.approvedTree = approved;
+  refreshNotes();
   saveSummary();
   vars.relatedChanges = relatedChanges(related);
   return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira, X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText, related, runRoot });
@@ -1011,7 +1148,8 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   // Başarılı: branch kalır, worktree'ler kaldırılır → kullanıcı branch'e kendi repo'sunda geçebilir
   git(["worktree", "remove", "--force", baseWt], root);
   git(["worktree", "remove", "--force", wt], root);
-  if (!mainChanged) git(["branch", "-D", branch], root); // ana repoda iş yoksa boş branch bırakma
+  // ana repoda iş yoksa boş branch bırakma (toplu çalışmada önceki görevlerin branch'i silinmez)
+  if (!mainChanged && !summary.batch?.continued) git(["branch", "-D", branch], root);
   for (const r of related) r.removeWorktrees();
   saveSummary();
 
@@ -1199,6 +1337,8 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
       fail(`Reviewer FAIL. Geri bildirim run.json içinde; düzeltme için yeniden çalıştır: flowloop run ${summary.jiraKey ?? "<görev>"}`);
     }
     log.ok("Reviewer PASS");
+    // reviewer'ın yeni notları + developer'ın önceki çalıştırmadaki riskleri
+    summary.attention = [...collectAttention("", r.text), ...(summary.attention ?? []).filter((a) => a.from === "developer")];
     approved = workingTreeHash(wt, X);
     summary.approvedTree = approved;
     for (const x of related) x.s.approvedTree = x.treeHash();
@@ -1211,6 +1351,8 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
       diffStat: combinedDiff(wt, baseSha, X, related, true),
       diff: () => combinedDiff(wt, baseSha, X, related, false),
       reviewerNote: "",
+      attention: summary.attention ?? [],
+      assumptions: summary.assumptions ?? [],
       worktree: wt,
       canRevise: false,
     });

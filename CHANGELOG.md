@@ -9,6 +9,18 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 ## Yayınlanmadı
 
 ### Yeni
+- **Açık sorular:** analist belirsizlikleri "Varsayım" (koddan ya da makul biçimde çözülebilen) ve "Açık soru" (ürün kararı gerektiren) olarak ayırır. Planda `## Açık sorular` varsa flowloop geliştirmeye geçmeden durur: cevapla (analist planı günceller, cevaplar developer ve reviewer'a da gider), varsayılanlarla devam et, soruları Jira'ya yorum olarak yaz ve dur ya da durdur. Etkileşimsiz çalıştırmalar için `questions: ask | jira | assume` ayarı ve `--questions` bayrağı. Sorular ve cevaplar `run.json` ve `run/answers.md`'de; `flowloop stats` da gösterir.
+- **Birbirine bağlı görevler (toplu çalışma):** `flowloop run IDT-1 IDT-2 …` ya da `flowloop run --epic IDT-100`. Analist önce bütün görevleri birlikte okuyup toplu plan yazar: sıra, bağımlılıklar, görev notları, ortak riskler ve bütün açık sorular tek listede (sorular bir kez sorulur; Jira'ya yazılırsa her soru kendi kaydına gider). Sonra görevler planlanan sırayla, aynı branch'te yürütülür: her görev öncekinin commit'lerinin üzerinden başlar, toplu planı, cevapları ve tamamlanan görevlerin özetlerini görür; her birinin kendi commit'leri ve Jira yorumu olur, tek PR açılır. Bir görev durursa aynı komut toplu planı tekrarlamadan ve tamamlananları atlayarak devam eder; yarım denemenin commit'leri `flowloop-arsiv/...` branch'ine alınır. Seçenekler: `--branch`, `--approve-each-plan`, `--restart`. Epic'in alt işleri Jira'daki sırasıyla, bitmemişler alınır.
+- **İncelenmesi önerilenler:** reviewer PASS verse bile insanın bakması gereken noktaları ayrı bir bölüme yazar. Bunlar, developer'ın Handoff'undaki riskler ve doğrulayamadıkları, plandaki varsayımlar ve projede önceden var olan sorunlarla birlikte commit onay ekranında, bitiş özetinde ve Jira yorumunda listelenir.
+
+### Değişen
+- Görev metni değiştiyse (ör. Jira'dan `--refresh` ile cevaplarla yeniden çekildi) önceki çalıştırmanın planı devralınmaz; analiz baştan yapılır.
+- Bilinmeyen bir komut satırı seçeneği artık hata yığını yerine kısa bir mesajla bildirilir.
+- `flowloop init` şablonuna `questions: ask` satırı eklendi; mevcut projelerde ayar yoksa varsayılan `ask` kullanılır (değişiklik gerekmez).
+
+## 1.5.0 — 2026-10-08
+
+### Yeni
 - **Rol kural setleri:** rolün kalıcı kuralları system prompt'a (Agent SDK: `claude_code` preset + `append`), görev (Jira anahtarı + metin) kullanıcı mesajına gider. Developer için Ponytail'den (MIT, v5.1.0) uyarlanan kural seti eklendi: en küçük tam değişiklik, kapsam ve kırılma kontrolü, sabit biçimli `## Handoff` son mesajı. Projeye özel kurallar `.flowloop/rulesets/<rol>.md` ile verilir. Lisans: `THIRD_PARTY_NOTICES.md`.
 
 ### Düzeltme

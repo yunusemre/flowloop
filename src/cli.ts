@@ -19,10 +19,12 @@ import { detectMemoryServers, expandServerNames, loadMcpServers, userClaudeMdPat
 
 import { git } from "./git.js";
 import { color, consoleLogger } from "./log.js";
-import { FlowloopError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type RunSummary, type ScopeDecision, type ScopeReviewInfo } from "./orchestrator.js";
+import { FlowloopError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type QuestionDecision, type RunSummary, type ScopeDecision, type ScopeReviewInfo } from "./orchestrator.js";
+import type { AttentionItem, OpenQuestion } from "./notes.js";
 import { computeStats, loadRecords, parseSince, renderStats } from "./stats.js";
 import { PACKAGE_ROOT, loadRoles } from "./roles.js";
-import { JIRA_KEY, JiraError, fetchIssue, issueToTask } from "./jira.js";
+import { JIRA_KEY, JiraError, epicChildren, fetchIssue, issueToTask } from "./jira.js";
+import { BATCH_FILE, BATCH_PREFIX, runBatch, type BatchState } from "./batch.js";
 
 const HELP = `flowloop — rol bazlı AI geliştirme ekibi (analist → developer ⇄ reviewer → committer)
 
@@ -31,9 +33,18 @@ Kullanım:
   flowloop check                     Yapılandırmayı doğrular, rollerin yetkilerini gösterir
   flowloop task <JIRA-123>           Jira kaydından .flowloop/tasks/JIRA-123.md görev dosyasını üretir
   flowloop run <görev.md | JIRA-123 | Jira bağlantısı> [seçenek]  Görevi ekiple çalıştırır (Jira anahtarı verilirse önce görevi çeker)
+  flowloop run JIRA-1 JIRA-2 … [seçenek]   Birbirine bağlı görevler: toplu plan (sıra, bağımlılık, bütün sorular bir kez),
+                                   sonra görevler sırayla AYNI branch'te; her biri ayrı commit ve Jira yorumu, tek PR
+      --epic JIRA-100            Görevleri epic'in bitmemiş alt işlerinden al
+      --branch <ad>              Toplu çalışmanın branch adı (varsayılan: ilk görevden)
+      --approve-each-plan        Toplu planın yanında her görevin kendi planını da onaya sun
+      --restart                  Yarım kalan aynı toplu çalışmayı sürdürme, baştan başla
       --refresh                  Görev dosyası varsa bile Jira'dan yeniden çek
       --no-push                  Bu çalıştırmada push yapma (flowloop.yaml'daki push: true'yu ezer)
       --approve-plan             Plan yazıldıktan sonra onay ister
+      --questions ask|jira|assume
+                                 Analistin açık soruları: terminalde sor | Jira'ya yaz ve dur | varsayılanla devam
+                                 (varsayılan: flowloop.yaml → questions: ask)
       --agent claude|cursor      Ajan aracını seç (varsayılan: flowloop.yaml → agent: auto)
       --skip-review              İş bitince değişiklikleri sormadan commit/push et
       --dry-run                  Ajan çalıştırmadan prompt ve yetkileri gösterir
@@ -145,8 +156,8 @@ const ask = async (q: string) => {
   rl.close();
   return a;
 };
-const readComment = async (): Promise<string> => {
-  console.log(color.dim("Yorumunu yaz. Birden fazla satır olabilir; bitirmek için boş bir satırda Enter'a bas."));
+const readComment = async (hint = "Yorumunu yaz"): Promise<string> => {
+  console.log(color.dim(`${hint}. Birden fazla satır olabilir; bitirmek için boş bir satırda Enter'a bas.`));
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout, prompt: "> " });
   const lines: string[] = [];
   rl.prompt();
@@ -179,6 +190,46 @@ async function extendBudgetPrompt(b: BudgetRequest): Promise<number> {
   }
 }
 
+/** Analistin açık soruları: cevapla / varsayılanla devam / Jira'ya yaz / durdur */
+async function answerQuestionsPrompt(qs: OpenQuestion[], ctx: { round: number; canPostToJira: boolean }): Promise<QuestionDecision> {
+  console.log("\n" + color.bold(`━━ AÇIK SORULAR${ctx.round > 1 ? ` (${ctx.round}. tur)` : ""} — geliştirmeye geçmeden önce cevabın gerekiyor ━━`));
+  for (const q of qs) {
+    console.log(`\n${color.bold(q.id)}  ${q.text.replace(/\n/g, "\n      ")}`);
+    if (q.fallback) console.log(color.dim(`      Cevap gelmezse: ${q.fallback}`));
+  }
+  const options = [
+    "  [c] Cevapla — sorular sırayla sorulur; boş bırakırsan analistin önerdiği varsayılan kullanılır",
+    "  [v] Varsayılanlarla devam et — Jira yorumunda \"Varsayımlar\" olarak listelenir",
+    ...(ctx.canPostToJira ? ["  [j] Soruları Jira'ya yorum olarak yaz ve dur — cevaplar gelince: flowloop run <KEY> --refresh"] : []),
+    "  [h] Durdur — plan saklanır",
+  ];
+  for (;;) {
+    console.log(color.bold("\nNe yapalım?") + "\n" + options.join("\n"));
+    const a = (await ask(`Seçimin [c/v${ctx.canPostToJira ? "/j" : ""}/h]: `)).trim().toLowerCase();
+    if (a === "c" || a === "cevapla") {
+      const answers: Record<string, string> = {};
+      for (const q of qs) {
+        console.log(`\n${color.bold(q.id)}  ${q.text.split("\n")[0]}`);
+        answers[q.id] = await readComment(`Cevabın${q.fallback ? " (boş = varsayılan)" : ""}`);
+      }
+      return { action: "answer", answers };
+    }
+    if (a === "v") return { action: "assume" };
+    if (a === "j" && ctx.canPostToJira) return { action: "jira" };
+    if (a === "h" || a === "hayır" || a === "hayir" || a === "iptal") return { action: "cancel" };
+  }
+}
+
+/** Varsayımlar ve incelenmesi önerilenler (onay ekranı ve bitiş özeti) */
+function printNotes(assumptions: string[], attention: AttentionItem[], max = 10): void {
+  const list = (items: string[]) => items.slice(0, max).map((t) => `  - ${t.replace(/\s*\n\s*/g, " ")}`).join("\n") + (items.length > max ? `\n  … ve ${items.length - max} madde daha (run.json)` : "");
+  if (assumptions.length) console.log("\n" + color.yellow("Varsayımlar") + color.dim(" (doğru değilse değişiklik iste):") + "\n" + list(assumptions));
+  const look = attention.filter((a) => a.kind !== "preexisting").map((a) => `${a.kind === "skipped" ? "[doğrulanmadı] " : a.from === "reviewer" ? "" : "[risk] "}${a.text}`);
+  if (look.length) console.log("\n" + color.bold("İncelenmesi önerilenler:") + "\n" + list(look));
+  const pre = attention.filter((a) => a.kind === "preexisting").map((a) => a.text);
+  if (pre.length) console.log(color.dim("\nProjede önceden var olan sorunlar (bu işte dokunulmadı):\n" + list(pre)));
+}
+
 /** İş bitince, commit'ten önce: değişiklikleri göster ve kullanıcıya sor */
 async function reviewChangesPrompt(info: ChangeReviewInfo): Promise<ChangeDecision> {
   console.log("\n" + color.bold("━━ İŞ TAMAMLANDI — commit'ten önce senin onayın gerekiyor ━━"));
@@ -186,6 +237,7 @@ async function reviewChangesPrompt(info: ChangeReviewInfo): Promise<ChangeDecisi
     const note = info.reviewerNote.trim().split("\n").filter((l) => !/^VERDICT:/i.test(l.trim())).slice(0, 15).join("\n");
     if (note) console.log(color.dim("Reviewer:\n" + note));
   }
+  printNotes(info.assumptions, info.attention);
   console.log("\nDeğişen dosyalar:\n" + (info.diffStat.trim() || "(fark yok)"));
   console.log(color.dim(`\nKodu editöründe de açabilirsin: ${info.worktree}`));
   const options = [
@@ -278,13 +330,37 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
       "no-push": { type: "boolean", default: false },
       agent: { type: "string" },
       "skip-review": { type: "boolean", default: false },
+      questions: { type: "string" },
+      epic: { type: "string" },
+      branch: { type: "string" },
+      "approve-each-plan": { type: "boolean", default: false },
+      restart: { type: "boolean", default: false },
     },
   });
-  if (positionals.length !== 1) throw new FlowloopError("Kullanım: flowloop run <görev.md | JIRA-123>");
-  let taskFile = positionals[0];
-  const link = parseJiraLink(taskFile); // https://sirket.atlassian.net/browse/PROJ-1234 de verilebilir
-  if (link) taskFile = await ensureJiraTask(root, link.key, values.refresh, link.base);
-  else if (JIRA_KEY.test(taskFile)) taskFile = await ensureJiraTask(root, taskFile, values.refresh);
+  const qm = values.questions;
+  if (qm !== undefined && !["ask", "jira", "assume"].includes(qm)) throw new FlowloopError(`--questions ask | jira | assume olmalı (verilen: ${qm})`);
+  const inputs = [...positionals];
+  let epicFile: string | undefined;
+  if (values.epic) {
+    const epicLink = parseJiraLink(values.epic);
+    const epicKey = epicLink?.key ?? values.epic;
+    const base = epicLink?.base || jiraBaseUrl(loadConfig(root));
+    epicFile = await ensureJiraTask(root, epicKey, values.refresh, epicLink?.base);
+    const kids = await epicChildren(epicKey, base);
+    if (!kids.length) throw new FlowloopError(`${epicKey} altında bitmemiş iş yok.`);
+    console.log(`${epicKey} altındaki bitmemiş işler (${kids.length}):`);
+    for (const k of kids) console.log(color.dim(`  - ${k.key}  ${k.summary}  [${k.status}]`));
+    for (const k of kids) if (!inputs.includes(k.key)) inputs.push(k.key);
+  }
+  if (!inputs.length) throw new FlowloopError("Kullanım: flowloop run <görev.md | JIRA-123> [JIRA-124 …]  ya da  flowloop run --epic JIRA-100");
+  const files: string[] = [];
+  for (const arg of inputs) {
+    const link = parseJiraLink(arg); // https://sirket.atlassian.net/browse/PROJ-1234 de verilebilir
+    if (link) files.push(await ensureJiraTask(root, link.key, values.refresh, link.base));
+    else if (JIRA_KEY.test(arg)) files.push(await ensureJiraTask(root, arg, values.refresh));
+    else files.push(arg);
+  }
+  const taskFile = files[0];
   const log = consoleLogger(values.verbose || values["dry-run"]);
   const confirm = async (q: string) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
@@ -315,6 +391,36 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     }
   };
   const r = pickRunner(root, values.agent, values["dry-run"]);
+  if (files.length > 1) {
+    const st = await runBatch({
+      root,
+      taskFiles: files,
+      epicFile,
+      branch: values.branch,
+      restart: values.restart,
+      planApproval: values["approve-plan"],
+      approveEachPlan: values["approve-each-plan"],
+      rerun: `flowloop run ${values.epic ? `--epic ${values.epic}` : inputs.join(" ")}${values["approve-plan"] ? " --approve-plan" : ""}`,
+      noPush: values["no-push"],
+      dryRun: values["dry-run"],
+      agent: r.runner,
+      backend: r.backend,
+      log,
+      confirm,
+      reviewPlan,
+      answerQuestions: process.stdin.isTTY && !values["dry-run"] ? answerQuestionsPrompt : undefined,
+      questionsMode: qm as "ask" | "jira" | "assume" | undefined,
+      reviewScope: process.stdin.isTTY ? reviewScopePrompt : undefined,
+      reviewChanges: !values["dry-run"] && !values["skip-review"] && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+      extendBudget: process.stdin.isTTY ? extendBudgetPrompt : undefined,
+    });
+    if (values["dry-run"]) {
+      console.log(color.dim("\nDRY RUN — ajan çalıştırılmadı. Toplu çalışma: önce toplu plan, sonra görevler bu branch'te sırayla."));
+      return 0;
+    }
+    printBatchDone(st, log);
+    return 0;
+  }
   const s = await runTask({
     root,
     taskFile,
@@ -326,6 +432,9 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     log,
     confirm,
     reviewPlan,
+    // açık sorular: etkileşimli terminalde sorulur (questions: assume değilse); değilse flowloop.yaml → questions
+    answerQuestions: process.stdin.isTTY && !values["dry-run"] ? answerQuestionsPrompt : undefined,
+    questionsMode: qm as "ask" | "jira" | "assume" | undefined,
     // etkileşimsiz çalıştırmada kapsam talebi gelirse çalıştırma durur (yetki kendiliğinden açılmaz)
     reviewScope: process.stdin.isTTY ? reviewScopePrompt : undefined,
     // etkileşimli terminalde iş bitince commit'ten önce sorulur; --skip-review ile atlanır
@@ -350,6 +459,10 @@ function printDone(root: string, s: RunSummary, log: ReturnType<typeof consoleLo
   İncele  : git checkout ${s.branch}   ya da   git diff ${s.baseSha!.slice(0, 7)}..${s.branch}
   Temizle : flowloop clean   (merge edildikten sonra)`);
   for (const w of s.warnings) console.log(color.yellow(`  ! ${w}`));
+  if (s.assumptions?.length || s.attention?.some((a) => a.kind !== "preexisting")) {
+    printNotes(s.assumptions ?? [], (s.attention ?? []).filter((a) => a.kind !== "preexisting"), 6);
+    if (s.jiraCommentUrl) console.log(color.dim("  (bunlar Jira yorumuna da eklendi)"));
+  }
   // yerel base, origin'den farklıysa uyar (ör. yerelde push'lanmamış commit)
   const local = git(["rev-parse", "--verify", "--quiet", `refs/heads/${s.baseBranch}`], root).stdout.trim();
   if (local && s.baseRef !== s.baseBranch && local !== s.baseSha) {
@@ -364,8 +477,37 @@ function printDone(root: string, s: RunSummary, log: ReturnType<typeof consoleLo
   }
 }
 
+function printBatchDone(st: BatchState, log: ReturnType<typeof consoleLogger>): void {
+  log.step("TOPLU ÇALIŞMA BİTTİ");
+  for (const k of st.order) {
+    const t = st.tasks.find((x) => x.key === k)!;
+    console.log(`  ${color.green("✓")} ${t.key}  ${t.title}  ${color.dim(`(${t.commits?.length ?? 0} commit)`)}`);
+    for (const c of t.commits ?? []) console.log(color.dim(`      ${c}`));
+    if (t.jiraCommentUrl) console.log(color.dim(`      Jira: ${t.jiraCommentUrl}`));
+  }
+  console.log(`
+  Branch  : ${st.branch}  (bütün görevler bu branch'te)
+  Maliyet : $${st.totalCostUsd.toFixed(2)} (tahmini)${st.prUrl ? `\n  PR aç   : ${st.prUrl}` : ""}
+  Kayıt   : ${path.join(st.dir, BATCH_FILE)}
+
+  İncele  : git log --oneline ${st.baseSha.slice(0, 7)}..${st.branch}`);
+  for (const w of st.warnings) console.log(color.yellow(`  ! ${w}`));
+}
+
+function listBatches(root: string): BatchState[] {
+  return workDirsFor(loadConfig(root), root).flatMap((base) =>
+    fs.readdirSync(base).filter((id) => id.startsWith(BATCH_PREFIX) && fs.existsSync(path.join(base, id, BATCH_FILE))).sort().map((id) => {
+      try {
+        return JSON.parse(fs.readFileSync(path.join(base, id, BATCH_FILE), "utf8")) as BatchState;
+      } catch {
+        return undefined;
+      }
+    }).filter((x): x is BatchState => !!x),
+  );
+}
+
 function listRuns(root: string): { id: string; dir: string; status: string; branch?: string; cost?: number }[] {
-  return workDirsFor(loadConfig(root), root).flatMap((base) => fs.readdirSync(base).sort().map((id) => {
+  return workDirsFor(loadConfig(root), root).flatMap((base) => fs.readdirSync(base).filter((id) => !id.startsWith(BATCH_PREFIX)).sort().map((id) => {
     const f = path.join(base, id, "run.json");
     const j = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : {};
     return { id, dir: path.join(base, id), status: j.status ?? "yarım", branch: j.branch, cost: j.totalCostUsd };
@@ -387,6 +529,13 @@ function cmdClean(root: string, all: boolean): void {
     git(["branch", merged ? "-d" : "-D", branch], root);
     fs.rmSync(r.dir, { recursive: true, force: true });
     console.log(color.green(`  silindi: ${r.id}`));
+  }
+  // toplu çalışma kayıtları: bitmiş olanlar (ya da --all ile hepsi)
+  for (const b of listBatches(root)) {
+    if (!all && b.status !== "success") continue;
+    git(["worktree", "remove", "--force", path.join(b.dir, "plan-wt")], root);
+    fs.rmSync(b.dir, { recursive: true, force: true });
+    console.log(color.green(`  silindi: ${b.id}`));
   }
   git(["worktree", "prune"], root);
 }
@@ -508,6 +657,10 @@ async function main(): Promise<number> {
       return 0;
     }
     case "runs":
+      for (const b of listBatches(root)) {
+        const done = b.tasks.filter((t) => t.status === "success").length;
+        console.log(`${b.status.padEnd(8)} ${b.id}  ${done}/${b.tasks.length} görev · ${b.branch}  $${b.totalCostUsd.toFixed(2)}`);
+      }
       for (const r of listRuns(root)) console.log(`${r.status.padEnd(8)} ${r.id}  ${r.cost !== undefined ? "$" + r.cost.toFixed(2) : ""}`);
       return 0;
     case "clean":
@@ -528,6 +681,10 @@ main().then(
     if (e instanceof FlowloopError || e instanceof ConfigError || e instanceof JiraError) {
       console.error(color.red("✗ " + e.message));
       process.exit(1);
+    }
+    if (typeof e?.code === "string" && e.code.startsWith("ERR_PARSE_ARGS")) {
+      console.error(color.red("✗ " + e.message) + color.dim("\n  Seçenekler için: flowloop --help"));
+      process.exit(2);
     }
     console.error(e);
     process.exit(1);

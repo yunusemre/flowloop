@@ -259,3 +259,32 @@ export async function postComment(
   const j = await r.json();
   return `${base}/browse/${key}?focusedCommentId=${j.id}`;
 }
+
+/** JQL ile arama (Jira Cloud: POST /rest/api/3/search/jql); en fazla 100 kayıt */
+export async function searchIssues(
+  jql: string,
+  baseUrl: string,
+  opts: { email?: string; token?: string; fetchFn?: (url: string, init: any) => Promise<any> } = {},
+): Promise<{ key: string; summary: string; status: string }[]> {
+  const email = opts.email ?? getCredential("JIRA_EMAIL");
+  const token = opts.token ?? getCredential("JIRA_API_TOKEN");
+  if (!baseUrl) throw new JiraError("Jira adresi tanımlı değil. Girmek için: flowloop setup  (ya da flowloop.yaml → jira.baseUrl)");
+  if (!email || !token) throw new JiraError("Jira kimlik bilgisi yok (JIRA_EMAIL / JIRA_API_TOKEN). Kurmak için: flowloop setup");
+  const base = baseUrl.replace(/\/+$/, "");
+  const doFetch = opts.fetchFn ?? ((u: string, i: any) => fetch(u, i));
+  const r = await doFetch(`${base}/rest/api/3/search/jql`, {
+    method: "POST",
+    headers: { Authorization: "Basic " + Buffer.from(`${email}:${token}`).toString("base64"), Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ jql, fields: ["summary", "status"], maxResults: 100 }),
+  });
+  if (r.status === 401 || r.status === 403) throw new JiraError(`Jira yetki hatası (${r.status}).`);
+  if (!r.ok) throw new JiraError(`Jira araması başarısız (${r.status}): ${(await r.text()).slice(0, 200)}`);
+  const j = await r.json();
+  return (j.issues ?? []).map((i: any) => ({ key: i.key, summary: i.fields?.summary ?? "", status: i.fields?.status?.name ?? "" }));
+}
+
+/** Bir üst işin (epic) bitmemiş alt işleri, Jira'daki sırasıyla */
+export async function epicChildren(key: string, baseUrl: string, opts: Parameters<typeof searchIssues>[2] = {}) {
+  if (!JIRA_KEY.test(key)) throw new JiraError(`Geçersiz Jira anahtarı: ${key}`);
+  return searchIssues(`parent = ${key} AND statusCategory != Done ORDER BY Rank ASC`, baseUrl, opts);
+}
