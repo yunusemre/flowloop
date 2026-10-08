@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { ROLE_GUARDRAIL, type AgentRequest, type AgentResult, type AgentRunner, type Denial } from "./agent.js";
+import { ROLE_GUARDRAIL, systemAppend, type AgentRequest, type AgentResult, type AgentRunner, type Denial } from "./agent.js";
 import type { PolicyContext, RolePermissions } from "./policy.js";
 import { PACKAGE_ROOT, type RoleName } from "./roles.js";
 import { scrubEnv } from "./secrets.js";
@@ -95,7 +95,8 @@ export class CursorAgentRunner implements AgentRunner {
       "--workspace", req.cwd,
       ...(model ? ["--model", model] : []),
       ...this.opts.extraArgs,
-      `${req.persona}\n${ROLE_GUARDRAIL}\n\n${prompt}`,
+      // Cursor CLI'de ayrı system prompt yok: kurallar mesajın başına konur
+      `${systemAppend(req)}\n\n${prompt}`,
     ];
 
     let text = "";

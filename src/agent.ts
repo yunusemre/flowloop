@@ -8,6 +8,9 @@ import { currentVersion } from "./update.js";
 export interface AgentRequest {
   role: RoleName;
   persona: string;
+  /** Rolün kural seti: system prompt'a eklenir (görev değil, kalıcı davranış kuralları) */
+  ruleset?: string;
+  /** Kullanıcı mesajı: görev (Jira anahtarı + metin) ve bu çalıştırmanın talimatları */
   prompt: string;
   cwd: string;
   runRoot: string;
@@ -100,7 +103,7 @@ export class SdkAgentRunner implements AgentRunner {
         mcpServers,
         strictMcpConfig: true, // sadece bizim verdiğimiz MCP sunucuları (kullanıcının diğer MCP'leri yüklenmez)
         settingSources,
-        systemPrompt: { type: "preset", preset: "claude_code", append: `${req.persona}\n${ROLE_GUARDRAIL}` },
+        systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(req) },
         // gizli bilgiler (Jira token'ı vb.) ajana geçmez; sadece Claude'un kendi girişi için gerekenler
         env: scrubEnv(process.env, {
           ANTHROPIC_API_KEY: getCredential("ANTHROPIC_API_KEY"),
@@ -170,6 +173,11 @@ export class SdkAgentRunner implements AgentRunner {
     }
     return { ok, text, costUsd: cost, sessionId, error, denials, models: [...models], budgetExceeded };
   }
+}
+
+/** System prompt'a eklenen kısım: rol kural seti + persona + yetki notu */
+export function systemAppend(req: Pick<AgentRequest, "ruleset" | "persona">): string {
+  return [req.ruleset?.trim(), req.persona, ROLE_GUARDRAIL.trim()].filter(Boolean).join("\n\n");
 }
 
 export const CONTINUE_PROMPT =

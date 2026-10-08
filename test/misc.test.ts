@@ -140,3 +140,24 @@ test("init: .NET projesinde düzenlenebilir yol bütün repo; boş edit anlaşı
   assert.throws(() => loadConfig(d), /paths\.edit: boş olamaz[\s\S]*src\/\*\*/);
 });
 
+
+test("çalışma ağacı hash'i aynı saniyede aynı boyutta değişen dosyayı da görür (racy git)", async () => {
+  const { workingTreeHash } = await import("../src/git.js");
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { execFileSync } = await import("node:child_process");
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-racy-"));
+  const git = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: d });
+  fs.writeFileSync(path.join(d, "a.js"), "export const LIMIT = 10;\n");
+  git("init", "-q");
+  git("add", "-A");
+  git("commit", "-qm", "init");
+  for (let i = 0; i < 5; i++) {
+    const v = i % 2 ? "10" : "20";
+    const before = workingTreeHash(d);
+    fs.writeFileSync(path.join(d, "a.js"), `export const LIMIT = ${v};\n`); // aynı boyut, aynı saniye
+    const after = workingTreeHash(d);
+    assert.notEqual(after, before, `değişiklik görülmeli (tur ${i})`);
+  }
+});

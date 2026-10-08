@@ -913,3 +913,48 @@ test("geçmiş: her çalıştırma history.jsonl'a yazılır ve stats onu okur",
   assert.equal(st.reviewerFailRate, 1);
   assert.deepEqual(st.failReasons, [["tur sınırı", 1]]);
 });
+
+// ───────────── rol kural setleri (system prompt) ─────────────
+test("developer kural seti system prompt'a gider; görev (Jira anahtarı + metin) kullanıcı mesajıdır", async () => {
+  const { systemAppend } = await import("../src/agent.js");
+  const seen: AgentRequest[] = [];
+  const agent = new FakeAgent({
+    ...good,
+    developer: (req, n) => {
+      seen.push(req);
+      good.developer!(req, n);
+    },
+    analist: (req, n) => {
+      seen.push(req);
+      good.analist!(req, n);
+    },
+  });
+  const root = makeRepo("");
+  const s = await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true });
+  assert.equal(s.status, "success");
+  const dev = seen.find((r) => r.role === "developer")!;
+  assert.match(dev.ruleset!, /^You are the developer role\./);
+  assert.match(dev.ruleset!, /## Handoff/);
+  assert.ok(!/Ponytail|<!--/.test(dev.ruleset!), "atıf yorumu ajana gönderilmez");
+  const sys = systemAppend(dev);
+  assert.ok(sys.indexOf("You are the developer role") < sys.indexOf(dev.persona), "önce kural seti, sonra persona");
+  assert.match(dev.prompt, /^# Görev KG-42\n\n# Görev: Ekspres teslimat[\s\S]*ekspres \+50 TL[\s\S]*# Bu çalıştırmada senden istenen[\s\S]*Plan: `/);
+  assert.match(dev.prompt, /## Handoff/, "son mesaj biçimi hatırlatılır");
+  const an = seen.find((r) => r.role === "analist")!;
+  assert.equal(an.ruleset, "", "kural seti olmayan rol için system prompt'a ek yapılmaz");
+  assert.match(an.prompt, /^# Görev KG-42/);
+});
+
+test("projede .flowloop/rulesets/<rol>.md varsa yerleşik kural seti yerine o kullanılır", async () => {
+  const { loadRoles } = await import("../src/roles.js");
+  const { loadConfig } = await import("../src/config.js");
+  const root = makeRepo("");
+  fs.mkdirSync(path.join(root, ".flowloop/rulesets"), { recursive: true });
+  fs.writeFileSync(path.join(root, ".flowloop/rulesets/developer.md"), "<!-- not -->\nProje kuralı: sadece Kotlin.\n");
+  fs.writeFileSync(path.join(root, ".flowloop/rulesets/reviewer.md"), "Reviewer kuralı.\n");
+  const roles = loadRoles(root, loadConfig(root));
+  assert.equal(roles.developer.ruleset, "Proje kuralı: sadece Kotlin.");
+  assert.equal(roles.developer.rulesetSource, ".flowloop/rulesets/developer.md");
+  assert.equal(roles.reviewer.ruleset, "Reviewer kuralı.");
+  assert.equal(roles.committer.ruleset, "");
+});

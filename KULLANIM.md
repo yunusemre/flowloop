@@ -402,6 +402,17 @@ En çok değiştirilenler:
 
 `{{files}}` yerine bu işte değişen dosyalar yazılır; testler, lint ve format sadece onlarda çalışır.
 
+### Rol kuralları (system prompt)
+
+Her rol iki parçayla çalışır:
+
+- **System prompt:** rolün kalıcı davranış kuralları. `templates/rulesets/<rol>.md` dosyasındaki metin, Claude Agent SDK'da `claude_code` preset'inin sonuna (`append`) eklenir. Şu an `developer` için bir kural seti var (Ponytail'in kural setinden uyarlandı; lisans: `THIRD_PARTY_NOTICES.md`). Kural seti olmayan rollerde bu kısım boştur.
+- **Kullanıcı mesajı:** önce görev (Jira anahtarı + görev metni), sonra o çalıştırmaya özel talimatlar (plan dosyası, izinli yollar, reviewer'ın geri bildirimi).
+
+Kurallar metin olarak pakete dahildir: çalışma zamanında dış bağımlılık, hook ya da paylaşılan durum yoktur; aynı anda çalışan işler birbirini etkilemez.
+
+Bir projede farklı kural istersen `.flowloop/rulesets/<rol>.md` dosyası oluştur (`developer`, `analist`, `reviewer`, `committer`); yerleşik olanın yerine o kullanılır. Dosyanın başındaki `<!-- ... -->` yorumları (atıf/not) ajana gönderilmez. Cursor CLI'de ayrı system prompt olmadığı için kurallar mesajın başına konur.
+
 ### Proje dersleri
 
 Reviewer'ın ve kontrollerin reddettiği konular `.flowloop/lessons.md` dosyasına yazılır. Developer ve reviewer bu dosyayı sonraki her işte görür ve aynı hataları tekrarlamamaya çalışır.

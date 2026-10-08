@@ -6,6 +6,14 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## Yayınlanmadı
+
+### Yeni
+- **Rol kural setleri:** rolün kalıcı kuralları system prompt'a (Agent SDK: `claude_code` preset + `append`), görev (Jira anahtarı + metin) kullanıcı mesajına gider. Developer için Ponytail'den (MIT, v5.1.0) uyarlanan kural seti eklendi: en küçük tam değişiklik, kapsam ve kırılma kontrolü, sabit biçimli `## Handoff` son mesajı. Projeye özel kurallar `.flowloop/rulesets/<rol>.md` ile verilir. Lisans: `THIRD_PARTY_NOTICES.md`.
+
+### Düzeltme
+- İlgili repolarda (ve ana repoda) aynı saniyede, aynı boyutta değişen bir dosya (ör. `10` → `20`) bazen değişmemiş sayılıyordu; bu yüzden commit "onaylananla AYNI DEĞİL" hatasıyla duruyordu. Geçici index kopyası artık git'in zaman bilgisini koruyor.
+
 ## 1.4.0 — 2026-10-07
 
 ### Yeni

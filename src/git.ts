@@ -70,6 +70,17 @@ export function changedPaths(cwd: string, exclude: string[] = []): string[] {
 }
 
 /**
+ * Index'i geçici dosyaya kopyalar ve DEĞİŞTİRİLME ZAMANINI KORUR. Git, index'le aynı saniyede
+ * değişen dosyaları ("racy") içeriğine bakarak kontrol eder; kopyanın zamanı yeni olursa bu
+ * kontrol atlanır ve aynı boyutta değişen bir dosya (ör. 10 → 20) değişmemiş sanılır.
+ */
+function copyIndex(src: string, dst: string): void {
+  fs.copyFileSync(src, dst);
+  const st = fs.statSync(src);
+  fs.utimesSync(dst, st.atime, st.mtime);
+}
+
+/**
  * Çalışma ağacının (gitignore hariç, untracked dahil) içerik hash'i.
  * Gerçek index'e dokunmadan geçici bir index ile hesaplanır.
  */
@@ -78,7 +89,7 @@ export function workingTreeHash(cwd: string, exclude: string[] = []): string {
   const tmp = path.join(os.tmpdir(), `flowloop-index-${process.pid}-${Date.now()}`);
   try {
     const realIndex = path.join(gitDir, "index");
-    if (fs.existsSync(realIndex)) fs.copyFileSync(realIndex, tmp);
+    if (fs.existsSync(realIndex)) copyIndex(realIndex, tmp);
     const env = { ...process.env, GIT_INDEX_FILE: tmp };
     // zaten yok sayılan yollar pathspec'te adlandırılırsa "git add" hata verir; onları çıkar
     const ex = exclude.filter((d) => git(["check-ignore", "-q", d], cwd).code !== 0);
@@ -101,7 +112,7 @@ export function diffAgainst(cwd: string, base: string, exclude: string[] = [], o
   const tmp = path.join(os.tmpdir(), `flowloop-diff-${process.pid}-${Date.now()}`);
   try {
     const realIndex = path.join(gitDir, "index");
-    if (fs.existsSync(realIndex)) fs.copyFileSync(realIndex, tmp);
+    if (fs.existsSync(realIndex)) copyIndex(realIndex, tmp);
     const env = { ...process.env, GIT_INDEX_FILE: tmp };
     const ex = exclude.filter((d) => git(["check-ignore", "-q", d], cwd).code !== 0);
     sh("git", ["add", "-A", ...excludeSpec(ex)], cwd, { env });

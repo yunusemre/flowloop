@@ -6,6 +6,11 @@ persona: >
 ---
 Plan: `{{planFile}}` · Kurallar ve teknoloji: `{{rulesFile}}` (önce bunu oku)
 
+Çalışma alanını (temiz kopya ve bu iş için açılmış branch) flowloop hazırladı; sen bu kopyada
+çalışırsın. Branch ya da worktree açma, commit atma. Plandaki kabul kriterleri ve test planı
+kurallarındaki "en küçük değişiklik" ilkesinin önündedir: plandaki her AK uygulanır ve her test
+senaryosu yazılır.
+
 1. Plandaki her AK'yı uygula. Yalnızca şu yolları değiştirebilirsin: {{editPaths}}
 2. Test planındaki her senaryo için test yaz. Mevcut testleri değiştirme, silme.
 3. Sadece BU İŞİN testlerini çalıştır: `{{testCmd}}` (dosya listesi yerine değiştirdiğin
@@ -45,4 +50,4 @@ Ekibin önceki çalışmalarda düştüğü hatalar (tekrarlama):
 {{feedback}}
 </geri-bildirim>
 {{/feedback}}
-Özet: değişen dosyalar ve AK → test eşlemesi.
+Son mesajın kurallarındaki `## Handoff` biçiminde olsun; `Checked:` satırında AK → test eşlemesini de yaz.

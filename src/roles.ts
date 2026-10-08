@@ -15,6 +15,10 @@ export const MUTANT_TOOLS = [`mcp__${MCP_SERVER}__mutant_reset`, `mcp__${MCP_SER
 export interface RoleSpec {
   name: RoleName;
   persona: string;
+  /** Rolün kural seti (system prompt'a eklenir); yoksa "" */
+  ruleset: string;
+  /** Kural setinin nereden geldiği */
+  rulesetSource?: string;
   promptTemplate: string;
   perms: RolePermissions;
   model?: string;
@@ -26,6 +30,20 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 // dist/src/roles.js → paket kökü iki üstte
 export const PACKAGE_ROOT = path.resolve(here, "..", "..");
 const BUILTIN_ROLES_DIR = path.join(PACKAGE_ROOT, "templates", "roles");
+const BUILTIN_RULESETS_DIR = path.join(PACKAGE_ROOT, "templates", "rulesets");
+
+/**
+ * Rol kural seti: .flowloop/rulesets/<rol>.md (proje) → templates/rulesets/<rol>.md (yerleşik).
+ * Baştaki HTML yorumları (atıf/lisans notu) ajana gönderilmez.
+ */
+export function loadRuleset(root: string, name: RoleName): { text: string; source?: string } {
+  const override = path.join(root, FLOWLOOP_DIR, "rulesets", `${name}.md`);
+  const builtin = path.join(BUILTIN_RULESETS_DIR, `${name}.md`);
+  const file = fs.existsSync(override) ? override : fs.existsSync(builtin) ? builtin : undefined;
+  if (!file) return { text: "" };
+  const text = fs.readFileSync(file, "utf8").replace(/^(\s*<!--[\s\S]*?-->)+\s*/, "").trim();
+  return { text, source: file === override ? path.relative(root, override) : "yerleşik" };
+}
 
 /**
  * Yapılandırmadaki bir komuttan izinli Bash önekini çıkarır: ilk yer
@@ -107,9 +125,12 @@ export function loadRoles(root: string, cfg: FlowloopConfig): Record<RoleName, R
     const override = path.join(root, FLOWLOOP_DIR, "roles", `${name}.md`);
     const file = fs.existsSync(override) ? override : path.join(BUILTIN_ROLES_DIR, `${name}.md`);
     const { persona, body } = parseRoleFile(file);
+    const rs = loadRuleset(root, name);
     out[name] = {
       name,
       persona,
+      ruleset: rs.text,
+      rulesetSource: rs.source,
       promptTemplate: body,
       perms: permissionsFor(name, cfg),
       model: cfg.roles[name]?.model || cfg.model || undefined,

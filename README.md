@@ -112,3 +112,7 @@ git push --follow-tags
 ```
 
 Hata düzeltmesi için `patch`, uyumsuz değişiklik için `major` kullanılır. Ekiptekiler `flowloop update` ile yeni sürüme geçer.
+
+## Lisans notları
+
+Developer rolünün kural seti Ponytail'den (MIT) uyarlanmıştır; ayrıntı: [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

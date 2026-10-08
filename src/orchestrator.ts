@@ -465,6 +465,15 @@ function budgetMessage(cfg: ReturnType<typeof loadConfig>, phase: string, spent:
   );
 }
 
+/**
+ * Kullanıcı mesajı: önce görev (Jira anahtarı + metin), sonra bu rolün bu çalıştırmadaki
+ * talimatları (plan dosyası, izinli yollar, geri bildirim). Rol kuralları system prompt'tadır.
+ */
+export function taskMessage(taskText: string, jira: string, instructions: string): string {
+  const head = `# Görev${jira ? ` ${jira}` : ""}\n\n${taskText.trim()}`;
+  return `${head}\n\n---\n\n# Bu çalıştırmada senden istenen\n\n${instructions}`;
+}
+
 export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const { root, log, agent } = opts;
   const now = opts.now ?? (() => new Date());
@@ -651,7 +660,8 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     const req: AgentRequest = {
       role: role.name,
       persona: role.persona,
-      prompt: render(role.promptTemplate, { ...vars, ...extraVars }),
+      ruleset: role.ruleset,
+      prompt: taskMessage(taskText, jira, render(role.promptTemplate, { ...vars, ...extraVars })),
       cwd: wt,
       runRoot,
       perms: role.perms,
@@ -1103,6 +1113,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   }
 
   const files = { task: path.join(runRoot, "task.md"), plan: path.join(runRoot, "plan.md"), summary: path.join(runRoot, "summary.md"), mutant: path.join(runRoot, "mutant"), rules: path.join(runRoot, "rules.md") };
+  const resumeTaskText = fs.existsSync(files.task) ? fs.readFileSync(files.task, "utf8") : "";
   const vars: Record<string, string | boolean> = {
     taskFile: files.task, planFile: files.plan, scopeRequestFile: path.join(runRoot, SCOPE_REQUEST_FILE), summaryFile: files.summary, rulesFile: files.rules, mutantDir: files.mutant,
     testCmd: cfg.commands.testRelated, typecheckCmd: cfg.commands.typecheck, lintCmd: cfg.commands.lint, editPaths: cfg.paths.edit.join(", "),
@@ -1130,7 +1141,8 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     : undefined;
   const call = async (role: RoleSpec, phase: string, budget: number, extraVars: Record<string, string> = {}): Promise<AgentResult> => {
     const res = await runWithBudget(agent, {
-      role: role.name, persona: role.persona, prompt: render(role.promptTemplate, { ...vars, ...extraVars }), cwd: wt, runRoot, perms: role.perms, policy,
+      role: role.name, persona: role.persona, ruleset: role.ruleset,
+      prompt: taskMessage(resumeTaskText, summary.jiraKey ?? "", render(role.promptTemplate, { ...vars, ...extraVars })), cwd: wt, runRoot, perms: role.perms, policy,
       model: role.model, budgetUsd: budget, isolation: cfg.isolation, claudeMd: false, log,
       mutant: role.name === "reviewer" ? mutant : undefined,
       extraMcpServers: cfg.mcp.roles.includes(role.name) && Object.keys(userMcp).length ? userMcp : undefined,
