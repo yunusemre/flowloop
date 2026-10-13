@@ -51,6 +51,28 @@ export function sectionLines(text: string, heading: RegExp): string[] | undefine
   return out;
 }
 
+/** Metinden bir markdown bölümünü (başlık + içerik) çıkarır */
+export function removeSection(text: string, heading: RegExp): string {
+  const lines = text.replace(/\r/g, "").split("\n");
+  const out: string[] = [];
+  let skipLevel = 0;
+  for (const l of lines) {
+    const m = /^(#{1,4})\s+(.+?)\s*#*\s*$/.exec(l.trim());
+    if (skipLevel) {
+      if (m && m[1].length <= skipLevel) skipLevel = 0;
+      else continue;
+    }
+    if (m && heading.test(m[2])) {
+      skipLevel = m[1].length;
+      continue;
+    }
+    out.push(l);
+  }
+  return out.join("\n").trim();
+}
+
+export const DECISIONS_SECTION = /^karar gerekli|^kullan[ıi]c[ıi] karar[ıi] gerekli|^decisions? needed/i;
+
 /** Madde listesini öğelere ayırır: "- x", "* x", "1. x"; devam satırları öncekine eklenir */
 export function listItems(lines: string[]): string[] {
   const items: string[] = [];
@@ -75,17 +97,30 @@ const QUESTIONS_HEADING = /^a[çc][ıi]k sorular|^open questions/i;
 
 /** Planın "## Açık sorular" bölümündeki sorular. Bölüm yoksa ya da "Yok" yazıyorsa []. */
 export function parseOpenQuestions(plan: string): OpenQuestion[] {
-  const lines = sectionLines(plan, QUESTIONS_HEADING);
+  return parseItems(plan, QUESTIONS_HEADING, "S");
+}
+
+
+/**
+ * Reviewer'ın "## Karar gerekli" bölümü: görev, plan, cevaplar ya da referanslar arasındaki çelişkiler.
+ * Bunlara ajanlar karar vermez; flowloop kullanıcıya sorar.
+ */
+export function parseDecisions(text: string): OpenQuestion[] {
+  return parseItems(text, DECISIONS_SECTION, "K");
+}
+
+function parseItems(text: string, heading: RegExp, prefix: string): OpenQuestion[] {
+  const lines = sectionLines(text, heading);
   if (!lines) return [];
-  return listItems(lines).map((item, i) => {
-    const idm = /^\**\s*(S-?\d+)\s*(?:[(\[]\s*([A-Z][A-Z0-9]+-\d+)\s*[)\]])?\s*\**\s*[:.)—–-]\s*\**\s*/i.exec(item);
-    const id = idm ? idm[1].toUpperCase().replace(/^S(\d)/, "S-$1") : `S-${i + 1}`;
+  return listItems(lines.filter((l) => !/^\s*VERDICT:/i.test(l))).map((item, i) => {
+    const idm = /^\**\s*([A-Z]-?\d+)\s*(?:[(\[]\s*([A-Z][A-Z0-9]+-\d+)\s*[)\]])?\s*\**\s*[:.)—–-]\s*\**\s*/i.exec(item);
+    const id = idm ? idm[1].toUpperCase().replace(/^([A-Z])(\d)/, "$1-$2") : `${prefix}-${i + 1}`;
     const body: string[] = [];
     const fb: string[] = [];
     let inFallback = false;
     for (const line of (idm ? item.slice(idm[0].length) : item).split("\n")) {
       const lab = /^\s*[-*]?\s*\**\s*([A-Za-zÇĞİÖŞÜçğıöşü ]{3,30}?)\s*\**\s*:\s*(.*)$/.exec(line);
-      if (lab && /^(cevap gelmezse|varsay[ıi]lan|default|if unanswered)$/i.test(lab[1].trim())) {
+      if (lab && /^(cevap gelmezse|varsay[ıi]lan|default|if unanswered|[öo]nerim|[öo]neri|recommendation)$/i.test(lab[1].trim())) {
         inFallback = true;
         if (lab[2].trim()) fb.push(lab[2].trim());
         continue;

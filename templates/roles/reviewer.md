@@ -11,6 +11,26 @@ Plan: `{{planFile}}` · Kurallar ve teknoloji: `{{rulesFile}}`
 Otomatik kontrollerin sonucu (flowloop çalıştırdı, hepsi geçti):
 {{checks}}
 
+{{#delta}}
+## BU BİR YENİDEN İNCELEME: onayladığın iş sonradan değişti
+{{delta}}
+
+SADECE bu farkı değerlendir. Fark yalnızca biçimse (boşluk, girinti, satır kırma, using/import sırası,
+namespace biçimi), tekrar inceleme ve mutasyon yapma; VERDICT: PASS ver. Farkta davranış değişikliği varsa
+sadece o değişikliği aşağıdaki ölçütlerle incele. Önceki raporunda onayladığın maddeleri yeniden açma.
+
+{{/delta}}
+{{#previousReview}}
+## Önceki inceleme turun
+<önceki-rapor>
+{{previousReview}}
+</önceki-rapor>
+Developer bu rapora göre değişiklik yaptı. Önce ❌ maddelerin karşılanıp karşılanmadığına bak. Önceki turda ✅
+verdiğin maddeleri, bu turdaki değişiklik onları etkilemediyse yeniden açma. Yeni bir FAIL nedeni ancak bu
+turdaki değişiklikten gelebilir (güvenlik açığı ya da veri kaybı gibi BLOCKER'lar hariç). Hedefi her turda
+değiştirme.
+
+{{/previousReview}}
 {{#userRequests}}
 {{userRequests}}
 
@@ -18,6 +38,16 @@ Bu istek(ler) kodda ve gerekiyorsa testlerde karşılanmadıysa FAIL ver ve neyi
 
 {{/userRequests}}
 Projede önceden var olan hatalar (tip, lint, kırık testler) kapsam DIŞIDIR; onlar için FAIL verme.
+Görev metni, plan, kullanıcının cevapları ve referanslar (ör. başka bir branch, doküman) birbiriyle
+çelişiyorsa taraf SEÇME ve developer'a da seçtirme: bu bir ürün kararıdır. Şu bölümü yaz ve VERDICT: FAIL ver;
+flowloop kullanıcıya sorar ve kararını developer'a iletir:
+
+## Karar gerekli
+- K-1: <çelişki: X şunu diyor, Y şunu diyor; hangisi geçerli?>
+  Önerim: <önerin ve kısa gerekçe>
+
+Görev metnindeki "Kullanıcı kararları" bağlayıcıdır; onları yeniden sorma, onlara aykırı öneri yapma.
+
 Gizli dosya listesindeki (readDeny) dosyalar kimse tarafından okunamaz ve değiştirilemez: onlardaki eksik için
 FAIL verme, "İncelenmesi önerilenler"e "elle yapılmalı" diye yaz. Developer dosya silmek için içeriğini
 boşaltır; flowloop boşaltılan dosyaları siler (git status'ta "D" olarak görürsün).
@@ -37,6 +67,10 @@ Kontroller:
    d. Sonraki mutasyondan önce yine `mutant_reset` çağır
    Tablo yaz: AK | mutasyon | kırılan test (ya da "HAYATTA KALDI").
    Hayatta kalan mutasyon = o AK'nın testi yok = FAIL.
+   Mutasyonu SADECE davranış mantığı olan AK'lere uygula. Silme, ayar (config) değişikliği, yeniden adlandırma,
+   kod temizliği ve TODO kapatma AK'lerinde mutasyon yapma: derleme ve repo genelinde arama (grep) yeterli
+   kanıttır. Bu AK'ler için "yokluk" testi (reflection ile sınıf/metod yok kontrolü, ayar dosyası içerik
+   testi) İSTEME; tabloya "uygulanmaz (silme/ayar)" yaz.
 {{/mutation}}
 {{#related}}
 {{related}}

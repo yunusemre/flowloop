@@ -11,7 +11,8 @@ import { parseOpenQuestions, type OpenQuestion } from "./notes.js";
 /** Açık sorulara kullanıcının kararı; answers: soru kimliği → cevap (boş = analistin varsayılanı) */
 export type QuestionDecision = { action: "answer"; answers: Record<string, string> } | { action: "assume" } | { action: "jira" } | { action: "cancel" };
 export type QuestionsMode = "ask" | "jira" | "assume";
-export type AskQuestions = (questions: OpenQuestion[], ctx: { round: number; canPostToJira: boolean }) => Promise<QuestionDecision>;
+/** kind: "questions" = analistin açık soruları, "decisions" = reviewer'ın kullanıcıdan istediği kararlar */
+export type AskQuestions = (questions: OpenQuestion[], ctx: { round: number; canPostToJira: boolean; kind?: "questions" | "decisions" }) => Promise<QuestionDecision>;
 
 /** Açık sorular için en fazla kaç cevap turu yapılır (sonra kalanlar varsayılanla geçilir) */
 export const MAX_QUESTION_ROUNDS = 3;

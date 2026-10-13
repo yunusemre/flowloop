@@ -191,15 +191,27 @@ async function extendBudgetPrompt(b: BudgetRequest): Promise<number> {
 }
 
 /** Analistin açık soruları: cevapla / varsayılanla devam / Jira'ya yaz / durdur */
-async function answerQuestionsPrompt(qs: OpenQuestion[], ctx: { round: number; canPostToJira: boolean }): Promise<QuestionDecision> {
-  console.log("\n" + color.bold(`━━ AÇIK SORULAR${ctx.round > 1 ? ` (${ctx.round}. tur)` : ""} — geliştirmeye geçmeden önce cevabın gerekiyor ━━`));
+async function answerQuestionsPrompt(qs: OpenQuestion[], ctx: { round: number; canPostToJira: boolean; kind?: "questions" | "decisions" }): Promise<QuestionDecision> {
+  const decisions = ctx.kind === "decisions";
+  console.log(
+    "\n" +
+      color.bold(
+        decisions
+          ? `━━ KARAR GEREKLİ — reviewer görev, plan ya da referanslar arasında çelişki buldu; seçimi sen yap ━━`
+          : `━━ AÇIK SORULAR${ctx.round > 1 ? ` (${ctx.round}. tur)` : ""} — geliştirmeye geçmeden önce cevabın gerekiyor ━━`,
+      ),
+  );
   for (const q of qs) {
     console.log(`\n${color.bold(q.id)}  ${q.text.replace(/\n/g, "\n      ")}`);
-    if (q.fallback) console.log(color.dim(`      Cevap gelmezse: ${q.fallback}`));
+    if (q.fallback) console.log(color.dim(`      ${decisions ? "Reviewer'ın önerisi" : "Cevap gelmezse"}: ${q.fallback}`));
   }
   const options = [
-    "  [c] Cevapla — sorular sırayla sorulur; boş bırakırsan analistin önerdiği varsayılan kullanılır",
-    "  [v] Varsayılanlarla devam et — Jira yorumunda \"Varsayımlar\" olarak listelenir",
+    decisions
+      ? "  [c] Karar ver — konular sırayla sorulur; boş bırakırsan reviewer'ın önerisi kabul edilir"
+      : "  [c] Cevapla — sorular sırayla sorulur; boş bırakırsan analistin önerdiği varsayılan kullanılır",
+    decisions
+      ? "  [v] Reviewer'ın önerileriyle devam et"
+      : "  [v] Varsayılanlarla devam et — Jira yorumunda \"Varsayımlar\" olarak listelenir",
     ...(ctx.canPostToJira ? ["  [j] Soruları Jira'ya yorum olarak yaz ve dur — cevaplar gelince: flowloop run <KEY> --refresh"] : []),
     "  [h] Durdur — plan saklanır",
   ];
@@ -210,7 +222,7 @@ async function answerQuestionsPrompt(qs: OpenQuestion[], ctx: { round: number; c
       const answers: Record<string, string> = {};
       for (const q of qs) {
         console.log(`\n${color.bold(q.id)}  ${q.text.split("\n")[0]}`);
-        answers[q.id] = await readComment(`Cevabın${q.fallback ? " (boş = varsayılan)" : ""}`);
+        answers[q.id] = await readComment(decisions ? `Kararın${q.fallback ? " (boş = reviewer'ın önerisi)" : ""}` : `Cevabın${q.fallback ? " (boş = varsayılan)" : ""}`);
       }
       return { action: "answer", answers };
     }
@@ -651,6 +663,7 @@ async function main(): Promise<number> {
       const s = await resumeRun({
         root, resume: id, taskFile: "", agent: r.runner, backend: r.backend, log, noPush: rest.includes("--no-push"),
         reviewChanges: !mapLegacyFlags(rest).includes("--skip-review") && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+        answerQuestions: process.stdin.isTTY ? answerQuestionsPrompt : undefined,
         extendBudget: process.stdin.isTTY ? extendBudgetPrompt : undefined,
       });
       printDone(root, s, log);

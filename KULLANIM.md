@@ -351,7 +351,23 @@ Değişiklikler uygun mu?
 - **Önceden var olan sorunlar:** developer'ın gördüğü ama bu işin kapsamı dışında olduğu için dokunmadığı sorunlar; ayrı bir görev açmak için.
 - **[d] Fark:** bütün değişiklikler satır satır gösterilir (yeni dosyalar dahil). Gösterilen yol editörde de açılabilir.
 - **[y] Değişiklik iste:** birden fazla satır yazabilirsin, bitirmek için boş satırda Enter. Yorumun developer'a öncelikli istek olarak gider; developer mevcut çalışmanın üzerine uygular, otomatik kontroller çalışır ve reviewer isteğinin karşılanıp karşılanmadığını da kontrol eder. Sonuç sana tekrar sorulur. Önceki isteklerin de hatırlatılır.
-- **[h] Şimdilik onaylama:** commit yapılmaz, çalışma alanı olduğu gibi kalır. İncelemeyi bitirince `flowloop resume <id>` aynı soruyu tekrar sorar ve onay verirsen commit/push/Jira yapılır. (Sürdürmede değişiklik isteği yoktur; o durumda isteği görev dosyasına ekleyip görevi yeniden çalıştır.)
+- **[h] Şimdilik onaylama:** commit yapılmaz, çalışma alanı olduğu gibi kalır. İncelemeyi bitirince `flowloop resume <id>` aynı soruyu tekrar sorar. Onay verirsen commit, push ve Jira yorumu yapılır; değişiklik de isteyebilirsin.
+
+### Karar gerekli
+
+Reviewer görev metni, plan, açık sorulara verdiğin cevaplar ve referanslar (ör. başka bir branch) arasında çelişki görürse taraf seçmez ve developer'a da seçtirmez. flowloop durup sana sorar:
+
+```
+━━ KARAR GEREKLİ — reviewer görev, plan ya da referanslar arasında çelişki buldu; seçimi sen yap ━━
+
+K-1  Jira "NewBasarsoftOperation kaldırılsın" diyor, referans branch onu tutuyor; hangisi geçerli?
+      Reviewer'ın önerisi: Jira'daki kriter
+```
+
+- **Kararın bağlayıcıdır:** developer'a talimat olarak gider ve görev metnine "Kullanıcı kararları" olarak eklenir. Sonraki turlarda reviewer o konuyu yeniden açmaz.
+- **Boş bırakırsan** reviewer'ın önerisi kabul edilir.
+- **Etkileşimsiz çalıştırmada** flowloop durur; `flowloop resume <id>` önce kararı sorar.
+- **Kayıtlar:** kararlar `run.json` (`decisions`) ve `run/decisions.md` içinde durur.
 - Değişiklik isteklerin `run.json` (`changeRequests`) ve `run/change-requests.md` içinde durur.
 
 Soru sadece etkileşimli bir terminalde sorulur. Sormadan commit'lemek için `--skip-review` verilir.

@@ -21,8 +21,8 @@ import { RelatedRepo, type RelatedSummary } from "./related.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { CURSOR_CO_AUTHOR } from "./cursor.js";
 import { createHash } from "node:crypto";
-import { collectAttention, extractAssumptions, type AttentionItem, type OpenQuestion } from "./notes.js";
-import { resolveQuestions as questionLoop, type QuestionDecision, type QuestionRecord, type QuestionsMode } from "./questions.js";
+import { DECISIONS_SECTION, collectAttention, extractAssumptions, parseDecisions, removeSection, type AttentionItem, type OpenQuestion } from "./notes.js";
+import { questionsMarkdown as qMarkdown, resolveQuestions as questionLoop, type AskQuestions, type QuestionDecision, type QuestionRecord, type QuestionsMode } from "./questions.js";
 export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
 
 /** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
@@ -151,7 +151,7 @@ export interface RunOptions {
    * Analist planına açık soru yazdığında sorulur: cevapla / varsayılanlarla devam / Jira'ya yaz ve dur / iptal.
    * Verilmezse flowloop.yaml → questions ayarına göre davranılır (ask: durur, jira: Jira'ya yazar ve durur, assume: devam).
    */
-  answerQuestions?: (questions: OpenQuestion[], ctx: { round: number; canPostToJira: boolean }) => Promise<QuestionDecision>;
+  answerQuestions?: AskQuestions;
   /**
    * Toplu çalışma: görevler aynı branch'te sırayla yapılır. Branch varsa yenisi açılmaz; iş önceki
    * görevlerin commit'lerinin üzerinden başlar ve "sadece yeni hatalar" o noktaya göre sayılır.
@@ -208,6 +208,44 @@ export interface ScopeReviewInfo {
   request: string;
   /** flowloop.yaml'ın izin verdiği ama bu görevde kapalı olan repolar */
   expandable: string[];
+}
+
+/** Bir çalıştırmada reviewer en fazla kaç kez kullanıcı kararı isteyebilir */
+export const MAX_DECISION_ROUNDS = 3;
+
+/**
+ * Reviewer'ın "Karar gerekli" maddelerini kullanıcıya sorar. Kararların metnini döner; soracak kimse yoksa
+ * ya da kullanıcı durdurursa undefined (çağıran durur; ajanlar ürün kararı vermez).
+ */
+async function askDecisions(items: OpenQuestion[], ask: AskQuestions | undefined, records: QuestionRecord[], round: number, log: Logger): Promise<string | undefined> {
+  log.warn(`Reviewer ${items.length} konuda senin kararını istiyor (görev, plan, cevaplar ya da referanslar çelişiyor):`);
+  log.info(qMarkdown(items).replace(/Cevap gelmezse:/g, "Önerisi:").split("\n").map((l) => "  " + l).join("\n"));
+  if (!ask) return undefined;
+  const d = await ask(items, { round, canPostToJira: false, kind: "decisions" });
+  if (d.action !== "answer" && d.action !== "assume") return undefined;
+  return items
+    .map((q) => {
+      const a = d.action === "answer" ? (d.answers[q.id] ?? "").trim() : "";
+      records.push({ round, id: q.id, text: q.text, answer: a || undefined, assumed: a ? undefined : q.fallback ?? "(karar verilmedi)" });
+      const final = a || (q.fallback ? `reviewer'ın önerisi kabul edildi — ${q.fallback}` : "(karar verilmedi; mevcut hâli koru)");
+      return `- ${q.id}: ${q.text.replace(/\s*\n\s*/g, " ")}\n  Karar: ${final.replace(/\n/g, "\n  ")}`;
+    })
+    .join("\n");
+}
+
+/** Kararlardan sonra developer'a gidecek geri bildirim (Karar gerekli bölümü çıkarılmış reviewer notlarıyla) */
+function decisionFeedback(block: string, reviewerFeedback: string): string {
+  const rest = removeSection(reviewerFeedback, DECISIONS_SECTION);
+  return (
+    `KULLANICI KARARLARI (bağlayıcı; bu konularda reviewer'ın ya da senin tercihin değil, bunlar geçerli):\n${block}\n\n` +
+    `Kodu ve testleri bu kararlara göre uyumla; kararla çelişen önceki değişiklikleri geri al.` +
+    (rest ? `\n\nReviewer'ın diğer notları:\n${rest}` : "")
+  );
+}
+
+/** Önceki reviewer raporu (bir sonraki incelemeye bağlam): çok uzunsa sonu korunur */
+function clipReport(t: string, max = 8000): string {
+  return t.length > max ? "…\n" + t.slice(-max) : t;
 }
 
 /** Bir çalıştırmada en fazla kaç kapsam talebi değerlendirilir */
@@ -272,6 +310,10 @@ export interface RunSummary {
   warnings: string[];
   /** Reviewer'ın son FAIL geri bildirimi (resume developer'la buradan devam eder) */
   lastReviewFeedback?: string;
+  /** Reviewer'ın son PASS raporu (içerik sonradan değişirse yeniden inceleme sadece farka bakar) */
+  lastPassReport?: string;
+  /** Reviewer'ın istediği ve kullanıcının verdiği kararlar */
+  decisions?: QuestionRecord[];
   /** Reviewer'ın onayladığı içeriğin tree hash'i (resume için) */
   approvedTree?: string;
   /** İşi başlatan kişi (git user.name / user.email) */
@@ -956,6 +998,10 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   summary.changeRequests = [];
   let lastReviewerNote = "";
   let lastDevText = "";
+  /** Bir önceki reviewer raporu: sonraki inceleme önceki onayları yeniden açmasın */
+  let prevReview = "";
+  let decisionRounds = 0;
+  summary.decisions = summary.decisions ?? [];
   let turn = 0;
   /** Onay ekranı ve Jira için: varsayımlar ve insanın bakması gerekenler */
   const refreshNotes = () => {
@@ -1016,7 +1062,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
       const beforeReview = workingTreeHash(wt, X);
       const relatedBefore = related.map((r) => r.treeHash());
-      const r = await call(roles.reviewer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { checks: report, userRequests, relatedChanges: relatedChanges(related) }, turn);
+      const r = await call(roles.reviewer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { checks: report, userRequests, relatedChanges: relatedChanges(related), previousReview: prevReview ? clipReport(prevReview) : "" }, turn);
       gelistirSpent += r.costUsd;
       if (workingTreeHash(wt, X) !== beforeReview) fail("Reviewer gerçek dosyaları değiştirdi! Rol ihlali.");
       if (related.some((x, k) => x.treeHash() !== relatedBefore[k])) fail("Reviewer ilgili repodaki dosyaları değiştirdi! Rol ihlali.");
@@ -1024,8 +1070,28 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
       const v = parseVerdict(r.text);
       summary.phases[summary.phases.length - 1].verdict = v.verdict;
+      prevReview = r.text;
+      // ürün kararı gerektiren çelişki: ajanlar seçmez, kullanıcı karar verir
+      const decisions = parseDecisions(r.text);
+      if (decisions.length) {
+        summary.lastReviewFeedback = v.feedback;
+        if (++decisionRounds > MAX_DECISION_ROUNDS) fail(`Reviewer ${MAX_DECISION_ROUNDS} kereden fazla karar istedi; görev muhtemelen netleştirilmeli. Son istek run.json'da.`);
+        const block = await askDecisions(decisions, opts.answerQuestions, summary.decisions!, decisionRounds, log);
+        if (!block) {
+          fs.writeFileSync(path.join(runRoot, "decisions.md"), qMarkdown(decisions) + "\n");
+          return fail(`Reviewer senin kararını istiyor; karar verilmeden devam edilmedi. Konular: ${path.join(runRoot, "decisions.md")}\n  Etkileşimli terminalde devam et: flowloop resume ${summary.id}`);
+        }
+        appendTask(`## Kullanıcı kararları (bağlayıcı)\n\n${block}`);
+        fs.appendFileSync(path.join(runRoot, "decisions.md"), `## ${decisionRounds}. karar\n${block}\n\n`);
+        feedback = decisionFeedback(block, v.feedback) + (userRequests ? `\n\n${userRequests}` : "");
+        summary.lastReviewFeedback = feedback;
+        saveSummary();
+        i--; // karar turu geliştirme turu sayılmaz (sayısı ayrıca sınırlı)
+        continue;
+      }
       if (v.verdict === "PASS") {
         lastReviewerNote = r.text;
+        summary.lastPassReport = r.text;
         log.ok(`Reviewer PASS (tur ${i})`);
         return true;
       }
@@ -1286,6 +1352,8 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   const related = (summary.related ?? []).filter((r) => fs.existsSync(r.wt)).map((r) => RelatedRepo.fromSummary(r, opts.checkRunner));
   for (const r of related) r.softReset();
   const current = workingTreeHash(wt, X);
+  /** İçerik onaydan sonra değiştiyse reviewer'a verilecek fark (tam inceleme yerine) */
+  let deltaReview = "";
   if (!needsReview) {
     if (!summary.approvedTree) log.warn("Eski sürümle başlatılmış çalıştırma: onaylanan içerik olarak mevcut çalışma kopyası kabul edildi.");
     const changedRepos = [
@@ -1294,8 +1362,14 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     ];
     if (changedRepos.length) {
       // ör. commit hook'u (csharpier, prettier) dosyaları yeniden biçimlendirdi: içerik onaylanandan farklı.
-      // Sessizce commit'lemek yerine güncel içerik kontrollerden ve reviewer'dan yeniden geçer, onay tekrar sorulur.
-      log.warn(`Çalışma kopyası onaylanan içerikten farklı (${changedRepos.join(", ")}); kontroller ve reviewer güncel içerikle tekrar çalışacak.`);
+      // Sessizce commit'lemek yerine güncel içerik kontrollerden geçer; reviewer SADECE farkı inceler, onay tekrar sorulur.
+      log.warn(`Çalışma kopyası onaylanan içerikten farklı (${changedRepos.join(", ")}); kontroller tekrar çalışacak, reviewer sadece farkı inceleyecek.`);
+      if (summary.approvedTree && current !== summary.approvedTree) {
+        const diff = git(["diff", summary.approvedTree, current], wt).stdout;
+        deltaReview =
+          (summary.lastPassReport ? `Önceki onay raporun:\n<önceki-rapor>\n${clipReport(summary.lastPassReport, 6000)}\n</önceki-rapor>\n\n` : "") +
+          `Onaydan sonra değişen kısım (onaylanan → şimdiki):\n\`\`\`diff\n${diff.length > 20000 ? diff.slice(0, 20000) + "\n…(kısaltıldı)" : diff}\n\`\`\``;
+      }
       needsReview = true;
       summary.userApproved = false;
       summary.lastReviewFeedback = undefined;
@@ -1303,13 +1377,17 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   }
 
   const files = { task: path.join(runRoot, "task.md"), plan: path.join(runRoot, "plan.md"), summary: path.join(runRoot, "summary.md"), mutant: path.join(runRoot, "mutant"), rules: path.join(runRoot, "rules.md") };
-  const resumeTaskText = fs.existsSync(files.task) ? fs.readFileSync(files.task, "utf8") : "";
+  let resumeTaskText = fs.existsSync(files.task) ? fs.readFileSync(files.task, "utf8") : "";
+  const appendResumeTask = (block: string) => {
+    resumeTaskText = `${resumeTaskText.trimEnd()}\n\n${block.trim()}\n`;
+    fs.writeFileSync(files.task, resumeTaskText);
+  };
   const vars: Record<string, string | boolean> = {
     taskFile: files.task, planFile: files.plan, scopeRequestFile: path.join(runRoot, SCOPE_REQUEST_FILE), summaryFile: files.summary, rulesFile: files.rules, mutantDir: files.mutant,
     testCmd: cfg.commands.testRelated, typecheckCmd: cfg.commands.typecheck, lintCmd: cfg.commands.lint, editPaths: cfg.paths.edit.join(", "),
     mutation: cfg.mutation.enabled, lessons: readLessons(root), baseBranch: summary.baseRef ?? baseBranch, memory: "",
   };
-  const { servers: userMcp } = needsReview ? loadMcpServers(cfg.mcp.servers, root, home) : { servers: {} };
+  const { servers: userMcp } = loadMcpServers(cfg.mcp.servers, root, home);
   if (Object.keys(userMcp).length) {
     const tools = Object.keys(userMcp).flatMap((srv) => cfg.mcp.tools.map((t) => `mcp__${srv}__${t}`));
     vars.memory = `Kod hafızası araçları kullanılabilir: ${tools.join(", ")}. Hafıza güncel olmayabilir; kararını her zaman çalışma kopyasındaki dosyayı okuyarak ver.`;
@@ -1326,7 +1404,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   };
   summary.error = undefined;
   const changed = () => changedExisting(wt, X);
-  const mutant = needsReview && cfg.mutation.enabled
+  const mutant = cfg.mutation.enabled
     ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec, X.length ? "" : cfg.commands.install)
     : undefined;
   const call = async (role: RoleSpec, phase: string, budget: number, extraVars: Record<string, string> = {}): Promise<AgentResult> => {
@@ -1349,7 +1427,8 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   };
 
   let approved = summary.approvedTree ?? current;
-  if (needsReview) {
+  /** kontroller → reviewer (→ ret olursa developer) döngüsü; PASS olunca onaylanan içerik güncellenir */
+  const reviewLoop = async (initialFeedback = "", userRequests = ""): Promise<void> => {
     // Developer'ın son hâli: güncel flowloop.yaml ile otomatik kontroller, sonra reviewer.
     // Kontroller ya da reviewer reddederse developer geri bildirimle devam eder (tur sınırı içinde).
     log.step("SÜRDÜR · otomatik kontroller + reviewer (analist tekrar çalışmaz; ret olursa developer düzeltir)");
@@ -1369,7 +1448,30 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     // önceki reviewer FAIL'i bu sürdürmede developer'ın ilk geri bildirimi olur
     const lastFail = lastReview?.verdict === "FAIL" && !(lastDev && summary.phases.lastIndexOf(lastDev) > summary.phases.lastIndexOf(lastReview));
     // son karar FAIL ise ve geri bildirimi kayıtlıysa reviewer'ı boşuna tekrar çalıştırma: developer başlar
-    let feedback = lastFail && summary.lastReviewFeedback ? summary.lastReviewFeedback : "";
+    let feedback = initialFeedback || (lastFail && summary.lastReviewFeedback ? summary.lastReviewFeedback : "");
+    summary.decisions = summary.decisions ?? [];
+    let decisionRounds = 0;
+    // reviewer'ın önceki raporu bağlam olur: önceki onaylar ve kararlar yeniden açılmasın
+    let prevReview = summary.lastReviewFeedback || summary.lastPassReport || "";
+    /** Reviewer kullanıcı kararı istediyse sorar; developer'a gidecek geri bildirimi döner */
+    const handleDecisions = async (reviewText: string): Promise<string | undefined> => {
+      const items = parseDecisions(reviewText);
+      if (!items.length) return undefined;
+      if (++decisionRounds > MAX_DECISION_ROUNDS) fail(`Reviewer ${MAX_DECISION_ROUNDS} kereden fazla karar istedi; görev muhtemelen netleştirilmeli.`);
+      const block = await askDecisions(items, opts.answerQuestions, summary.decisions!, decisionRounds, log);
+      if (!block) {
+        fs.writeFileSync(path.join(runRoot, "decisions.md"), qMarkdown(items) + "\n");
+        return fail(`Reviewer senin kararını istiyor; karar verilmeden devam edilmedi. Konular: ${path.join(runRoot, "decisions.md")}\n  Etkileşimli terminalde devam et: flowloop resume ${summary.id}`);
+      }
+      appendResumeTask(`## Kullanıcı kararları (bağlayıcı)\n\n${block}`);
+      fs.appendFileSync(path.join(runRoot, "decisions.md"), `## ${decisionRounds}. karar\n${block}\n\n`);
+      const fb = decisionFeedback(block, reviewText);
+      summary.lastReviewFeedback = fb;
+      saveSummary();
+      return fb;
+    };
+    // önceki turda karar istenip cevaplanmadan kaldıysa önce o sorulur
+    if (feedback && parseDecisions(feedback).length) feedback = (await handleDecisions(feedback))!;
     if (feedback) log.info("Son reviewer geri bildirimi developer'a gidiyor.");
     let devText = "";
     let devRounds = 0;
@@ -1380,7 +1482,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
         devRounds++;
         summary.iterations = (summary.iterations ?? 0) + 1;
         log.info(`\n· Sürdürme turu ${devRounds}/${cfg.maxIterations}: developer geri bildirimi uyguluyor`);
-        const d = await call(roles.developer, "gelistir", Math.min(cfg.budgets.gelistir, cfg.budgets.total), { feedback });
+        const d = await call(roles.developer, "gelistir", Math.min(cfg.budgets.gelistir, cfg.budgets.total), { feedback: feedback + (userRequests && !feedback.includes(userRequests) ? `\n\n${userRequests}` : "") });
         if (d.text.trim()) devText = d.text;
         applyEmptiedDeletions(wt, baseWt, X, log);
         assertScope("Developer");
@@ -1407,13 +1509,27 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
       }
       const before = workingTreeHash(wt, X);
       const relatedBefore = related.map((x) => x.treeHash());
-      const r = await call(roles.reviewer, "gelistir", Math.min(cfg.budgets.gelistir, cfg.budgets.total), { checks: report, relatedChanges: relatedChanges(related) });
+      // içerik onaydan sonra değiştiyse ve developer henüz bir şey değiştirmediyse: sadece fark incelenir
+      const delta = deltaReview && devRounds === 0 ? deltaReview : "";
+      const r = await call(roles.reviewer, "gelistir", Math.min(cfg.budgets.gelistir, cfg.budgets.total), {
+        checks: report,
+        relatedChanges: relatedChanges(related),
+        delta,
+        previousReview: !delta && prevReview ? clipReport(prevReview) : "",
+        userRequests,
+      });
       if (workingTreeHash(wt, X) !== before) fail("Reviewer gerçek dosyaları değiştirdi! Rol ihlali.");
       if (related.some((x, k) => x.treeHash() !== relatedBefore[k])) fail("Reviewer ilgili repodaki dosyaları değiştirdi! Rol ihlali.");
       if (headSha(wt) !== baseSha) fail("Reviewer commit attı! Rol ihlali.");
       const v = parseVerdict(r.text);
       summary.phases[summary.phases.length - 1].verdict = v.verdict;
+      prevReview = r.text;
       saveSummary();
+      const decided = await handleDecisions(r.text);
+      if (decided) {
+        feedback = decided;
+        continue;
+      }
       if (v.verdict !== "PASS") {
         log.warn(`Reviewer FAIL${v.explicit ? "" : " — VERDICT satırı yok"}`);
         log.detail(v.feedback);
@@ -1424,6 +1540,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
         continue;
       }
       log.ok("Reviewer PASS");
+      summary.lastPassReport = r.text;
       summary.attention = devText
         ? collectAttention(devText, r.text)
         : [...collectAttention("", r.text), ...(summary.attention ?? []).filter((a) => a.from === "developer")];
@@ -1433,23 +1550,37 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     summary.approvedTree = approved;
     for (const x of related) x.s.approvedTree = x.treeHash();
     saveSummary();
-  }
+  };
+  if (needsReview) await reviewLoop();
   log.ok(`Sürdürülüyor: ${summary.id} · branch ${branch} · onaylanan içerik ${approved.slice(0, 12)}`);
   if (opts.reviewChanges && !summary.userApproved) {
-    const d = await opts.reviewChanges({
-      round: (summary.changeRequests?.length ?? 0) + 1,
-      diffStat: combinedDiff(wt, baseSha, X, related, true),
-      diff: () => combinedDiff(wt, baseSha, X, related, false),
-      reviewerNote: "",
-      attention: summary.attention ?? [],
-      assumptions: summary.assumptions ?? [],
-      worktree: wt,
-      canRevise: false,
-    });
-    if (d.action !== "approve") {
-      fail(d.action === "revise"
-        ? "Sürdürmede değişiklik isteği desteklenmiyor. İsteğini görev dosyasına ekleyip görevi yeniden çalıştır: flowloop run <görev> --approve-plan"
-        : `Değişiklikler onaylanmadı; commit yapılmadı. Sonra tekrar: flowloop resume ${summary.id}`);
+    summary.changeRequests = summary.changeRequests ?? [];
+    for (;;) {
+      const round = summary.changeRequests.length + 1;
+      const d = await opts.reviewChanges({
+        round,
+        diffStat: combinedDiff(wt, baseSha, X, related, true),
+        diff: () => combinedDiff(wt, baseSha, X, related, false),
+        reviewerNote: summary.lastPassReport ?? "",
+        attention: summary.attention ?? [],
+        assumptions: summary.assumptions ?? [],
+        worktree: wt,
+        canRevise: true,
+      });
+      if (d.action === "approve") break;
+      if (d.action === "cancel") fail(`Değişiklikler onaylanmadı; commit yapılmadı. Sonra tekrar: flowloop resume ${summary.id}`);
+      if (d.action !== "revise" || !d.comment.trim()) continue;
+      // değişiklik isteği: developer uygular, kontroller ve reviewer (isteği de kontrol ederek) tekrar çalışır
+      const comment = d.comment.trim();
+      summary.changeRequests.push({ round, comment });
+      fs.appendFileSync(path.join(runRoot, "change-requests.md"), `## ${round}. değişiklik isteği\n${comment}\n\n`);
+      saveSummary();
+      const earlier = summary.changeRequests.slice(0, -1).map((c) => `- ${c.comment.replace(/\n/g, "\n  ")}`);
+      const userRequests =
+        "KULLANICININ DEĞİŞİKLİK İSTEĞİ (kullanıcı çalışmayı inceledi; bu istek önceliklidir):\n" + comment +
+        (earlier.length ? `\n\nÖnceki istekler (hâlâ geçerli):\n${earlier.join("\n")}` : "");
+      log.step(`DEVELOPER ⇄ REVIEWER  (değişiklik isteğin uygulanıyor — ${round}. istek)`);
+      await reviewLoop(`${userRequests}\n\nBu isteği mevcut çalışmanın üzerine uygula. Plandaki kabul kriterlerini ve mevcut testleri koru; gerekiyorsa test ekle.`, userRequests);
     }
     summary.userApproved = true;
     saveSummary();

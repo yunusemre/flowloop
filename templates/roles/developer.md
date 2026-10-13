@@ -12,7 +12,8 @@ kurallarındaki "en küçük değişiklik" ilkesinin önündedir: plandaki her A
 senaryosu yazılır.
 
 1. Plandaki her AK'yı uygula. Yalnızca şu yolları değiştirebilirsin: {{editPaths}}
-2. Test planındaki her senaryo için test yaz. Mevcut testleri değiştirme, silme.
+2. Test planındaki her senaryo için test yaz. Mevcut testleri değiştirme, silme. Bir şeyin yokluğunu test
+   eden testler (reflection ile "sınıf yok", ayar dosyasında "anahtar yok") yazma.
 3. Sadece BU İŞİN testlerini çalıştır: `{{testCmd}}` (dosya listesi yerine değiştirdiğin
    dosyaları yaz). Tüm test suite'ini çalıştırmaya çalışma.
 4. Projede zaten var olan tip/lint hataları ve kırık testler bu işin konusu DEĞİL;

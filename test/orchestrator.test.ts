@@ -535,12 +535,22 @@ test("kullanıcı onaylamazsa commit yapılmaz; resume ile onaylanıp tamamlanı
   assert.match(err, /Değişiklikler onaylanmadı; commit yapılmadı/);
   assert.ok(!a1.calls.some((c) => c.role === "committer"), "committer çalışmadı");
   const id = /flowloop resume (\S+)/.exec(err)![1];
-  const a2 = new FakeAgent(good);
+  const a2 = new FakeAgent({
+    ...good,
+    developer: (req, n) => {
+      assert.match(req.prompt, /KULLANICININ DEĞİŞİKLİK İSTEĞİ[\s\S]*açıklama satırı ekle/);
+      good.developer!(req, n);
+      fs.appendFileSync(path.join(req.cwd, "src/fiyat.js"), "// ekspres fiyatı\n");
+    },
+    reviewer: (req) => (assert.match(req.prompt, /açıklama satırı ekle[\s\S]*karşılanmadıysa FAIL/), "VERDICT: PASS"),
+  });
+  const decisions: ChangeDecision[] = [{ action: "revise", comment: "açıklama satırı ekle" }, { action: "approve" }];
   let asked = 0;
-  const s = await resumeRun({ root, resume: id, taskFile: "", agent: a2, log: silentLogger(), noPush: true, reviewChanges: async (i) => (asked++, assert.equal(i.canRevise, false), { action: "approve" }) });
-  assert.equal(asked, 1);
+  const s = await resumeRun({ root, resume: id, taskFile: "", agent: a2, log: silentLogger(), noPush: true, reviewChanges: async (i) => (asked++, assert.equal(i.canRevise, true), decisions.shift()!) });
+  assert.equal(asked, 2);
   assert.equal(s.status, "success");
-  assert.deepEqual(a2.calls.map((c) => c.role), ["committer"]);
+  assert.deepEqual(a2.calls.map((c) => c.role), ["developer", "reviewer", "committer"], "sürdürmede değişiklik isteği developer → reviewer ile uygulanır");
+  assert.match(gitOk(["show", `${s.branch}:src/fiyat.js`], root), /ekspres fiyatı/);
 });
 
 // ───────────── bağımlı (ilgili) repolar ─────────────
@@ -1115,6 +1125,11 @@ test("commit hook'u içeriği değiştirdiyse resume güncel içeriği kontrolle
   const id = fs.readdirSync(runsDir)[0];
   const agent = new FakeAgent({
     ...good,
+    reviewer: (req) => {
+      assert.match(req.prompt, /BU BİR YENİDEN İNCELEME[\s\S]*Önceki onay raporun[\s\S]*her şey yolunda[\s\S]*\+\/\/ biçimlendirildi/, "reviewer sadece farkı ve önceki raporu görür");
+      assert.doesNotMatch(req.prompt, /Önceki inceleme turun/);
+      return "biçim farkı\nVERDICT: PASS";
+    },
     committer: (req) => {
       GIT(req, "add", "-A");
       GIT(req, "commit", "-qm", "feat(fiyat): ekspres teslimat");
@@ -1124,4 +1139,54 @@ test("commit hook'u içeriği değiştirdiyse resume güncel içeriği kontrolle
   assert.equal(s.status, "success");
   assert.deepEqual(agent.calls.map((c) => c.role), ["reviewer", "committer"]);
   assert.match(gitOk(["show", `${s.branch}:src/fiyat.js`], first.root), /biçimlendirildi/);
+});
+
+
+const DECISION_REVIEW = "✅ AK-1 tamam\n\n## Karar gerekli\n- K-1: Görev ekspresi +50 diyor, referans branch +60 diyor; hangisi geçerli?\n  Önerim: görevdeki +50\n\nVERDICT: FAIL";
+
+test("reviewer çelişki görürse karar kullanıcıya sorulur; karar developer'a ve görev metnine gider, sonraki inceleme önceki raporu görür", async () => {
+  const root = makeRepo("");
+  const asked: { ids: string[]; kind?: string }[] = [];
+  const agent = new FakeAgent({
+    ...good,
+    reviewer: (req, n) => {
+      if (n === 1) return DECISION_REVIEW;
+      assert.match(req.prompt, /Önceki inceleme turun[\s\S]*Karar gerekli/, "önceki rapor bağlam olarak verilir");
+      assert.match(req.prompt, /## Kullanıcı kararları \(bağlayıcı\)[\s\S]*K-1[\s\S]*Karar: \+60 geçerli/);
+      return "VERDICT: PASS";
+    },
+    developer: (req, n) => {
+      good.developer!(req, n);
+      if (n === 2) {
+        assert.match(req.prompt, /KULLANICI KARARLARI \(bağlayıcı[\s\S]*Karar: \+60 geçerli/);
+        assert.doesNotMatch(req.prompt.split("# Bu çalıştırmada senden istenen")[1], /## Karar gerekli/, "karar bölümü developer talimatında tekrar edilmez");
+      }
+    },
+  });
+  const s = await runTask({
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true,
+    answerQuestions: async (qs, ctx) => (asked.push({ ids: qs.map((q) => q.id), kind: ctx.kind }), assert.equal(qs[0].fallback, "görevdeki +50"), { action: "answer", answers: { "K-1": "+60 geçerli" } }),
+  });
+  assert.equal(s.status, "success");
+  assert.deepEqual(asked, [{ ids: ["K-1"], kind: "decisions" }]);
+  assert.deepEqual(agent.calls.map((c) => c.role), ["analist", "developer", "reviewer", "developer", "reviewer", "committer"]);
+  assert.equal(s.iterations, 2, "karar turu geliştirme turu hakkından düşmez ama sayılır");
+  assert.equal(s.decisions![0].answer, "+60 geçerli");
+});
+
+test("karar istenir ama soracak kimse yoksa durur; resume kararı sorup developer'la devam eder", async () => {
+  const first = await run({ reviewer: () => DECISION_REVIEW });
+  assert.match(first.err!, /senin kararını istiyor[\s\S]*decisions\.md[\s\S]*flowloop resume/);
+  const runsDir = path.join(first.root, "..", path.basename(first.root) + "-work", path.basename(first.root));
+  const id = fs.readdirSync(runsDir)[0];
+  const agent = new FakeAgent({
+    ...good,
+    developer: (req, n) => {
+      assert.match(req.prompt, /KULLANICI KARARLARI[\s\S]*Karar: reviewer'ın önerisi kabul edildi — görevdeki \+50/);
+      good.developer!(req, n);
+    },
+  });
+  const s = await resumeRun({ root: first.root, resume: id, taskFile: "", agent, log: silentLogger(), noPush: true, answerQuestions: async () => ({ action: "assume" }) });
+  assert.equal(s.status, "success");
+  assert.deepEqual(agent.calls.map((c) => c.role), ["developer", "reviewer", "committer"]);
 });

@@ -6,6 +6,17 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.8.0 — 2026-10-13
+
+### Yeni
+- **Karar gerekli:** reviewer görev metni, plan, kullanıcının cevapları ve referanslar (ör. başka bir branch) arasında çelişki bulursa taraf seçmiyor, developer'a da seçtirmiyor. `## Karar gerekli` bölümü yazıyor; flowloop durup sana soruyor. Kararın developer'a bağlayıcı talimat olarak gidiyor ve görev metnine "Kullanıcı kararları" olarak ekleniyor, böylece sonraki turlarda yeniden açılmıyor. Etkileşimsiz çalıştırmada flowloop duruyor; `flowloop resume` önce kararı soruyor.
+- **`resume`'da değişiklik isteği:** onay ekranında **[y] Değişiklik iste** artık sürdürmede de var. İsteğin developer'a gidiyor; kontroller ve reviewer (isteğin karşılandığını da kontrol ederek) tekrar çalışıyor.
+
+### Değişen
+- **Reviewer hedefi her turda değiştirmiyor.** Her inceleme turunda reviewer'a önceki raporu veriliyor. Önceki turda onayladığı ve bu turdaki değişikliğin etkilemediği maddeleri yeniden açmıyor; yeni FAIL nedeni sadece bu turdaki değişiklikten gelebiliyor (güvenlik açığı ya da veri kaybı gibi engelleyici sorunlar hariç).
+- **Onaydan sonra değişen içerik sadece farkıyla inceleniyor.** Örneğin commit hook'u biçimlendirdiğinde `resume`, reviewer'a önceki onay raporunu ve sadece farkı veriyor. Fark yalnızca biçimse reviewer tekrar inceleme ve mutasyon yapmıyor.
+- **Mutasyon kapsamı daraldı.** Mutasyon sadece davranış mantığı olan AK'lere uygulanıyor. Silme, ayar, yeniden adlandırma ve kod temizliği derleme ve arama ile doğrulanıyor. Bir şeyin yokluğunu test eden testler (reflection ile "sınıf yok", ayar dosyasında "anahtar yok") artık planlanmıyor, yazılmıyor ve reviewer tarafından istenmiyor.
+
 ## 1.7.1 — 2026-10-13
 
 ### Düzeltme

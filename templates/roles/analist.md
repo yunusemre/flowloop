@@ -48,6 +48,9 @@ Sadece BU İŞİN testleri (projedeki test aracıyla: `{{testCmd}}`). Her AK iç
 Her senaryo, o AK'nın mantığı bozulduğunda KIRILACAK şekilde seçilmeli.
 Etkisi örnek verilerle görünmeyen kurallar için (ör. yuvarlama) ilgili yardımcı
 fonksiyonun doğrudan testini planla.
+Silme, ayar (config) değişikliği, yeniden adlandırma ve kod temizliği AK'leri için test planlama: kanıtları
+derleme ve repo genelinde arama (grep). Bir şeyin YOKLUĞUNU test eden testler (reflection ile "sınıf yok",
+ayar dosyasında "anahtar yok") planlama; bakım yükü getirir, davranış doğrulamaz.
 
 ## Riskler
 Mevcut davranışı bozma riski, sınır değerler, kurallardaki ilgili maddeler.
