@@ -57,3 +57,26 @@ test("birden fazla solution: .NET Framework içermeyen, CI'da geçen ve en çok 
   assert.match(r.notes[0], /komutlar New\.sln ile çalışır.*Old\.sln \(3 proje, 1 \.NET Framework\)/);
   assert.deepEqual(pickSolution(root, ["Tek.sln"], new Set()), { sln: "Tek.sln", notes: [] });
 });
+
+test("tip kontrolü sadece hataları sayar; NuGet uyarıları ve 'Error occurred' metni bloklamaz", async () => {
+  const { ScopedChecks } = await import("../src/checks.js");
+  const base = "x.cs(1,1): error CS0103: eski hata\nA.csproj : warning NU1900: Error occurred while getting package vulnerability data";
+  const after = base + "\nB.csproj : warning NU1903: Package 'Snappier' has a known high severity vulnerability\n    0 Error(s)\ny.cs(5,9): error CS0246: yeni hata";
+  const runner = { run: (_c: string, cwd: string) => ({ code: 1, stdout: cwd === "/wt" ? after : base, stderr: "" }) };
+  const c = new ScopedChecks({ commands: { typecheck: "dotnet build" } } as any, "/wt", "/base", runner);
+  const r = c.typecheck(["y.cs"]);
+  assert.equal(r.status, "fail");
+  assert.equal(r.summary, "1 YENİ tip hatası");
+  assert.match(r.details!, /CS0246/);
+});
+
+test("Docker kapalıysa testler ortam hatası olarak raporlanır (developer'a gitmez)", async () => {
+  const { ScopedChecks, envFailure } = await import("../src/checks.js");
+  assert.match(envFailure("DotNet.Testcontainers.Builders.DockerUnavailableException : Failed to connect to Docker endpoint")!, /Docker çalışmıyor/);
+  assert.equal(envFailure("Assert.Equal() Failure"), undefined);
+  const runner = { run: () => ({ code: 1, stdout: "Failed X [1 ms]\nFailed to connect to Docker endpoint at 'unix:///var/run/docker.sock'.", stderr: "" }) };
+  const c = new ScopedChecks({ commands: { testRelated: "dotnet test {{testFiles}}" } } as any, "/wt", "/base", runner);
+  const r = c.tests(["T/XTests.cs"], []);
+  assert.equal(r.status, "fail");
+  assert.match(r.env!, /Docker/);
+});

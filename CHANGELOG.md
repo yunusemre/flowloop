@@ -6,6 +6,13 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.6.2 — 2026-10-13
+
+### Düzeltme
+- **Tip kontrolü uyarıları hata sayıyordu.** Artık sadece hata satırları sayılıyor (`error CS0103:`, `error TS2322:` gibi). NuGet güvenlik uyarıları ve ağa göre değişen `NU1900` uyarısı gibi uyarılar bloklamıyor.
+- **Base kopya kurulmuyordu.** `linkDirs` boşken (ör. .NET) kurulum komutu sadece çalışma kopyasında çalışıyordu. Base kopya derlenemediği için oradaki her uyarı ve test hatası "yeni" görünüyordu; artık base kopyada da kurulum yapılıyor.
+- **Ortam hatası developer'a gidiyordu.** Testler ortam yüzünden çalışmazsa (ör. Docker kapalı, Testcontainers) bu artık developer'a gönderilip tur harcanmıyor. Çalıştırma nedenini söyleyerek duruyor; ortam düzeltilince `flowloop resume <id>` ile kaldığı yerden devam ediliyor.
+
 ## 1.6.1 — 2026-10-13
 
 ### Düzeltme

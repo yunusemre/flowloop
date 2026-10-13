@@ -209,7 +209,7 @@ test("userClaudeMd: false ise kişisel kurallar eklenmez", async () => {
 });
 
 test("otomatik kontrol başarısızsa reviewer'a gitmeden developer'a döner", async () => {
-  const typecheck = `  typecheck: "grep -rn BOZUK src | sed 's/$/ error TS1/'; ! grep -rq BOZUK src"`;
+  const typecheck = `  typecheck: "grep -rn BOZUK src | sed 's/$/: error TS1: tip/'; ! grep -rq BOZUK src"`;
   const { s: sum, agent } = await run(
     {
       developer: (req, n) => {
@@ -228,7 +228,7 @@ test("otomatik kontrol başarısızsa reviewer'a gitmeden developer'a döner", a
 });
 
 test("projede önceden var olan tip hatası bloklamaz", async () => {
-  const typecheck = `  typecheck: "grep -rn ESKI src | sed 's/$/ error TS1/'; ! grep -rq ESKI src"`;
+  const typecheck = `  typecheck: "grep -rn ESKI src | sed 's/$/: error TS1: tip/'; ! grep -rq ESKI src"`;
   const { s: sum, err } = await run({}, "", 0.1, {
     commands: `  testRelated: "node --test {{testFiles}}"\n${typecheck}`,
     files: { "src/eski.js": "// ESKI hata\n" },

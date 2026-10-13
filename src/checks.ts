@@ -19,6 +19,8 @@ export interface CheckResult {
   status: "ok" | "fail" | "skip";
   summary: string;
   details?: string;
+  /** Kontrol kodla değil ortamla ilgili bir nedenle çalışamadı (ör. Docker kapalı): developer'a gitmez, çalıştırma durur */
+  env?: string;
 }
 
 export interface CheckRunner {
@@ -26,7 +28,19 @@ export interface CheckRunner {
 }
 export const shellRunner: CheckRunner = { run: (c, cwd) => runConfigured(c, cwd) };
 
-const ISSUE = /\b(error|warning)\b/i;
+/**
+ * Tip kontrolünde sadece HATA satırları sayılır ("error CS0103:", "error TS2322:", "error NETSDK1004:").
+ * Uyarılar (ör. NuGet güvenlik uyarıları, ağ erişimine göre değişen NU1900) bloklamaz.
+ */
+const ISSUE = /\berror\s+[A-Z]{1,8}\d+\s*:|:\s*error\s*:/i;
+
+/** Test ortamı hataları: kod değil makine sorunu (Docker kapalı vb.) */
+const ENV_FAILURES: [RegExp, string][] = [
+  [/DockerUnavailableException|Failed to connect to Docker endpoint|Cannot connect to the Docker daemon|docker\.sock.*(refused|no such file)/i, "Docker çalışmıyor (testler Docker/Testcontainers kullanıyor). Docker Desktop'ı başlatıp tekrar çalıştır."],
+];
+export function envFailure(output: string): string | undefined {
+  return ENV_FAILURES.find(([re]) => re.test(output))?.[1];
+}
 /** Lint'te sadece HATA sayılır; uyarılar (ör. Prettier ile çakışan stil kuralları) bloklamaz. */
 const LINT_ERROR = /\berror\b/i;
 const LINT_SUMMARY = /^(✖|\d+ problems?\b)/;
@@ -99,6 +113,10 @@ export class ScopedChecks {
       return { name: "testler", status: "fail", summary: "bu işte hiç test dosyası değişmedi/eklenmedi" };
     }
     const filled = fillFiles(cmd, files, this.wt);
+    const envCheck = (out: string): CheckResult | undefined => {
+      const env = envFailure(out);
+      return env ? { name: "testler", status: "fail", summary: `testler ortam yüzünden çalışmadı: ${env}`, env } : undefined;
+    };
     if (!filled.trim()) {
       const classic = unrunnableTestProjects(files, this.wt);
       if (classic.length) return { name: "testler", status: "skip", summary: `testler bu makinede çalıştırılamıyor (.NET Framework, sadece Windows): ${classic.join(", ")} — CI'da doğrulanmalı` };
@@ -106,6 +124,8 @@ export class ScopedChecks {
     }
     const r = this.runner.run(filled, this.wt);
     if (r.code === 0) return { name: "testler", status: "ok", summary: `ilgili testler geçti (${filled})` };
+    const env = envCheck(r.stdout + "\n" + r.stderr);
+    if (env) return env;
     // Base'de de aynı testler kırmızı mıydı?
     const after = normalize(r.stdout + "\n" + r.stderr, this.roots()).filter((l) => TEST_FAIL.test(l));
     let base: string[] = [];

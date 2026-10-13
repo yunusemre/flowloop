@@ -692,6 +692,11 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       fail(`Kurulum başarısız (${cfg.commands.install}, çıkış kodu ${s.code}):\n    ${out || "(çıktı yok)"}\n  Komutu .flowloop/flowloop.yaml → commands.install'dan düzeltebilirsin.`);
     }
     linkInto(wt, baseWt, cfg.linkDirs);
+    if (!cfg.linkDirs.length) {
+      // base kopya da kurulmalı: "sadece yeni hatalar" karşılaştırması derlenebilir bir base ister (ör. dotnet obj/)
+      const b = runConfigured(cfg.commands.install, baseWt, undefined, { fullEnv: true });
+      if (b.code !== 0) log.warn("Base kopyada kurulum başarısız; tip ve test karşılaştırması güvenilir olmayabilir.");
+    }
   }
   const X = cfg.linkDirs; // git işlemlerinde hariç tutulacak symlink'ler
   ensureExcluded(root, X);
@@ -996,6 +1001,9 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       summary.checks.push(results);
       const report = renderReport(results);
       for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
+      // ortam sorunu (Docker kapalı vb.) kodla çözülmez: developer'a gönderip tur harcama, dur
+      const envFail = results.find((r) => r.env);
+      if (envFail) fail(`Kontroller ortam yüzünden çalışamadı: ${envFail.env}\n  Kod değişiklikleri çalışma alanında duruyor; ortamı düzeltip devam etmek için: flowloop resume ${summary.id}`);
       if (results.some((r) => r.status === "fail")) {
         feedback = `OTOMATİK KONTROLLER başarısız (reviewer'a gidilmedi). Sadece bu işle gelen sorunlar:\n${report}` + (userRequests ? `\n\n${userRequests}` : "");
         appendLessons(root, slug, results.filter((r) => r.status === "fail").map((r) => `❌ ${r.name}: ${r.summary}`), now());
