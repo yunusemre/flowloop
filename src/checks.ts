@@ -1,5 +1,5 @@
 import type { FlowloopConfig } from "./config.js";
-import { fillFiles, runConfigured, type ExecResult } from "./git.js";
+import { TEST_PLACEHOLDER, fillFiles, runConfigured, unrunnableTestProjects, type ExecResult } from "./git.js";
 
 /**
  * Deterministik, İŞE ODAKLI kontroller.
@@ -85,7 +85,7 @@ export class ScopedChecks {
   format(files: string[]): CheckResult {
     const cmd = this.cfg.commands.format;
     if (!cmd || files.length === 0) return { name: "format", status: "skip", summary: "formatter yok" };
-    const r = this.runner.run(fillFiles(cmd, files), this.wt);
+    const r = this.runner.run(fillFiles(cmd, files, this.wt), this.wt);
     return r.code === 0
       ? { name: "format", status: "ok", summary: `${files.length} dosya formatlandı` }
       : { name: "format", status: "fail", summary: "formatter hata verdi", details: clip((r.stdout + r.stderr).split("\n")) };
@@ -95,17 +95,23 @@ export class ScopedChecks {
     const cmd = this.cfg.commands.testRelated;
     if (!cmd.trim()) return { name: "testler", status: "skip", summary: "test komutu tanımlı değil" };
     if (files.length === 0) return { name: "testler", status: "skip", summary: "değişen dosya yok" };
-    if (/\{\{testFiles\}\}/.test(cmd) && fillFiles("{{testFiles}}", files) === "") {
+    if (TEST_PLACEHOLDER.test(cmd) && fillFiles("{{testFiles}}", files) === "") {
       return { name: "testler", status: "fail", summary: "bu işte hiç test dosyası değişmedi/eklenmedi" };
     }
-    const filled = fillFiles(cmd, files);
+    const filled = fillFiles(cmd, files, this.wt);
+    if (!filled.trim()) {
+      const classic = unrunnableTestProjects(files, this.wt);
+      if (classic.length) return { name: "testler", status: "skip", summary: `testler bu makinede çalıştırılamıyor (.NET Framework, sadece Windows): ${classic.join(", ")} — CI'da doğrulanmalı` };
+      return { name: "testler", status: "fail", summary: "değişen test dosyalarının ait olduğu test projesi (.csproj) bulunamadı" };
+    }
     const r = this.runner.run(filled, this.wt);
     if (r.code === 0) return { name: "testler", status: "ok", summary: `ilgili testler geçti (${filled})` };
     // Base'de de aynı testler kırmızı mıydı?
     const after = normalize(r.stdout + "\n" + r.stderr, this.roots()).filter((l) => TEST_FAIL.test(l));
     let base: string[] = [];
     if (baseFiles.length) {
-      const b = this.runner.run(fillFiles(cmd, baseFiles), this.baseWt);
+      const bf = fillFiles(cmd, baseFiles, this.baseWt);
+      const b = bf.trim() ? this.runner.run(bf, this.baseWt) : { code: 0, stdout: "", stderr: "" };
       if (b.code !== 0) base = normalize(b.stdout + "\n" + b.stderr, this.roots()).filter((l) => TEST_FAIL.test(l));
     }
     const fresh = newLines(after, base);
@@ -140,11 +146,11 @@ export class ScopedChecks {
   lint(files: string[], baseFiles: string[]): CheckResult {
     const cmd = this.cfg.commands.lint;
     if (!cmd || files.length === 0) return { name: "lint", status: "skip", summary: "lint yok" };
-    const a = this.runner.run(fillFiles(cmd, files), this.wt);
+    const a = this.runner.run(fillFiles(cmd, files, this.wt), this.wt);
     const after = lintErrors(normalize(a.stdout + "\n" + a.stderr, this.roots()));
     let base: string[] = [];
     if (baseFiles.length) {
-      const b = this.runner.run(fillFiles(cmd, baseFiles), this.baseWt);
+      const b = this.runner.run(fillFiles(cmd, baseFiles, this.baseWt), this.baseWt);
       base = lintErrors(normalize(b.stdout + "\n" + b.stderr, this.roots()));
     }
     const fresh = newLines(after, base);

@@ -134,10 +134,66 @@ export function changedExisting(cwd: string, exclude: string[] = []): string[] {
 
 /** Komuttaki {{files}} / {{testFiles}} yer tutucularını tek tırnaklı dosya listesiyle doldurur. */
 export const TEST_FILE = /(^|\/)(__tests__|tests?)\/|[._-](test|spec)s?\.[cm]?[jt]sx?$|Tests?\.cs$/i;
-export function fillFiles(command: string, files: string[]): string {
+/** Komutun sadece bu işin testlerini çalıştırdığını gösteren yer tutucular */
+export const TEST_PLACEHOLDER = /\{\{(testFiles|testProject|testProjects|testFilter)\}\}/;
+
+/** Bir dosyanın ait olduğu proje dosyası (.csproj vb.): en yakın üst klasördeki */
+export function nearestProject(file: string, cwd: string, ext = [".csproj", ".fsproj", ".vbproj"]): string | undefined {
+  let dir = path.dirname(file);
+  for (;;) {
+    const abs = path.join(cwd, dir);
+    if (fs.existsSync(abs)) {
+      const p = fs.readdirSync(abs).find((f) => ext.some((e) => f.endsWith(e)));
+      if (p) return dir === "." ? p : path.join(dir, p);
+    }
+    if (dir === "." || dir === "/" || !dir) return undefined;
+    dir = path.dirname(dir);
+  }
+}
+
+/** .NET Framework (eski biçim) projesi mi: sadece Windows'ta derlenir/test edilir */
+export function isClassicDotnetProject(project: string, cwd: string): boolean {
+  try {
+    return /<TargetFrameworkVersion>/.test(fs.readFileSync(path.join(cwd, project), "utf8"));
+  } catch {
+    return false;
+  }
+}
+
+/** Bu makinede çalıştırılamayan test projeleri (Windows dışında .NET Framework projeleri) */
+export function unrunnableTestProjects(files: string[], cwd: string, platform = process.platform): string[] {
+  if (platform === "win32") return [];
+  const ps = new Set(files.filter((f) => TEST_FILE.test(f)).map((t) => nearestProject(t, cwd)).filter((p): p is string => !!p));
+  return [...ps].filter((p) => isClassicDotnetProject(p, cwd));
+}
+
+/**
+ * Komuttaki yer tutucuları doldurur:
+ *   {{files}}        değişen dosyalar
+ *   {{testFiles}}    bunlardan test olanlar
+ *   {{testProjects}} test dosyalarının projeleri (.csproj), boşlukla
+ *   {{testProject}}  komut her test projesi için ayrı çalışır (&& ile); {{testFilter}} o projedeki
+ *                    test sınıflarına göre dotnet --filter ifadesi olur
+ */
+export function fillFiles(command: string, files: string[], cwd = process.cwd()): string {
   const quote = (f: string) => `'${f.replace(/'/g, "'\\''")}'`;
   const tests = files.filter((f) => TEST_FILE.test(f));
-  return command
-    .replace(/\{\{files\}\}/g, files.map(quote).join(" "))
-    .replace(/\{\{testFiles\}\}/g, tests.map(quote).join(" "));
+  const byProject = new Map<string, string[]>();
+  if (/\{\{test(Project|Projects|Filter)\}\}/.test(command)) {
+    for (const t of tests) {
+      const p = nearestProject(t, cwd);
+      // .NET Framework projeleri Windows dışında çalıştırılamaz (CI'da doğrulanır)
+      if (p && process.platform !== "win32" && isClassicDotnetProject(p, cwd)) continue;
+      if (p) byProject.set(p, [...(byProject.get(p) ?? []), t]);
+    }
+  }
+  const filter = (fs_: string[]) => [...new Set(fs_.map((f) => path.basename(f).replace(/\.[^.]+$/, "")))].map((c) => `FullyQualifiedName~${c}`).join("|");
+  const base = (cmd: string) =>
+    cmd
+      .replace(/\{\{files\}\}/g, files.map(quote).join(" "))
+      .replace(/\{\{testFiles\}\}/g, tests.map(quote).join(" "))
+      .replace(/\{\{testProjects\}\}/g, [...byProject.keys()].map(quote).join(" "));
+  if (!/\{\{testProject\}\}/.test(command)) return base(command).replace(/\{\{testFilter\}\}/g, filter(tests));
+  if (!byProject.size) return "";
+  return [...byProject].map(([p, fs_]) => base(command).replace(/\{\{testProject\}\}/g, quote(p)).replace(/\{\{testFilter\}\}/g, filter(fs_))).join(" && ");
 }

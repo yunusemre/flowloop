@@ -498,6 +498,14 @@ En çok değiştirilenler:
 
 `{{files}}` yerine bu işte değişen dosyalar yazılır; testler, lint ve format sadece onlarda çalışır.
 
+.NET projelerinde ek yer tutucular var:
+
+- `{{testProject}}`: komut, değişen her test dosyasının projesi (`.csproj`) için ayrı çalışır.
+- `{{testFilter}}`: o projede değişen test sınıflarına göre bir `--filter` ifadesi olur.
+- Örnek: `dotnet test {{testProject}} --no-restore --filter "{{testFilter}}"`.
+- Kökte birden fazla solution varsa komutlara hangisinin kullanılacağı yazılır (ör. `dotnet restore YnkDC.sln`).
+- .NET Framework (eski biçim) projeleri macOS ve Linux'ta derlenemez; bu projelerdeki testler yerelde atlanır, CI'da doğrulanmalıdır.
+
 ### Rol kuralları (system prompt)
 
 Her rol iki parçayla çalışır:

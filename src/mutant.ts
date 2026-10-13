@@ -45,6 +45,7 @@ export class MutantSandbox {
   test(): { code: number; output: string } {
     if (!fs.existsSync(this.dir)) return { code: -1, output: "Kopya yok; önce mutant_reset çağır." };
     const cmd = this.testCmd();
+    if (!cmd.trim()) return { code: -1, output: "Bu işin testleri bu makinede çalıştırılamıyor (ör. .NET Framework projesi, sadece Windows). Bu AK için mutasyon kontrolü yapılamadı; FAIL verme, raporda 'çalıştırılamadı' yaz." };
     const r = runConfigured(cmd, this.dir, this.timeoutSec * 1000);
     const all = (r.stdout + "\n" + r.stderr).trim().split("\n");
     const tail = all.slice(-80).join("\n");

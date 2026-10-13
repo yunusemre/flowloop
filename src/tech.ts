@@ -101,14 +101,49 @@ function detectNode(root: string, pkg: Record<string, any>): Detected {
   };
 }
 
+/**
+ * Kökteki solution'lardan kurulum/derleme için kullanılacak olanı seçer:
+ * .NET Framework projesi içermeyen (her işletim sisteminde derlenen) ve en çok proje içeren;
+ * eşitlikte CI dosyalarında adı geçen.
+ */
+export function pickSolution(root: string, slns: string[], classic: Set<string>): { sln?: string; notes: string[] } {
+  if (slns.length <= 1) return { sln: slns[0], notes: [] };
+  const ci = ["bitbucket-pipelines.yml", "azure-pipelines.yml", ".gitlab-ci.yml", "Jenkinsfile"]
+    .map((f) => path.join(root, f))
+    .concat(fs.existsSync(path.join(root, ".github", "workflows")) ? fs.readdirSync(path.join(root, ".github", "workflows")).map((f) => path.join(root, ".github", "workflows", f)) : [])
+    .filter((f) => fs.existsSync(f))
+    .map((f) => fs.readFileSync(f, "utf8"))
+    .join("\n");
+  const info = slns.map((sln) => {
+    const text = fs.readFileSync(path.join(root, sln), "utf8");
+    const projs = [...text.matchAll(/"([^"]+\.(?:cs|fs|vb)proj)"/g)].map((m) => m[1].replace(/\\/g, "/"));
+    return { sln, count: projs.length, classic: projs.filter((p) => classic.has(p)).length, ci: ci.split(sln).length - 1 };
+  });
+  info.sort((x, y) => (x.classic > 0 ? 1 : 0) - (y.classic > 0 ? 1 : 0) || y.ci - x.ci || y.count - x.count);
+  const pick = info[0];
+  const others = info.slice(1).map((i) => `${i.sln} (${i.count} proje${i.classic ? `, ${i.classic} .NET Framework` : ""})`);
+  return {
+    sln: pick.sln,
+    notes: [`Birden fazla solution var; komutlar ${pick.sln} ile çalışır. Diğerleri: ${others.join(", ")}. Gerekirse commands altında değiştir.`],
+  };
+}
+
 function detectDotnet(root: string): Detected {
   const tech: string[] = [];
-  const csprojs = gitLsFiles(root).filter((f) => f.endsWith(".csproj"));
+  const notes: string[] = [];
+  const files = gitLsFiles(root);
+  const csprojs = files.filter((f) => /\.(cs|fs|vb)proj$/.test(f));
   const frameworks = new Set<string>();
   const testFw = new Set<string>();
+  const classic = new Set<string>();
   for (const p of csprojs) {
     const x = fs.readFileSync(path.join(root, p), "utf8");
     for (const m of x.matchAll(/<TargetFrameworks?>([^<]+)</g)) m[1].split(";").forEach((f) => frameworks.add(f.trim()));
+    const fwv = /<TargetFrameworkVersion>v?([^<]+)</.exec(x);
+    if (fwv) {
+      frameworks.add(`.NET Framework ${fwv[1]}`);
+      classic.add(p);
+    }
     if (/xunit/i.test(x)) testFw.add("xUnit");
     if (/NUnit/.test(x)) testFw.add("NUnit");
     if (/MSTest/.test(x)) testFw.add("MSTest");
@@ -118,25 +153,32 @@ function detectDotnet(root: string): Detected {
   }
   tech.push(`.NET (${[...frameworks].join(", ") || "sürüm bilinmiyor"}) · ${csprojs.length} proje`);
   if (testFw.size) tech.push(`Test: ${[...testFw].join(", ")}`);
+  const slns = fs.readdirSync(root).filter((f) => /\.slnx?$/.test(f)).sort();
+  const { sln, notes: slnNotes } = pickSolution(root, slns, classic);
+  notes.push(...slnNotes);
+  if (classic.size) {
+    tech.push(`${classic.size} proje .NET Framework (eski biçim): sadece Windows'ta derlenir ve test edilir; macOS/Linux'ta bu projelerdeki değişiklikler yerelde doğrulanamaz, CI'da doğrulanır`);
+    notes.push(`${classic.size} .NET Framework projesi var; bu makinede derlenemez. Komutlar sadece ${sln ?? "SDK biçimli projeler"} üzerinde çalışır.`);
+  }
+  const target = sln ? ` ${JSON.stringify(sln).slice(1, -1)}` : "";
   return {
     stack: "dotnet",
     tech,
     commands: {
-      install: "dotnet restore",
-      // .NET'te "ilgili testler" otomatik bulunamaz; test projesi filtrelenerek daraltılabilir
-      testRelated: "dotnet test --no-restore {{testFiles}}",
-      typecheck: "dotnet build --no-restore -nologo -clp:NoSummary",
-      lint: "dotnet format --verify-no-changes --no-restore --include {{files}}",
-      format: "dotnet format --no-restore --include {{files}}",
+      install: `dotnet restore${target}`,
+      // her değişen test dosyasının projesinde, sadece o test sınıfları
+      testRelated: `dotnet test {{testProject}} --no-restore --filter "{{testFilter}}"`,
+      typecheck: `dotnet build${target} --no-restore -nologo -clp:NoSummary`,
+      lint: `dotnet format${target} --verify-no-changes --no-restore --include {{files}}`,
+      format: `dotnet format${target} --no-restore --include {{files}}`,
       commitCheck: "",
     },
     linkDirs: [],
     edit: ["**"],
     readDeny: [...COMMON_DENY, "**/appsettings.*.json", "**/secrets.json", "**/*.pfx"],
-    notes: ["dotnet testRelated: {{testFiles}} yerine test projesi yolu ya da --filter ile daraltmak isteyebilirsin."],
+    notes,
   };
 }
-
 
 function gitLsFiles(root: string): string[] {
   const r = git(["ls-files"], root);

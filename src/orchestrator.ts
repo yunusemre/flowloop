@@ -686,7 +686,11 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   } else if (cfg.commands.install) {
     log.info(`Bağımlılık kurulumu: ${cfg.commands.install}${lockSame ? "" : " (lock dosyası base'den farklı)"}`);
     const s = runConfigured(cfg.commands.install, wt, undefined, { fullEnv: true }); // özel npm registry token'ı gerekebilir
-    if (s.code !== 0) fail(`Kurulum başarısız: ${s.stderr.trim().split("\n").slice(-5).join(" / ")}`);
+    if (s.code !== 0) {
+      // dotnet, npm gibi araçlar hatayı stdout'a da yazar
+      const out = (s.stdout + "\n" + s.stderr).trim().split("\n").filter((l) => l.trim()).slice(-12).join("\n    ");
+      fail(`Kurulum başarısız (${cfg.commands.install}, çıkış kodu ${s.code}):\n    ${out || "(çıktı yok)"}\n  Komutu .flowloop/flowloop.yaml → commands.install'dan düzeltebilirsin.`);
+    }
     linkInto(wt, baseWt, cfg.linkDirs);
   }
   const X = cfg.linkDirs; // git işlemlerinde hariç tutulacak symlink'ler
@@ -732,7 +736,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     summary.related = related.map((x) => x.s);
   };
   const mutant = cfg.mutation.enabled
-    ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed()), X, cfg.mutation.testTimeoutSec)
+    ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec)
     : undefined;
 
   const budgetLeft = () => cfg.budgets.total - summary.totalCostUsd;
@@ -1275,7 +1279,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   summary.error = undefined;
   const changed = () => changedExisting(wt, X);
   const mutant = needsReview && cfg.mutation.enabled
-    ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed()), X, cfg.mutation.testTimeoutSec)
+    ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec)
     : undefined;
   const call = async (role: RoleSpec, phase: string, budget: number, extraVars: Record<string, string> = {}): Promise<AgentResult> => {
     const res = await runWithBudget(agent, {

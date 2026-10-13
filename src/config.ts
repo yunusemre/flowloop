@@ -274,8 +274,8 @@ export function loadConfig(root: string): FlowloopConfig {
     const msg = r.error.issues.map((i) => `  - ${i.path.join(".") || "(kök)"}: ${i.message}`).join("\n");
     throw new ConfigError(`${CONFIG_FILE} doğrulanamadı:\n${msg}`);
   }
-  if (!/\{\{(files|testFiles)\}\}/.test(r.data.commands.testRelated)) {
-    throw new ConfigError("commands.testRelated {{files}} ya da {{testFiles}} içermeli (sadece bu işin testleri çalışsın).");
+  if (!/\{\{(files|testFiles|testProject|testProjects|testFilter)\}\}/.test(r.data.commands.testRelated)) {
+    throw new ConfigError("commands.testRelated {{files}}, {{testFiles}} ya da {{testProject}} içermeli (sadece bu işin testleri çalışsın).");
   }
   const names = new Set<string>();
   for (const rel of r.data.related) {

@@ -6,7 +6,17 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
-## Yayınlanmadı
+## 1.6.1 — 2026-10-13
+
+### Düzeltme
+- **.NET: birden fazla solution.** Kökte birden fazla `.sln` varsa `dotnet restore` hangisini kullanacağını bilemeyip hata veriyordu. `flowloop init` artık solution'ı kendisi seçiyor: .NET Framework projesi içermeyen, CI dosyalarında adı geçen ve en çok projeli olanı. Seçilen solution komutlara yazılıyor.
+- **Kurulum hatası mesajı boştu.** dotnet ve npm gibi araçlar hatayı stdout'a yazdığı için mesaj boş çıkıyordu; artık çıktının sonu ve çıkış kodu gösteriliyor.
+
+### Yeni
+- **.NET testleri:** `{{testProject}}` ve `{{testFilter}}` yer tutucuları eklendi. Komut, değişen her test dosyasının projesinde ayrı çalışıyor ve sadece o test sınıflarını çalıştırıyor. Yeni .NET projelerinde varsayılan komut: `dotnet test {{testProject}} --no-restore --filter "{{testFilter}}"`. `{{testProjects}}` bütün test projelerini tek seferde verir.
+- **.NET Framework projeleri** (eski biçim, `TargetFrameworkVersion`) algılanıyor. Bunlar Windows dışında derlenemediği için testleri "çalıştırılamadı (CI'da doğrulanmalı)" olarak atlanıyor ve bu durum reviewer'a bildiriliyor.
+
+## 1.6.0 — 2026-10-09
 
 ### Yeni
 - **Açık sorular:** analist belirsizlikleri "Varsayım" (koddan ya da makul biçimde çözülebilen) ve "Açık soru" (ürün kararı gerektiren) olarak ayırır. Planda `## Açık sorular` varsa flowloop geliştirmeye geçmeden durur: cevapla (analist planı günceller, cevaplar developer ve reviewer'a da gider), varsayılanlarla devam et, soruları Jira'ya yorum olarak yaz ve dur ya da durdur. Etkileşimsiz çalıştırmalar için `questions: ask | jira | assume` ayarı ve `--questions` bayrağı. Sorular ve cevaplar `run.json` ve `run/answers.md`'de; `flowloop stats` da gösterir.
