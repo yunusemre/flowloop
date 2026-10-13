@@ -18,15 +18,36 @@ export class MutantSandbox {
     readonly testCmd: TestCommandFn,
     readonly linkDirs: string[],
     readonly timeoutSec: number,
+    /** Kopyada bir kez çalışan kurulum komutu (ör. dotnet restore); linkDirs ile bağlanamayan bağımlılıklar için */
+    readonly installCmd = "",
   ) {}
 
-  reset(): { files: number } {
-    fs.rmSync(this.dir, { recursive: true, force: true });
-    fs.mkdirSync(this.dir, { recursive: true });
+  private get manifest() {
+    return path.join(this.dir, ".flowloop-mutant.json");
+  }
+
+  /**
+   * Kopyayı developer'ın son hâline getirir. İlk çağrıda dosyalar kopyalanır ve kurulum çalışır;
+   * sonraki çağrılarda sadece kaynak dosyalar yeniden yazılır (kurulum çıktıları, ör. obj/, korunur),
+   * developer'ın sildiği dosyalar kopyadan da silinir.
+   */
+  reset(): { files: number; installError?: string } {
+    let previous: string[] | undefined;
+    try {
+      previous = JSON.parse(fs.readFileSync(this.manifest, "utf8")).files;
+    } catch {
+      previous = undefined;
+    }
+    if (!previous) {
+      fs.rmSync(this.dir, { recursive: true, force: true });
+      fs.mkdirSync(this.dir, { recursive: true });
+    }
     // izlenen + izlenmeyen (gitignore hariç) dosyalar = developer'ın son hâli
     const files = gitOk(["ls-files", "-co", "--exclude-standard", "-z", "--", ".", ...this.linkDirs.map((d) => `:(exclude)${d}`)], this.repoRoot)
       .split("\0")
-      .filter(Boolean);
+      .filter((rel) => rel && fs.existsSync(path.join(this.repoRoot, rel)) && fs.lstatSync(path.join(this.repoRoot, rel)).isFile());
+    const keep = new Set(files);
+    for (const rel of previous ?? []) if (!keep.has(rel)) fs.rmSync(path.join(this.dir, rel), { force: true });
     for (const rel of files) {
       const src = path.join(this.repoRoot, rel);
       if (!fs.existsSync(src) || !fs.lstatSync(src).isFile()) continue;
@@ -39,7 +60,13 @@ export class MutantSandbox {
       if (!fs.existsSync(link) || fs.existsSync(path.join(this.dir, d))) continue;
       fs.symlinkSync(fs.realpathSync.native(link), path.join(this.dir, d), "dir");
     }
-    return { files: files.length };
+    let installError: string | undefined;
+    if (!previous && this.installCmd.trim()) {
+      const r = runConfigured(this.installCmd, this.dir, this.timeoutSec * 1000, { fullEnv: true });
+      if (r.code !== 0) installError = `Kopyada kurulum başarısız (${this.installCmd}): ${(r.stdout + "\n" + r.stderr).trim().split("\n").slice(-5).join(" / ")}`;
+    }
+    fs.writeFileSync(this.manifest, JSON.stringify({ files }));
+    return { files: files.length, installError };
   }
 
   test(): { code: number; output: string } {
@@ -66,7 +93,7 @@ export async function createMutantServer(sandbox: MutantSandbox) {
         {},
         async () => {
           const r = sandbox.reset();
-          return { content: [{ type: "text", text: `Kopya hazır: ${sandbox.dir} (${r.files} dosya)` }] };
+          return { content: [{ type: "text", text: `Kopya hazır: ${sandbox.dir} (${r.files} dosya)${r.installError ? `\n${r.installError}` : ""}` }] };
         },
       ),
       tool(

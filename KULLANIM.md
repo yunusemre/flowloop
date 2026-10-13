@@ -454,7 +454,7 @@ Claude ile arasındaki farklar:
 |---|---|
 | `flowloop runs` | Bu projedeki çalıştırmaları ve durumlarını listeler |
 | `flowloop stats [--since 30d] [--json]` | Çalıştırmaların ölçüm özeti (aşağıya bak) |
-| `flowloop resume <id> -v [--agent cursor]` | Yarım kalan bir çalıştırmayı baştan başlatmadan sürdürür (kontroller → reviewer → commit → push → Jira) |
+| `flowloop resume <id> -v [--agent cursor]` | Yarım kalan bir çalıştırmayı analiz tekrarlanmadan sürdürür: kontroller → reviewer → commit → push → Jira. Reviewer reddetmişse son geri bildirimle önce developer düzeltir |
 | `flowloop task PROJ-123` | Sadece Jira görevini dosyaya çeker (çalıştırmaz) |
 | `flowloop clean` | Merge edilmiş çalıştırmaların çalışma klasörlerini siler |
 | `flowloop clean --all` | Tüm çalıştırmaların çalışma klasörlerini siler |
@@ -505,6 +505,11 @@ En çok değiştirilenler:
 - Örnek: `dotnet test {{testProject}} --no-restore --filter "{{testFilter}}"`.
 - Kökte birden fazla solution varsa komutlara hangisinin kullanılacağı yazılır (ör. `dotnet restore YnkDC.sln`).
 - .NET Framework (eski biçim) projeleri macOS ve Linux'ta derlenemez; bu projelerdeki testler yerelde atlanır, CI'da doğrulanmalıdır.
+- .NET'te varsayılan format komutu `dotnet format whitespace` (sadece boşluk ve girinti). Stil düzeltmeleri dosyanın tamamını değiştirip PR'ı şişirdiği için format adımında uygulanmaz.
+
+**Dosya silme:** developer `rm` ya da `git rm` kullanamaz. Bir dosyayı silmek için içeriğini tamamen boşaltır; base'de dolu olup 0 bayt kalan izlenen dosyaları flowloop siler.
+
+**Gizli dosyalar (`readDeny`):** hiçbir rol bu dosyaları okuyamaz ve değiştiremez. Görev böyle bir dosyada değişiklik gerektiriyorsa analist bunu Riskler'e, developer Handoff'a "elle yapılmalı" diye yazar; reviewer bunun için FAIL vermez, notu "İncelenmesi önerilenler"e taşır.
 
 ### Rol kuralları (system prompt)
 
@@ -550,7 +555,8 @@ Gerisi kendiliğinden olur:
 | npm yetki hatası (`EACCES`) | `FLOWLOOP_FORCE_NVM=1` ile kur (sudo'suz Node kurulumu) |
 | `Jira yetki hatası (401)` / `Jira kimlik bilgisi yok` | `flowloop setup --force` ile token'ı yenile; kayda erişimin olmalı |
 | `... için ayrılan bütçe doldu` / `reached maximum budget` | Etkileşimli terminalde flowloop ek bütçe sorar; `[e]` ile ajan kaldığı yerden devam eder. Kalıcı olarak artırmak için `.flowloop/flowloop.yaml` → `budgets` (ör. `analist: 2`, `total: 10`). Büyük projelerde ve `related` ile birden fazla repo okunurken analist daha çok harcar |
-| `N turda onay alınamadı` | Son geri bildirim `flowloop runs` ile bulunan klasördeki `run.json` dosyasında. Kontroller düzeldiyse `flowloop resume <id> -v` |
+| `N turda onay alınamadı` | Son geri bildirim `flowloop runs` ile bulunan klasördeki `run.json` dosyasında. `flowloop resume <id> -v` bu geri bildirimle developer'dan devam eder (yeni bir tur hakkıyla) |
+| `testler ortam yüzünden çalışmadı: Docker çalışmıyor` | Entegrasyon testleri Docker (Testcontainers) istiyor. Docker'ı başlat (`open -a Docker`), sonra `flowloop resume <id> -v` |
 | `YENİ lint hatası` sürekli çıkıyor | Projede Prettier ile ESLint kuralları çakışıyor olabilir. `.eslintrc`'de `extends` listesinin sonuna `'prettier'` ekle |
 | `PROJ-…-2` gibi branch açıldı | Aynı adlı eski branch'te commit var. Eskisini incele ya da sil |
 | `Ne Claude ne Cursor erişimi bulundu` | `flowloop setup` |

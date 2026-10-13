@@ -151,6 +151,18 @@ const SECRET_PATTERN = /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|PRIVATE_KEY
  * ajanın kendi kimlik doğrulaması için gereken (allow) değişkenler eklenir.
  * Böylece ajanın yazdığı bir test ya da komut, Jira token'ını okuyamaz.
  */
+let cachedLoginPath: string | undefined;
+/**
+ * Giriş kabuğunun PATH'i (bash -l). flowloop'un kontrolleri komutları giriş kabuğunda çalıştırır;
+ * ajanların Bash aracı da aynı araç sürümlerini (ör. ~/.dotnet altındaki .NET 10) görmeli.
+ */
+export function loginPath(): string | undefined {
+  if (cachedLoginPath !== undefined) return cachedLoginPath || undefined;
+  const r = spawnSync("bash", ["-lc", 'printf %s "$PATH"'], { encoding: "utf8", timeout: 10_000 });
+  cachedLoginPath = r.status === 0 ? r.stdout.trim() : "";
+  return cachedLoginPath || undefined;
+}
+
 export function scrubEnv(env: NodeJS.ProcessEnv, allow: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const out: NodeJS.ProcessEnv = {};
   for (const [k, v] of Object.entries(env)) {

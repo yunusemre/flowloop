@@ -32,6 +32,14 @@ Reviewer her AK için kodu bilerek bozup testlerinin kırıldığını kontrol e
 {{related}}
 {{/related}}
 
+Dosya silmek için `rm` ya da `git rm` kullanamazsın: dosyanın içeriğini tamamen boşalt (0 bayt). flowloop
+turdan sonra boşaltılmış dosyayı silme olarak işler. Projede dosya listesi tutan yerler varsa (ör. eski .csproj
+`<Compile Include>` satırları) onları da güncelle.
+
+Gizli dosya listesindeki (readDeny) dosyaları okuyamaz ve değiştiremezsin; okuman reddedilirse tekrar deneme.
+Görev böyle bir dosyada değişiklik gerektiriyorsa yapmadan geç ve `Skipped / not checked:` satırına
+"<dosya>: <ne değişmeli> — elle yapılmalı" diye yaz.
+
 Kapsam dışı bir değişiklik gerekiyorsa (izin verilmeyen bir yol ya da SADECE OKUNUR bir repo):
 o dosyayı değiştirmeye çalışma ve etrafından dolaşan bir çözüm (workaround) yazma. Bunun yerine
 `{{scopeRequestFile}}` dosyasına şunları yaz ve turunu bitir: hangi repo/dosyada, ne değişmeli,

@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import picomatch from "picomatch";
 import { findForbiddenFlag, matchesPrefix, parseSimpleCommand } from "./shell.js";
@@ -37,6 +38,23 @@ export interface PolicyContext {
    * readDeny ve aliasRoot her repo için ayrıdır.
    */
   extraRoots?: { name: string; root: string; readDeny: string[]; aliasRoot?: string }[];
+  /** Claude Code'un oturum klasörleri (uzun araç çıktılarını buraya yazar). Varsayılan: ~/.claude/projects */
+  claudeProjectsDir?: string;
+}
+
+/**
+ * Claude Code uzun araç çıktılarını ~/.claude/projects/<çalışma klasörü>/<oturum>/tool-results/
+ * altına yazıp ajana oradan okutur. Sadece BU çalışma kopyasının oturumlarına ait çıktılar okunabilir.
+ */
+export function isOwnToolOutput(ctx: PolicyContext, p: string): boolean {
+  const base = ctx.claudeProjectsDir ?? path.join(os.homedir(), ".claude", "projects");
+  const enc = (d: string) => d.replace(/[^A-Za-z0-9]/g, "-");
+  const abs = path.resolve(p);
+  for (const root of new Set([ctx.repoRoot, realish(ctx.repoRoot)])) {
+    const rel = within(path.join(base, enc(root)), abs);
+    if (rel !== undefined && /^[^/]+\/tool-results\/[^/]+$/.test(rel.split(path.sep).join("/"))) return true;
+  }
+  return false;
 }
 
 const PATH_FIELDS = ["file_path", "path", "notebook_path"];
@@ -134,6 +152,7 @@ function match(key: string, patterns: string[]): boolean {
 function checkPath(ctx: PolicyContext, p: unknown, allowed: string[], kind: "okuma" | "yazma"): Decision {
   if (typeof p !== "string" || !p) return { allow: false, reason: `${kind}: yol belirtilmemiş` };
   const key = locate(ctx, p);
+  if (key === undefined && kind === "okuma" && isOwnToolOutput(ctx, p)) return { allow: true };
   if (key === undefined) return { allow: false, reason: `${kind}: ${p} çalışma alanı dışında` };
   if (isSecret(ctx, key)) {
     return { allow: false, reason: `${kind}: ${key} gizli dosya listesinde (readDeny)` };

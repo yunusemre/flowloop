@@ -18,6 +18,9 @@ Bu istek(ler) kodda ve gerekiyorsa testlerde karşılanmadıysa FAIL ver ve neyi
 
 {{/userRequests}}
 Projede önceden var olan hatalar (tip, lint, kırık testler) kapsam DIŞIDIR; onlar için FAIL verme.
+Gizli dosya listesindeki (readDeny) dosyalar kimse tarafından okunamaz ve değiştirilemez: onlardaki eksik için
+FAIL verme, "İncelenmesi önerilenler"e "elle yapılmalı" diye yaz. Developer dosya silmek için içeriğini
+boşaltır; flowloop boşaltılan dosyaları siler (git status'ta "D" olarak görürsün).
 
 Kontroller:
 1. Plandaki her AK için: kodda nerede karşılanıyor, hangi test doğruluyor?

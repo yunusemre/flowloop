@@ -4,7 +4,7 @@ import path from "node:path";
 import { ROLE_GUARDRAIL, systemAppend, type AgentRequest, type AgentResult, type AgentRunner, type Denial } from "./agent.js";
 import type { PolicyContext, RolePermissions } from "./policy.js";
 import { PACKAGE_ROOT, type RoleName } from "./roles.js";
-import { scrubEnv } from "./secrets.js";
+import { loginPath, scrubEnv } from "./secrets.js";
 
 /**
  * Cursor CLI ile ajan çalıştırıcı.
@@ -43,6 +43,7 @@ export interface MutantContext {
   testCmd: string;
   linkDirs: string[];
   timeoutSec: number;
+  installCmd?: string;
 }
 
 export const CURSOR_CO_AUTHOR = "Co-Authored-By: Cursor Agent <cursoragent@cursor.com>";
@@ -64,7 +65,7 @@ export class CursorAgentRunner implements AgentRunner {
       // MCP yerine kabuk komutu: run klasöründeki küçük betik, flowloop'un mutasyon kum havuzunu çağırır
       const m = req.mutant;
       const ctxFile = path.join(ctlDir, "mutant.json");
-      const ctx: MutantContext = { repoRoot: m.repoRoot, dir: m.dir, testCmd: m.testCmd(), linkDirs: m.linkDirs, timeoutSec: m.timeoutSec };
+      const ctx: MutantContext = { repoRoot: m.repoRoot, dir: m.dir, testCmd: m.testCmd(), linkDirs: m.linkDirs, timeoutSec: m.timeoutSec, installCmd: m.installCmd };
       fs.writeFileSync(ctxFile, JSON.stringify(ctx));
       const script = path.join(ctlDir, "mutant");
       fs.writeFileSync(script, `#!/bin/sh\nexec "${process.execPath}" "${path.join(PACKAGE_ROOT, "dist", "src", "cli.js")}" __mutant "$1" "${ctxFile}"\n`, { mode: 0o755 });
@@ -235,7 +236,7 @@ function runStreaming(
   onEvent: (ev: Record<string, unknown> & { type?: string; subtype?: string }) => void,
 ): Promise<{ code: number; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
-    const env = scrubEnv(process.env, { CURSOR_API_KEY: process.env.CURSOR_API_KEY });
+    const env = scrubEnv({ ...process.env, PATH: loginPath() ?? process.env.PATH }, { CURSOR_API_KEY: process.env.CURSOR_API_KEY });
     const child = spawn(bin, args, { cwd, env, stdio: ["ignore", "pipe", "pipe"] });
     let buf = "";
     let stderr = "";

@@ -384,15 +384,42 @@ test("resume: commit aşamasında kalan iş, analist/developer/reviewer tekrar �
   assert.equal(gitOk(["rev-parse", "--verify", s.branch!], first.root).length, 40);
 });
 
-test("resume: onay alınamamış iş, analist/developer tekrar çalışmadan reviewer → committer ile tamamlanır", async () => {
-  const first = await run({ reviewer: () => "eksik var\nVERDICT: FAIL" });
+test("resume: reviewer FAIL ile kalan iş, analist tekrar çalışmadan son geri bildirimle developer'dan devam eder", async () => {
+  const first = await run({ reviewer: () => "❌ eksik: README notu\nVERDICT: FAIL" });
   assert.match(first.err!, /onay alınamadı/);
   const runsDir = path.join(first.root, "..", path.basename(first.root) + "-work", path.basename(first.root));
   const id = fs.readdirSync(runsDir)[0];
   const agent = new FakeAgent(good);
   const s = await resumeRun({ root: first.root, resume: id, taskFile: "", agent, log: silentLogger(), noPush: true });
   assert.equal(s.status, "success");
-  assert.deepEqual(agent.calls.map((c) => c.role), ["reviewer", "committer"]);
+  assert.deepEqual(agent.calls.map((c) => c.role), ["developer", "reviewer", "committer"]);
+  assert.match(agent.calls[0].prompt, /REDDEDİLDİ[\s\S]*eksik: README notu/, "kayıtlı reviewer geri bildirimi developer'a gider");
+});
+
+test("resume: reviewer yeniden FAIL verirse developer düzeltir; boşaltılan dosya silinir", async () => {
+  const first = await run({ reviewer: () => "❌ eski dosya kalmış\nVERDICT: FAIL" }, "", 0.1, { files: { "src/eski.js": "export const eski = 1;\n" } });
+  const runsDir = path.join(first.root, "..", path.basename(first.root) + "-work", path.basename(first.root));
+  const id = fs.readdirSync(runsDir)[0];
+  const run2 = JSON.parse(fs.readFileSync(path.join(runsDir, id, "run.json"), "utf8"));
+  delete run2.lastReviewFeedback; // eski sürümle yazılmış kayıt: önce reviewer tekrar bakar
+  fs.writeFileSync(path.join(runsDir, id, "run.json"), JSON.stringify(run2));
+  const agent = new FakeAgent({
+    ...good,
+    developer: (req) => {
+      assert.match(req.prompt, /eski dosya kalmış/);
+      W(req, "src/eski.js", "");
+    },
+    reviewer: (req, n) => (n === 1 ? "❌ eski dosya kalmış\nVERDICT: FAIL" : (assert.match(req.prompt, /❌|✅/), "VERDICT: PASS")),
+    committer: (req) => {
+      GIT(req, "add", "-A");
+      GIT(req, "commit", "-qm", "feat(fiyat): ekspres teslimat");
+    },
+  });
+  const s = await resumeRun({ root: first.root, resume: id, taskFile: "", agent, log: silentLogger(), noPush: true });
+  assert.equal(s.status, "success");
+  assert.deepEqual(agent.calls.map((c) => c.role), ["reviewer", "developer", "reviewer", "committer"]);
+  assert.throws(() => gitOk(["cat-file", "-e", `${s.branch}:src/eski.js`], first.root), "boşaltılan dosya commit'te silinmiş");
+  assert.ok(gitOk(["show", `${s.branch}:src/fiyat.js`], first.root).includes("ekspres"));
 });
 
 test("plan onayı: yorum analiste gider, plan güncellenir, onaydan sonra geliştirme devam eder", async () => {

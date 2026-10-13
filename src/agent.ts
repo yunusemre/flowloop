@@ -2,7 +2,7 @@ import type { Logger } from "./log.js";
 import { createMutantServer, type MutantSandbox } from "./mutant.js";
 import { evaluate, rewriteAliasPaths, type PolicyContext, type RolePermissions } from "./policy.js";
 import type { RoleName } from "./roles.js";
-import { getCredential, scrubEnv } from "./secrets.js";
+import { getCredential, loginPath, scrubEnv } from "./secrets.js";
 import { currentVersion } from "./update.js";
 
 export interface AgentRequest {
@@ -105,7 +105,7 @@ export class SdkAgentRunner implements AgentRunner {
         settingSources,
         systemPrompt: { type: "preset", preset: "claude_code", append: systemAppend(req) },
         // gizli bilgiler (Jira token'ı vb.) ajana geçmez; sadece Claude'un kendi girişi için gerekenler
-        env: scrubEnv(process.env, {
+        env: scrubEnv({ ...process.env, PATH: loginPath() ?? process.env.PATH }, {
           ANTHROPIC_API_KEY: getCredential("ANTHROPIC_API_KEY"),
           CLAUDE_CODE_OAUTH_TOKEN: getCredential("CLAUDE_CODE_OAUTH_TOKEN"),
           ...(process.env.CLAUDE_CODE_USE_BEDROCK ? Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith("AWS_"))) : {}),

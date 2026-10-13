@@ -80,3 +80,21 @@ test("Docker kapalıysa testler ortam hatası olarak raporlanır (developer'a gi
   assert.equal(r.status, "fail");
   assert.match(r.env!, /Docker/);
 });
+
+test("mutant kopyası: kurulum bir kez çalışır, çıktısı korunur; mutasyon ve silinen dosyalar her reset'te temizlenir", async () => {
+  const { MutantSandbox } = await import("../src/mutant.js");
+  const { gitOk } = await import("../src/git.js");
+  const root = repo({ "a.cs": "A", "b.cs": "B" });
+  gitOk(["init", "-q"], root);
+  gitOk(["-c", "user.name=t", "-c", "user.email=t@t", "add", "-A"], root);
+  gitOk(["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "i"], root);
+  const dir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mut-")), "m");
+  const sb = new MutantSandbox(root, dir, () => "true", [], 60, "mkdir -p obj && echo x >> obj/restore.log");
+  sb.reset();
+  fs.writeFileSync(path.join(dir, "a.cs"), "MUTANT");
+  fs.rmSync(path.join(root, "b.cs"));
+  sb.reset();
+  assert.equal(fs.readFileSync(path.join(dir, "a.cs"), "utf8"), "A", "mutasyon geri alındı");
+  assert.equal(fs.existsSync(path.join(dir, "b.cs")), false, "silinen dosya kopyadan da silindi");
+  assert.equal(fs.readFileSync(path.join(dir, "obj/restore.log"), "utf8"), "x\n", "kurulum bir kez çalıştı, çıktısı korundu");
+});

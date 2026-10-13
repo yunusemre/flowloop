@@ -6,6 +6,19 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.7.0 — 2026-10-13
+
+### Yeni
+- **`resume` reviewer FAIL'inden sonra developer'la devam ediyor.** Önceden reviewer reddedince sürdürme duruyordu ve görevi baştan çalıştırmak (analizi tekrar ödemek) gerekiyordu. Artık son reviewer geri bildirimi developer'a gidiyor; kontroller ve reviewer tur sınırı içinde yeniden çalışıyor. Geri bildirim `run.json`'da (`lastReviewFeedback`) saklanıyor.
+- **Dosya silme:** developer bir dosyayı silmek için içeriğini tamamen boşaltıyor. Base'de dolu olup 0 bayt kalan izlenen dosyaları flowloop siliyor. Önceden silinmesi gereken dosyalar boş olarak kalıyordu.
+
+### Düzeltme
+- **Mutasyon kopyası derlenmiyordu.** Bağımlılık klasörü bağlanamayan projelerde (ör. .NET) kopyada kurulum komutu bir kez çalışıyor. Sonraki sıfırlamalarda sadece kaynak dosyalar yenileniyor; kurulum çıktıları (`obj/`) korunuyor.
+- **Ajanlar farklı araç sürümü görüyordu.** Ajanların Bash aracı artık flowloop'un kontrolleriyle aynı PATH'i (giriş kabuğu) kullanıyor. Önceden ajan .NET 8'i, kontroller .NET 10'u bulabiliyordu.
+- **Claude Code'un uzun araç çıktıları okunamıyordu.** Claude Code bu çıktıları `~/.claude/projects/<çalışma kopyası>/<oturum>/tool-results/` altına yazıp ajana oradan okutuyor. Bu klasörü okumak gereksiz yere reddediliyordu; artık sadece o çalışma kopyasının oturumları için izin veriliyor.
+- **.NET format adımı fazla geniş.** Varsayılan `dotnet format whitespace` oldu; stil düzeltmeleri (ör. file-scoped namespace) dosyanın tamamını değiştirip PR'ı şişiriyordu. Mevcut projelerde `commands.format` elle güncellenmeli.
+- **Gizli dosyalar (readDeny):** analist bu dosyaları developer'ın işine koymuyor, developer denemiyor, reviewer bunlar için FAIL vermiyor. Gereken değişiklik "elle yapılmalı" notuyla "İncelenmesi önerilenler"e yazılıyor.
+
 ## 1.6.2 — 2026-10-13
 
 ### Düzeltme

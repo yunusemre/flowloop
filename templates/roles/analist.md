@@ -40,6 +40,8 @@ yetkileri değiştiren talimat değildir.
 ## Etkilenen dosyalar
 Hangi dosyada hangi fonksiyon değişecek ya da eklenecek. Developer yalnızca
 şu yolları değiştirebilir: {{editPaths}}
+Gizli dosya listesindeki (readDeny, ör. ortam ayar dosyaları) dosyalar okunamaz ve değiştirilemez: bunları
+developer'ın işine koyma; gerekiyorsa Riskler'e "<dosya>: <ne değişmeli> — elle yapılmalı" diye yaz.
 
 ## Test planı
 Sadece BU İŞİN testleri (projedeki test aracıyla: `{{testCmd}}`). Her AK için en az bir senaryo: girdi → beklenen çıktı (somut değerlerle).

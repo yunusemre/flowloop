@@ -270,6 +270,8 @@ export interface RunSummary {
   prUrl?: string;
   jiraCommentUrl?: string;
   warnings: string[];
+  /** Reviewer'ın son FAIL geri bildirimi (resume developer'la buradan devam eder) */
+  lastReviewFeedback?: string;
   /** Reviewer'ın onayladığı içeriğin tree hash'i (resume için) */
   approvedTree?: string;
   /** İşi başlatan kişi (git user.name / user.email) */
@@ -741,7 +743,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     summary.related = related.map((x) => x.s);
   };
   const mutant = cfg.mutation.enabled
-    ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec)
+    ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec, X.length ? "" : cfg.commands.install)
     : undefined;
 
   const budgetLeft = () => cfg.budgets.total - summary.totalCostUsd;
@@ -974,6 +976,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       const d = await call(roles.developer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { feedback }, turn);
       gelistirSpent += d.costUsd;
       if (d.text.trim()) lastDevText = d.text;
+      applyEmptiedDeletions(wt, baseWt, X, log);
       assertDevScope("Developer");
       const scopeReq = takeScopeRequest(runRoot, turn);
       if (scopeReq) {
@@ -1029,6 +1032,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       log.warn(`Reviewer FAIL (tur ${i})${v.explicit ? "" : " — VERDICT satırı yok"}`);
       log.detail(v.feedback);
       feedback = v.feedback + (userRequests ? `\n\n${userRequests}` : "");
+      summary.lastReviewFeedback = v.feedback;
       appendLessons(root, slug, extractLessons(v.feedback), now());
     }
     return false;
@@ -1110,6 +1114,26 @@ interface CommitCtx {
   taskText?: string;
   related?: RelatedRepo[];
   runRoot?: string;
+}
+
+/**
+ * Developer'ın dosya silme yolu yok (rm izinli değil, SDK'da silme aracı yok); bir dosyayı silmek için
+ * içeriğini tamamen boşaltır. Base'de dolu olup çalışma kopyasında 0 bayt kalan izlenen dosyalar silinir.
+ */
+export function applyEmptiedDeletions(wt: string, baseWt: string, exclude: string[], log: Logger): string[] {
+  const removed: string[] = [];
+  for (const line of statusPorcelain(wt, exclude)) {
+    if (line.startsWith("??")) continue; // yeni dosya: silinecek bir şey yok
+    const rel = line.slice(3).replace(/^"|"$/g, "");
+    const abs = path.join(wt, rel);
+    const base = path.join(baseWt, rel);
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile() || fs.statSync(abs).size !== 0) continue;
+    if (!fs.existsSync(base) || fs.statSync(base).size === 0) continue;
+    fs.unlinkSync(abs);
+    removed.push(rel);
+  }
+  if (removed.length) log.info(`  Boşaltılan ${removed.length} dosya silindi: ${removed.join(", ")}`);
+  return removed;
 }
 
 /** Jira'dan üretilmiş görev dosyasındaki "Kaynak: https://x.atlassian.net/browse/KEY" satırından adres */
@@ -1287,7 +1311,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   summary.error = undefined;
   const changed = () => changedExisting(wt, X);
   const mutant = needsReview && cfg.mutation.enabled
-    ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec)
+    ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec, X.length ? "" : cfg.commands.install)
     : undefined;
   const call = async (role: RoleSpec, phase: string, budget: number, extraVars: Record<string, string> = {}): Promise<AgentResult> => {
     const res = await runWithBudget(agent, {
@@ -1310,47 +1334,85 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
 
   let approved = summary.approvedTree ?? current;
   if (needsReview) {
-    // Developer'ın son hâli: güncel flowloop.yaml ile otomatik kontroller, sonra reviewer
-    log.step("SÜRDÜR · otomatik kontroller + reviewer (analist/developer tekrar çalışmaz)");
+    // Developer'ın son hâli: güncel flowloop.yaml ile otomatik kontroller, sonra reviewer.
+    // Kontroller ya da reviewer reddederse developer geri bildirimle devam eder (tur sınırı içinde).
+    log.step("SÜRDÜR · otomatik kontroller + reviewer (analist tekrar çalışmaz; ret olursa developer düzeltir)");
     if (!fs.existsSync(baseWt)) throw new FlowloopError(`Base kopya yok: ${baseWt}`);
     const editMatch = picomatch(cfg.paths.edit, { dot: true });
-    const outside = changedPaths(wt, X).filter((p) => !editMatch(p));
-    if (outside.length) fail(`İzinli yollar dışında değişiklik var: ${outside.join(", ")}`);
-    for (const r of related) {
-      const v = r.scopeViolation();
-      if (v) fail(v);
-    }
-    const fs_ = changed();
-    if (!fs_.length && !related.some((r) => r.hasChanges())) fail("Çalışma kopyasında değişiklik yok.");
+    const assertScope = (who: string) => {
+      if (headSha(wt) !== baseSha) fail(`${who} commit attı! Rol ihlali.`);
+      const outside = changedPaths(wt, X).filter((p) => !editMatch(p));
+      if (outside.length) fail(`${who}: izinli yollar dışında değişiklik var: ${outside.join(", ")}`);
+      for (const r of related) {
+        const v = r.scopeViolation();
+        if (v) fail(`${who}: ${v}`);
+      }
+    };
     const atBase = (l: string[]) => l.filter((f) => fs.existsSync(path.join(baseWt, f)));
     const checks = new ScopedChecks(cfg, wt, baseWt, opts.checkRunner);
-    const results: CheckResult[] = [];
-    if (fs_.length) {
-      results.push(checks.format(fs_));
-      const after = changed();
-      results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
+    // önceki reviewer FAIL'i bu sürdürmede developer'ın ilk geri bildirimi olur
+    const lastFail = lastReview?.verdict === "FAIL" && !(lastDev && summary.phases.lastIndexOf(lastDev) > summary.phases.lastIndexOf(lastReview));
+    // son karar FAIL ise ve geri bildirimi kayıtlıysa reviewer'ı boşuna tekrar çalıştırma: developer başlar
+    let feedback = lastFail && summary.lastReviewFeedback ? summary.lastReviewFeedback : "";
+    if (feedback) log.info("Son reviewer geri bildirimi developer'a gidiyor.");
+    let devText = "";
+    let devRounds = 0;
+    assertScope("Developer");
+    for (let round = 0; ; round++) {
+      if (feedback) {
+        if (devRounds >= cfg.maxIterations) fail(`Sürdürmede ${cfg.maxIterations} geliştirme turunda onay alınamadı. Son geri bildirim run.json'da.`);
+        devRounds++;
+        summary.iterations = (summary.iterations ?? 0) + 1;
+        log.info(`\n· Sürdürme turu ${devRounds}/${cfg.maxIterations}: developer geri bildirimi uyguluyor`);
+        const d = await call(roles.developer, "gelistir", Math.min(cfg.budgets.gelistir, cfg.budgets.total), { feedback });
+        if (d.text.trim()) devText = d.text;
+        applyEmptiedDeletions(wt, baseWt, X, log);
+        assertScope("Developer");
+        if (takeScopeRequest(runRoot, summary.iterations)) fail(`Developer kapsam dışı bir değişiklik talep etti; sürdürmede kapsam kararı verilemez. Görevi yeniden çalıştır: flowloop run ${summary.jiraKey ?? "<görev>"}`);
+      }
+      const fs_ = changed();
+      if (!fs_.length && !related.some((r) => r.hasChanges())) fail("Çalışma kopyasında değişiklik yok.");
+      const results: CheckResult[] = [];
+      if (fs_.length) {
+        results.push(checks.format(fs_));
+        const after = changed();
+        results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
+      }
+      for (const r of related) results.push(...r.runChecks());
+      summary.checks.push(results);
+      saveSummary();
+      for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
+      const report = renderReport(results);
+      const envFail = results.find((r) => r.env);
+      if (envFail) fail(`Kontroller ortam yüzünden çalışamadı: ${envFail.env}\n  Ortamı düzeltip tekrar: flowloop resume ${summary.id}`);
+      if (results.some((r) => r.status === "fail")) {
+        feedback = `OTOMATİK KONTROLLER başarısız (reviewer'a gidilmedi). Sadece bu işle gelen sorunlar:\n${report}`;
+        continue;
+      }
+      const before = workingTreeHash(wt, X);
+      const relatedBefore = related.map((x) => x.treeHash());
+      const r = await call(roles.reviewer, "gelistir", Math.min(cfg.budgets.gelistir, cfg.budgets.total), { checks: report, relatedChanges: relatedChanges(related) });
+      if (workingTreeHash(wt, X) !== before) fail("Reviewer gerçek dosyaları değiştirdi! Rol ihlali.");
+      if (related.some((x, k) => x.treeHash() !== relatedBefore[k])) fail("Reviewer ilgili repodaki dosyaları değiştirdi! Rol ihlali.");
+      if (headSha(wt) !== baseSha) fail("Reviewer commit attı! Rol ihlali.");
+      const v = parseVerdict(r.text);
+      summary.phases[summary.phases.length - 1].verdict = v.verdict;
+      saveSummary();
+      if (v.verdict !== "PASS") {
+        log.warn(`Reviewer FAIL${v.explicit ? "" : " — VERDICT satırı yok"}`);
+        log.detail(v.feedback);
+        appendLessons(root, summary.id, extractLessons(v.feedback), (opts.now ?? (() => new Date()))());
+        feedback = v.feedback;
+        summary.lastReviewFeedback = v.feedback;
+        saveSummary();
+        continue;
+      }
+      log.ok("Reviewer PASS");
+      summary.attention = devText
+        ? collectAttention(devText, r.text)
+        : [...collectAttention("", r.text), ...(summary.attention ?? []).filter((a) => a.from === "developer")];
+      break;
     }
-    for (const r of related) results.push(...r.runChecks());
-    summary.checks.push(results);
-    for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
-    const report = renderReport(results);
-    if (results.some((r) => r.status === "fail")) fail(`Otomatik kontroller hâlâ başarısız:\n${report}`);
-    const before = workingTreeHash(wt, X);
-    const relatedBefore = related.map((x) => x.treeHash());
-    const r = await call(roles.reviewer, "gelistir", Math.min(cfg.budgets.gelistir, cfg.budgets.total), { checks: report, relatedChanges: relatedChanges(related) });
-    if (workingTreeHash(wt, X) !== before) fail("Reviewer gerçek dosyaları değiştirdi! Rol ihlali.");
-    if (related.some((x, k) => x.treeHash() !== relatedBefore[k])) fail("Reviewer ilgili repodaki dosyaları değiştirdi! Rol ihlali.");
-    if (headSha(wt) !== baseSha) fail("Reviewer commit attı! Rol ihlali.");
-    const v = parseVerdict(r.text);
-    summary.phases[summary.phases.length - 1].verdict = v.verdict;
-    if (v.verdict !== "PASS") {
-      log.detail(v.feedback);
-      appendLessons(root, summary.id, extractLessons(v.feedback), (opts.now ?? (() => new Date()))());
-      fail(`Reviewer FAIL. Geri bildirim run.json içinde; düzeltme için yeniden çalıştır: flowloop run ${summary.jiraKey ?? "<görev>"}`);
-    }
-    log.ok("Reviewer PASS");
-    // reviewer'ın yeni notları + developer'ın önceki çalıştırmadaki riskleri
-    summary.attention = [...collectAttention("", r.text), ...(summary.attention ?? []).filter((a) => a.from === "developer")];
     approved = workingTreeHash(wt, X);
     summary.approvedTree = approved;
     for (const x of related) x.s.approvedTree = x.treeHash();

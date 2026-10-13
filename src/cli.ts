@@ -628,10 +628,10 @@ async function main(): Promise<number> {
       // Cursor reviewer'ının mutasyon komutu (iç kullanım)
       const [action, ctxFile] = rest;
       const ctx = JSON.parse(fs.readFileSync(ctxFile, "utf8")) as MutantContext;
-      const sb = new MutantSandbox(ctx.repoRoot, ctx.dir, () => ctx.testCmd, ctx.linkDirs, ctx.timeoutSec);
+      const sb = new MutantSandbox(ctx.repoRoot, ctx.dir, () => ctx.testCmd, ctx.linkDirs, ctx.timeoutSec, ctx.installCmd ?? "");
       if (action === "reset") {
         const r = sb.reset();
-        console.log(`Kopya hazır: ${ctx.dir} (${r.files} dosya)`);
+        console.log(`Kopya hazır: ${ctx.dir} (${r.files} dosya)${r.installError ? `\n${r.installError}` : ""}`);
         return 0;
       }
       if (action === "test") {

@@ -120,3 +120,12 @@ test("edit \"**\" (bütün repo) olsa da gizli dosyalara, .git'e, .flowloop'a ve
   assert.equal(W("node_modules/x/index.js"), false);
   assert.equal(W("../dışarı.ts"), false);
 });
+
+test("ajanın kendi araç çıktıları (~/.claude/projects/<çalışma kopyası>/<oturum>/tool-results) okunabilir, başkalarınınki değil", async () => {
+  const { evaluate } = await import("../src/policy.js");
+  const ctx = { repoRoot: "/w/run-1/wt", runRoot: "/w/run-1/run", readDeny: [], forbiddenFlags: {}, claudeProjectsDir: "/h/.claude/projects" };
+  const perms = { tools: ["Read"], read: ["**"], edit: [], bash: [] };
+  assert.equal(evaluate(perms, ctx, "Read", { file_path: "/h/.claude/projects/-w-run-1-wt/abc-123/tool-results/x.txt" }).allow, true);
+  assert.equal(evaluate(perms, ctx, "Read", { file_path: "/h/.claude/projects/-w-run-2-wt/abc-123/tool-results/x.txt" }).allow, false, "başka çalışma kopyası");
+  assert.equal(evaluate(perms, ctx, "Read", { file_path: "/h/.claude/projects/-w-run-1-wt/abc-123/session.jsonl" }).allow, false, "oturum kaydı değil");
+});

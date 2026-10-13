@@ -170,7 +170,8 @@ function detectDotnet(root: string): Detected {
       testRelated: `dotnet test {{testProject}} --no-restore --filter "{{testFilter}}"`,
       typecheck: `dotnet build${target} --no-restore -nologo -clp:NoSummary`,
       lint: `dotnet format${target} --verify-no-changes --no-restore --include {{files}}`,
-      format: `dotnet format${target} --no-restore --include {{files}}`,
+      // sadece boşluk/girinti: stil düzeltmeleri (ör. file-scoped namespace) dosyanın tamamını değiştirip PR'ı şişirir
+      format: `dotnet format whitespace${target} --include {{files}}`,
       commitCheck: "",
     },
     linkDirs: [],
