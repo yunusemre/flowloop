@@ -98,3 +98,19 @@ test("mutant kopyası: kurulum bir kez çalışır, çıktısı korunur; mutasyo
   assert.equal(fs.existsSync(path.join(dir, "b.cs")), false, "silinen dosya kopyadan da silindi");
   assert.equal(fs.readFileSync(path.join(dir, "obj/restore.log"), "utf8"), "x\n", "kurulum bir kez çalıştı, çıktısı korundu");
 });
+
+test("{{files:cs,csproj}} sadece o uzantıları verir; eşleşen yoksa format atlanır", async () => {
+  const { ScopedChecks } = await import("../src/checks.js");
+  assert.equal(fillFiles("x {{files:cs,csproj}}", ["a.cs", "b.json", "c/D.CSPROJ"], "/"), "x 'a.cs' 'c/D.CSPROJ'");
+  const runs: string[] = [];
+  const c = new ScopedChecks({ commands: { format: "dotnet csharpier format {{files:cs}}" } } as any, "/wt", "/base", { run: (cmd: string) => (runs.push(cmd), { code: 0, stdout: "", stderr: "" }) });
+  assert.equal(c.format(["appsettings.json"]).status, "skip");
+  assert.equal(runs.length, 0);
+  assert.equal(c.format(["a.cs"]).status, "ok");
+  assert.deepEqual(runs, ["dotnet csharpier format 'a.cs'"]);
+});
+
+test("kontrol komutları HUSKY=0 ile çalışır (kopyalarda git hook'u kurulmaz)", async () => {
+  const { runConfigured } = await import("../src/git.js");
+  assert.equal(runConfigured('printf %s "$HUSKY"', os.tmpdir()).stdout, "0");
+});

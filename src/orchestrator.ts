@@ -1155,7 +1155,15 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   const leftover = statusPorcelain(wt, X);
   const hooks = fs.existsSync(path.join(wt, ".husky")) ? " Commit hook'u (husky/lint-staged) dosya değiştirmiş olabilir." : "";
   if (leftover.length) fail(`Commit sonrası değişiklik kaldı: ${leftover.map((l) => l.slice(3)).slice(0, 10).join(", ")}.${hooks}`);
-  if (gitOk(["rev-parse", "HEAD^{tree}"], wt) !== approved) fail(`Commit'lenen içerik reviewer'ın onayladığıyla AYNI DEĞİL!${hooks}`);
+  if (gitOk(["rev-parse", "HEAD^{tree}"], wt) !== approved) {
+    const differ = gitOk(["diff", "--name-only", approved, "HEAD^{tree}"], wt).split("\n").filter(Boolean);
+    fail(
+      `Commit'lenen içerik reviewer'ın onayladığıyla AYNI DEĞİL!${hooks}\n` +
+        `  Farklı dosyalar: ${differ.slice(0, 10).join(", ")}${differ.length > 10 ? ` (+${differ.length - 10})` : ""}\n` +
+        `  Commit hook'u bir formatter çalıştırıyorsa .flowloop/flowloop.yaml → commands.format'ı aynı formatter yap; hook ile flowloop aynı biçimi üretir.\n` +
+        `  Sonra: flowloop resume ${summary.id} (güncel içerik kontrollerden ve reviewer'dan yeniden geçer)`,
+    );
+  }
   if (gitOk(["rev-list", "--merges", `${baseSha}..HEAD`], wt)) fail("Merge commit oluşmuş; beklenmiyor.");
   const subjects = gitOk(["log", "--format=%s", `${baseSha}..HEAD`], wt).split("\n").filter(Boolean);
   if (!mainChanged) {
@@ -1267,7 +1275,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   const lastReview = [...summary.phases].reverse().find((p) => p.role === "reviewer");
   const lastDev = [...summary.phases].reverse().find((p) => p.role === "developer");
   // Reviewer onayı yoksa: developer'ın son hâli üzerinden kontroller + reviewer tekrar çalışır
-  const needsReview = lastReview?.verdict !== "PASS" || (lastDev && summary.phases.lastIndexOf(lastDev) > summary.phases.lastIndexOf(lastReview!));
+  let needsReview = lastReview?.verdict !== "PASS" || !!(lastDev && summary.phases.lastIndexOf(lastDev) > summary.phases.lastIndexOf(lastReview!));
   if (needsReview && !lastDev) throw new FlowloopError("Bu çalıştırmada henüz kod yazılmamış; baştan çalıştır: flowloop run ...");
 
   const X = cfg.linkDirs;
@@ -1280,9 +1288,17 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   const current = workingTreeHash(wt, X);
   if (!needsReview) {
     if (!summary.approvedTree) log.warn("Eski sürümle başlatılmış çalıştırma: onaylanan içerik olarak mevcut çalışma kopyası kabul edildi.");
-    if (current !== (summary.approvedTree ?? current)) throw new FlowloopError("Çalışma kopyası reviewer'ın onayladığı içerikten farklı; resume edilemez.");
-    for (const r of related) {
-      if (r.s.approvedTree && r.treeHash() !== r.s.approvedTree) throw new FlowloopError(`${r.name}: çalışma kopyası onaylanan içerikten farklı; resume edilemez.`);
+    const changedRepos = [
+      ...(current !== (summary.approvedTree ?? current) ? ["ana repo"] : []),
+      ...related.filter((r) => r.s.approvedTree && r.treeHash() !== r.s.approvedTree).map((r) => r.name),
+    ];
+    if (changedRepos.length) {
+      // ör. commit hook'u (csharpier, prettier) dosyaları yeniden biçimlendirdi: içerik onaylanandan farklı.
+      // Sessizce commit'lemek yerine güncel içerik kontrollerden ve reviewer'dan yeniden geçer, onay tekrar sorulur.
+      log.warn(`Çalışma kopyası onaylanan içerikten farklı (${changedRepos.join(", ")}); kontroller ve reviewer güncel içerikle tekrar çalışacak.`);
+      needsReview = true;
+      summary.userApproved = false;
+      summary.lastReviewFeedback = undefined;
     }
   }
 

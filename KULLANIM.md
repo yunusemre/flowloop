@@ -505,6 +505,7 @@ En çok değiştirilenler:
 - Örnek: `dotnet test {{testProject}} --no-restore --filter "{{testFilter}}"`.
 - Kökte birden fazla solution varsa komutlara hangisinin kullanılacağı yazılır (ör. `dotnet restore YnkDC.sln`).
 - .NET Framework (eski biçim) projeleri macOS ve Linux'ta derlenemez; bu projelerdeki testler yerelde atlanır, CI'da doğrulanmalıdır.
+- **Format komutu commit hook'unun formatter'ıyla aynı olmalı.** Hook (husky, lint-staged, Husky.Net) commit sırasında dosyaları farklı biçimlendirirse commit'lenen içerik onaylanandan farklı olur ve flowloop durur. CSharpier kullanılan .NET projelerinde `flowloop init` bunu kendisi ayarlar: `dotnet csharpier format {{files:cs,csx,csproj,props,targets,xml}}`. `{{files:uzantılar}}` sadece o uzantılardaki değişen dosyaları verir. Durduysa format'ı düzeltip `flowloop resume <id>` ile devam edersin; güncel içerik kontrollerden ve reviewer'dan yeniden geçer.
 - .NET'te varsayılan format komutu `dotnet format whitespace` (sadece boşluk ve girinti). Stil düzeltmeleri dosyanın tamamını değiştirip PR'ı şişirdiği için format adımında uygulanmaz.
 
 **Dosya silme:** developer `rm` ya da `git rm` kullanamaz. Bir dosyayı silmek için içeriğini tamamen boşaltır; base'de dolu olup 0 bayt kalan izlenen dosyaları flowloop siler.

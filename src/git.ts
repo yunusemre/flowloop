@@ -30,6 +30,8 @@ export function sh(cmd: string, args: string[], cwd: string, opts: { input?: str
 export function runConfigured(command: string, cwd: string, timeoutMs = 15 * 60_000, opts: { fullEnv?: boolean } = {}): ExecResult {
   const env = opts.fullEnv ? { ...process.env } : scrubEnv(process.env);
   delete env.NODE_TEST_CONTEXT; // node --test içinden çağrıldığında iç içe test raporlamasını kapat
+  // kontroller ve kurulum git hook'u kurmasın/çalıştırmasın (husky, Husky.Net): kopyalar git reposu olmayabilir
+  env.HUSKY = "0";
   return sh("bash", ["-lc", command], cwd, { timeoutMs, env });
 }
 
@@ -190,6 +192,11 @@ export function fillFiles(command: string, files: string[], cwd = process.cwd())
   const filter = (fs_: string[]) => [...new Set(fs_.map((f) => path.basename(f).replace(/\.[^.]+$/, "")))].map((c) => `FullyQualifiedName~${c}`).join("|");
   const base = (cmd: string) =>
     cmd
+      // {{files:cs,csproj}} → sadece bu uzantılardaki değişen dosyalar
+      .replace(/\{\{files:([a-z0-9,]+)\}\}/gi, (_m, exts: string) => {
+        const set = new Set(exts.toLowerCase().split(",").filter(Boolean));
+        return files.filter((f) => set.has(path.extname(f).slice(1).toLowerCase())).map(quote).join(" ");
+      })
       .replace(/\{\{files\}\}/g, files.map(quote).join(" "))
       .replace(/\{\{testFiles\}\}/g, tests.map(quote).join(" "))
       .replace(/\{\{testProjects\}\}/g, [...byProject.keys()].map(quote).join(" "));

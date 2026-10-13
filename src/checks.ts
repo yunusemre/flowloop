@@ -99,6 +99,8 @@ export class ScopedChecks {
   format(files: string[]): CheckResult {
     const cmd = this.cfg.commands.format;
     if (!cmd || files.length === 0) return { name: "format", status: "skip", summary: "formatter yok" };
+    const only = /\{\{files:[a-z0-9,]+\}\}/i.exec(cmd);
+    if (only && !fillFiles(only[0], files, this.wt).trim()) return { name: "format", status: "skip", summary: "formatlanacak dosya türü değişmedi" };
     const r = this.runner.run(fillFiles(cmd, files, this.wt), this.wt);
     return r.code === 0
       ? { name: "format", status: "ok", summary: `${files.length} dosya formatlandı` }

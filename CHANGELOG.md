@@ -6,6 +6,20 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.7.1 — 2026-10-13
+
+### Düzeltme
+- **Commit hook'u biçimlendirince iş kayboluyordu.** Commit hook'u (ör. Husky.Net ile CSharpier) dosyaları yeniden biçimlendirince commit "onaylananla AYNI DEĞİL" hatasıyla duruyordu ve `resume` de devam edemiyordu. Artık:
+  - hata mesajı farklı dosyaları ve çözümü gösteriyor;
+  - `resume` güncel içeriği kontrollerden ve reviewer'dan yeniden geçirip onayı tekrar soruyor.
+- **.NET'te CSharpier algılanıyor.** `dotnet-tools.json` ya da Husky.Net görevlerinde CSharpier varsa:
+  - format adımı hook ile aynı formatter'ı kullanıyor: `dotnet csharpier format`;
+  - lint sadece stil kurallarına bakıyor: `dotnet format style`.
+- **Kopyalarda git hook'u kurulmuyor.** Kontrol ve kurulum komutları `HUSKY=0` ile çalışıyor. Önceden mutasyon kopyası git reposu olmadığı için `dotnet husky install` derlemeyi kırıyordu.
+
+### Yeni
+- **Uzantıya göre dosya listesi:** `{{files:cs,csproj}}` yer tutucusu sadece bu uzantılardaki değişen dosyaları verir. Eşleşen dosya yoksa format adımı atlanır.
+
 ## 1.7.0 — 2026-10-13
 
 ### Yeni

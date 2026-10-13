@@ -161,6 +161,10 @@ function detectDotnet(root: string): Detected {
     notes.push(`${classic.size} .NET Framework projesi var; bu makinede derlenemez. Komutlar sadece ${sln ?? "SDK biçimli projeler"} üzerinde çalışır.`);
   }
   const target = sln ? ` ${JSON.stringify(sln).slice(1, -1)}` : "";
+  // commit hook'u CSharpier çalıştırıyorsa flowloop da aynı formatter'ı kullanmalı; yoksa commit'lenen içerik onaylanandan farklı olur
+  const read = (f: string) => (fs.existsSync(path.join(root, f)) ? fs.readFileSync(path.join(root, f), "utf8") : "");
+  const csharpier = /csharpier/i.test(read(".config/dotnet-tools.json") + read(".husky/task-runner.json") + read(".pre-commit-config.yaml"));
+  if (csharpier) notes.push("CSharpier bulundu (commit hook'u ile aynı biçim için format: dotnet csharpier format)");
   return {
     stack: "dotnet",
     tech,
@@ -169,9 +173,12 @@ function detectDotnet(root: string): Detected {
       // her değişen test dosyasının projesinde, sadece o test sınıfları
       testRelated: `dotnet test {{testProject}} --no-restore --filter "{{testFilter}}"`,
       typecheck: `dotnet build${target} --no-restore -nologo -clp:NoSummary`,
-      lint: `dotnet format${target} --verify-no-changes --no-restore --include {{files}}`,
-      // sadece boşluk/girinti: stil düzeltmeleri (ör. file-scoped namespace) dosyanın tamamını değiştirip PR'ı şişirir
-      format: `dotnet format whitespace${target} --include {{files}}`,
+      // CSharpier varsa boşluk/girinti onun işi; lint sadece stil kurallarına bakar
+      lint: csharpier
+        ? `dotnet format style${target} --verify-no-changes --no-restore --include {{files}}`
+        : `dotnet format${target} --verify-no-changes --no-restore --include {{files}}`,
+      // sadece biçim: stil düzeltmeleri (ör. file-scoped namespace) dosyanın tamamını değiştirip PR'ı şişirir
+      format: csharpier ? "dotnet csharpier format {{files:cs,csx,csproj,props,targets,xml}}" : `dotnet format whitespace${target} --include {{files}}`,
       commitCheck: "",
     },
     linkDirs: [],

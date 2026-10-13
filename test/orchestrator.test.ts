@@ -1100,3 +1100,28 @@ test("açık soru yoksa (\"Yok\") hiçbir şey sorulmaz", async () => {
   assert.equal(s.status, "success");
   assert.deepEqual(s.questions, []);
 });
+
+test("commit hook'u içeriği değiştirdiyse resume güncel içeriği kontrollerden ve reviewer'dan yeniden geçirir", async () => {
+  const first = await run({
+    committer: (req) => {
+      // hook'un yaptığı gibi: dosyayı yeniden biçimlendirip commit'e katar
+      fs.appendFileSync(path.join(req.cwd, "src/fiyat.js"), "// biçimlendirildi\n");
+      GIT(req, "add", "-A");
+      GIT(req, "commit", "-qm", "feat(fiyat): ekspres teslimat");
+    },
+  });
+  assert.match(first.err!, /AYNI DEĞİL[\s\S]*Farklı dosyalar: src\/fiyat\.js[\s\S]*commands\.format/);
+  const runsDir = path.join(first.root, "..", path.basename(first.root) + "-work", path.basename(first.root));
+  const id = fs.readdirSync(runsDir)[0];
+  const agent = new FakeAgent({
+    ...good,
+    committer: (req) => {
+      GIT(req, "add", "-A");
+      GIT(req, "commit", "-qm", "feat(fiyat): ekspres teslimat");
+    },
+  });
+  const s = await resumeRun({ root: first.root, resume: id, taskFile: "", agent, log: silentLogger(), noPush: true });
+  assert.equal(s.status, "success");
+  assert.deepEqual(agent.calls.map((c) => c.role), ["reviewer", "committer"]);
+  assert.match(gitOk(["show", `${s.branch}:src/fiyat.js`], first.root), /biçimlendirildi/);
+});
