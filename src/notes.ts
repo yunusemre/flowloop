@@ -19,10 +19,51 @@ export interface OpenQuestion {
 }
 
 export type AttentionKind = "review" | "risk" | "skipped" | "preexisting";
+/** Reviewer'ın maddeye koyduğu etiket: ne yapılması gerektiği */
+export type AttentionTag = "fix" | "decision" | "manual" | "followup" | "info";
+
 export interface AttentionItem {
   from: "developer" | "reviewer";
   kind: AttentionKind;
   text: string;
+  tag?: AttentionTag;
+}
+
+const TAGS: [RegExp, AttentionTag][] = [
+  [/^d[üu]zelt|^fix/i, "fix"],
+  [/^karar|^decision/i, "decision"],
+  [/^elle|^manual/i, "manual"],
+  [/^ayr[ıi]\s*i[şs]|^follow/i, "followup"],
+  [/^bilgi|^info/i, "info"],
+];
+
+export const TAG_LABEL: Record<AttentionTag, string> = { fix: "düzelt", decision: "karar", manual: "elle", followup: "ayrı iş", info: "bilgi" };
+
+/** "[elle] metin" → { tag: "manual", text: "metin" } */
+export function splitTag(text: string): { tag?: AttentionTag; text: string } {
+  const m = /^\s*\**\s*[\[(]\s*([^\])]{2,20}?)\s*[\])]\s*\**\s*[:—–-]?\s*/.exec(text);
+  const tag = m ? TAGS.find(([re]) => re.test(m[1].trim()))?.[1] : undefined;
+  return tag ? { tag, text: text.slice(m![0].length).trim() } : { text };
+}
+
+/** Tekrar tespiti için anahtar ve benzerlik: aynı dosyadan bahseden ve kelimeleri büyük ölçüde örtüşen maddeler aynıdır */
+export function attentionKey(text: string): string {
+  return norm(text);
+}
+function tokens(t: string): Set<string> {
+  return new Set(norm(t).split(/[^a-z0-9çğıöşü_./-]+/i).filter((w) => w.length >= 4));
+}
+function paths(t: string): Set<string> {
+  return new Set((t.match(/[A-Za-z0-9_.-]+\.(cs|ts|tsx|js|json|csproj|xml|yml|yaml|md|config)\b/g) ?? []).map((p) => p.toLowerCase()));
+}
+export function similar(a: string, b: string): boolean {
+  if (norm(a) === norm(b)) return true;
+  const ta = tokens(a), tb = tokens(b);
+  const inter = [...ta].filter((x) => tb.has(x)).length;
+  const jac = inter / Math.max(1, ta.size + tb.size - inter);
+  const pa = paths(a), pb = paths(b);
+  const samePath = [...pa].some((p) => pb.has(p));
+  return jac >= 0.5 || (samePath && jac >= 0.2);
 }
 
 const NONE = /^[\s*_`(]*(yok|none|n\/?a|nothing|hiçbiri|-|—|–)[\s.)*_`]*$/i;
@@ -184,19 +225,22 @@ export function parseHandoff(text: string): AttentionItem[] {
 export function parseReviewerNotes(text: string): AttentionItem[] {
   const lines = sectionLines(text, /^[İIi]ncelenmesi [öo]nerilenler|^human review|^needs human review/i);
   if (!lines) return [];
-  return listItems(lines.filter((l) => !/^\s*VERDICT:/i.test(l))).map((t) => ({ from: "reviewer" as const, kind: "review" as const, text: clip(t) }));
+  return listItems(lines.filter((l) => !/^\s*VERDICT:/i.test(l))).map((t) => {
+    const { tag, text } = splitTag(t);
+    return { from: "reviewer" as const, kind: "review" as const, text: clip(text), ...(tag ? { tag } : {}) };
+  });
 }
 
 /** Onay ekranı ve Jira için tek liste: önce reviewer notları, sonra developer'ın riskleri ve atladıkları */
 export function collectAttention(developerText: string, reviewerText: string): AttentionItem[] {
-  const all = [...parseReviewerNotes(reviewerText), ...parseHandoff(developerText)];
-  const seen = new Set<string>();
-  return all.filter((a) => {
-    const k = a.kind + "|" + norm(a.text);
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
+  const dev = parseHandoff(developerText).map((a) => (a.kind === "preexisting" ? { ...a, tag: "followup" as const } : a));
+  const out: AttentionItem[] = [];
+  // önce reviewer'ın (etiketli) maddeleri; developer'ın aynı konudaki maddesi tekrar eklenmez
+  for (const a of [...parseReviewerNotes(reviewerText), ...dev]) {
+    if (out.some((b) => similar(a.text, b.text))) continue;
+    out.push(a);
+  }
+  return out;
 }
 
 export const ATTENTION_TITLE: Record<AttentionKind, string> = {

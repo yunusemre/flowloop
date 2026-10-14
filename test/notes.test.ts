@@ -40,3 +40,17 @@ test("reviewer notları ve birleşik liste (tekrar yok)", () => {
   const all = collectAttention("## Handoff\nRisks: x\nRisks: x\n", r);
   assert.deepEqual(all.map((a) => a.text), ["Cihazda dene", "x"]);
 });
+
+test("etiketli inceleme maddeleri ve tekrar birleştirme", async () => {
+  const { splitTag, similar } = await import("../src/notes.js");
+  assert.deepEqual(splitTag("[elle] appsettings.LocalTest.json: V1 anahtarları silinmeli"), { tag: "manual", text: "appsettings.LocalTest.json: V1 anahtarları silinmeli" });
+  assert.deepEqual(splitTag("**[ayrı iş]** yarış durumu"), { tag: "followup", text: "yarış durumu" });
+  assert.deepEqual(splitTag("[AK-1] etiket değil"), { text: "[AK-1] etiket değil" });
+  assert.ok(similar("`YNKDC.GeoCodingMicroService/appsettings.LocalTest.json:33-54` — V1 anahtarları hâlâ duruyor (GeoCodeUrl, Zoomer*). Dosya readDeny listesinde, elle silinmeli.", "**`YNKDC.GeoCodingMicroService/appsettings.LocalTest.json`:** Satır 55'teki NewGeocoderUrl ve diğer V1 anahtarları silinmeli. Dosya readDeny listesinde, elle yapılmalı."));
+  assert.ok(!similar("CI derlemesi kontrol edilmeli", "Redis flag deploy öncesi doğrulanmalı"));
+  const all = collectAttention(
+    "## Handoff\nSkipped / not checked: appsettings.LocalTest.json: V1 anahtarları silinmeli, dosya readDeny listesinde — elle yapılmalı\nPre-existing issues seen (not touched): GeoCodingManager.cs Parallel.ForEach yarışı",
+    "## İncelenmesi önerilenler\n- [elle] appsettings.LocalTest.json V1 anahtarları silinmeli (readDeny listesinde)\n- [bilgi] diff büyük\nVERDICT: PASS",
+  );
+  assert.deepEqual(all.map((a) => [a.from, a.tag]), [["reviewer", "manual"], ["reviewer", "info"], ["developer", "followup"]]);
+});

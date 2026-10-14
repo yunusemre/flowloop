@@ -77,6 +77,7 @@ export function failReason(error = ""): string {
   if (/plan onaylanmadı|plan .* onaylanmadı/i.test(error)) return "plan onaylanmadı";
   if (/değişiklikler onaylanmadı/i.test(error)) return "değişiklik onaylanmadı";
   if (/commit|push/i.test(error)) return "commit/teslim";
+  if (/kullanım limiti doldu/i.test(error)) return "kullanım limiti";
   if (/hata ile bitti/i.test(error)) return "ajan hatası";
   return error ? "diğer" : "bilinmiyor";
 }

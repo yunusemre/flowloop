@@ -21,12 +21,12 @@ import { RelatedRepo, type RelatedSummary } from "./related.js";
 import { findProjectDocs } from "./projectdocs.js";
 import { CURSOR_CO_AUTHOR } from "./cursor.js";
 import { createHash } from "node:crypto";
-import { DECISIONS_SECTION, collectAttention, extractAssumptions, parseDecisions, removeSection, type AttentionItem, type OpenQuestion } from "./notes.js";
+import { DECISIONS_SECTION, attentionKey, collectAttention, extractAssumptions, parseDecisions, removeSection, type AttentionItem, type AttentionTag, type OpenQuestion } from "./notes.js";
 import { questionsMarkdown as qMarkdown, resolveQuestions as questionLoop, type AskQuestions, type QuestionDecision, type QuestionRecord, type QuestionsMode } from "./questions.js";
 export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
 
 /** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
-export function noteSections(s: Pick<RunSummary, "assumptions" | "attention">): string[] {
+export function noteSections(s: Pick<RunSummary, "assumptions" | "attention" | "triage">): string[] {
   const out: string[] = [];
   const list = (title: string, items: string[]) => {
     if (!items.length) return;
@@ -34,7 +34,16 @@ export function noteSections(s: Pick<RunSummary, "assumptions" | "attention">): 
     out.push("", `## ${title}`, ...shown, ...(items.length > 8 ? [`- … ve ${items.length - 8} madde daha`] : []));
   };
   list("Varsayımlar", s.assumptions ?? []);
-  const att = s.attention ?? [];
+  const triaged = s.triage ?? [];
+  const seen = new Set(triaged.map((t) => attentionKey(t.text)));
+  if (triaged.length) {
+    const pick = (c: TriageChoice) => triaged.filter((t) => t.choice === c).map((t) => `${t.text}${t.note ? ` (not: ${t.note.replace(/\s*\n\s*/g, " ")})` : ""}`);
+    list("Elle yapılacaklar", pick("manual").map((t) => `[ ] ${t}`));
+    list("Önerilen ayrı işler", pick("followup"));
+    list("İncelemede bu işte düzeltilenler", pick("fix"));
+  }
+  // gözden geçirilmemiş maddeler (etkileşimsiz çalıştırma ya da sonradan çıkanlar) eski biçimde
+  const att = (s.attention ?? []).filter((a) => !seen.has(attentionKey(a.text)) && !(triaged.length && a.tag === "info"));
   list("İncelenmesi önerilenler", att.filter((a) => a.kind !== "preexisting").map((a) => (a.kind === "skipped" ? `Doğrulanmadı: ${a.text}` : a.text)));
   list("Projede önceden var olan sorunlar (bu işte dokunulmadı)", att.filter((a) => a.kind === "preexisting").map((a) => a.text));
   return out;
@@ -138,6 +147,12 @@ export interface RunOptions {
    */
   reviewChanges?: (info: ChangeReviewInfo) => Promise<ChangeDecision>;
   /**
+   * Commit onayından ÖNCE inceleme maddeleri (reviewer notları, riskler, doğrulanamayanlar) kullanıcıyla tek tek
+   * gözden geçirilir: bu işte düzelt (developer'a gider) / elle yapacağım / ayrı iş / geç. Verilmezse maddeler
+   * olduğu gibi Jira yorumuna "İncelenmesi önerilenler" olarak yazılır.
+   */
+  triage?: TriageFn;
+  /**
    * Bir rolün bütçesi dolduğunda sorulur; dönen tutar (USD) kadar ek bütçeyle ajan kaldığı yerden
    * devam eder. 0 = durdur. Verilmezse bütçe dolunca çalıştırma durur.
    */
@@ -182,6 +197,19 @@ interface PhaseCost {
   models?: string[];
 }
 
+/** İnceleme maddeleri için kullanıcının seçimi: bu işte düzelt / elle yapacağım / ayrı iş / geç */
+export type TriageChoice = "fix" | "manual" | "followup" | "skip";
+export interface TriageEntry {
+  text: string;
+  from: string;
+  kind: string;
+  tag?: AttentionTag;
+  choice: TriageChoice;
+  /** "düzelt" ya da karar maddelerinde kullanıcının notu */
+  note?: string;
+}
+export type TriageFn = (items: AttentionItem[]) => Promise<{ choice: TriageChoice; note?: string }[]>;
+
 /** İş bittikten sonra (reviewer PASS) kullanıcının kararı */
 export type ChangeDecision = { action: "approve" } | { action: "revise"; comment: string } | { action: "cancel" };
 export interface ChangeReviewInfo {
@@ -196,6 +224,8 @@ export interface ChangeReviewInfo {
   attention: AttentionItem[];
   /** Plandaki varsayımlar ve cevaplanmadan geçilen sorular */
   assumptions: string[];
+  /** İnceleme maddeleri için verilen kararlar (triyaj yapıldıysa) */
+  triage?: TriageEntry[];
   worktree: string;
   /** false ise sadece onay/iptal sunulur (ör. resume'da) */
   canRevise: boolean;
@@ -240,6 +270,35 @@ function decisionFeedback(block: string, reviewerFeedback: string): string {
     `KULLANICI KARARLARI (bağlayıcı; bu konularda reviewer'ın ya da senin tercihin değil, bunlar geçerli):\n${block}\n\n` +
     `Kodu ve testleri bu kararlara göre uyumla; kararla çelişen önceki değişiklikleri geri al.` +
     (rest ? `\n\nReviewer'ın diğer notları:\n${rest}` : "")
+  );
+}
+
+/**
+ * İnceleme maddelerini kullanıcıyla gözden geçirir (daha önce bakılanlar ve "bilgi" maddeleri sorulmaz).
+ * "Bu işte düzelt" seçilenler varsa developer'a gidecek değişiklik isteğini döner.
+ */
+export async function triageAttention(s: RunSummary, triage: TriageFn | undefined): Promise<string | undefined> {
+  if (!triage) return undefined;
+  const done = new Set((s.triage ?? []).map((t) => attentionKey(t.text)));
+  const pending = (s.attention ?? []).filter((a) => a.tag !== "info" && !done.has(attentionKey(a.text)));
+  if (!pending.length) return undefined;
+  const answers = await triage(pending);
+  const entries: TriageEntry[] = pending.map((a, i) => ({ text: a.text, from: a.from, kind: a.kind, tag: a.tag, choice: answers[i]?.choice ?? "skip", note: answers[i]?.note?.trim() || undefined }));
+  s.triage = [...(s.triage ?? []), ...entries];
+  const fixes = entries.filter((e) => e.choice === "fix");
+  if (!fixes.length) return undefined;
+  return (
+    "İNCELEME SONRASI KULLANICININ BU İŞTE DÜZELTİLMESİNİ İSTEDİĞİ MADDELER:\n" +
+    fixes.map((f) => `- ${f.text.replace(/\s*\n\s*/g, " ")}${f.note ? `\n  Kullanıcının notu: ${f.note.replace(/\n/g, "\n  ")}` : ""}`).join("\n")
+  );
+}
+
+/** Kullanım limiti dolunca: iş kaybolmadı, nasıl devam edileceği */
+export function limitFailMessage(limit: string, id: string, backend?: string): string {
+  return (
+    `${backend === "cursor" ? "Cursor" : "Claude"} kullanım limiti doldu: ${limit}\n` +
+    `  İş kaybolmadı; çalışma kopyası ve kayıtlar duruyor. Limit sıfırlanınca kaldığı yerden devam et: flowloop resume ${id}\n` +
+    (backend === "cursor" ? "" : `  Beklemeden devam etmek için: flowloop resume ${id} --agent cursor`)
   );
 }
 
@@ -314,6 +373,8 @@ export interface RunSummary {
   lastPassReport?: string;
   /** Reviewer'ın istediği ve kullanıcının verdiği kararlar */
   decisions?: QuestionRecord[];
+  /** İnceleme maddeleri için kullanıcının seçimleri */
+  triage?: TriageEntry[];
   /** Reviewer'ın onayladığı içeriğin tree hash'i (resume için) */
   approvedTree?: string;
   /** İşi başlatan kişi (git user.name / user.email) */
@@ -821,6 +882,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     summary.phases.push({ phase, role: role.name, iteration, costUsd: res.costUsd, sessionId: res.sessionId, models: res.models });
     log.info(`  ${role.name}: $${res.costUsd.toFixed(2)}${res.sessionId ? ` · oturum: ${res.sessionId}` : ""}${res.denials.length ? ` · ${res.denials.length} reddedilen işlem` : ""}`);
     if (!res.ok && res.budgetExceeded) fail(budgetMessage(cfg, phase, summary.totalCostUsd, role.name));
+    if (!res.ok && res.limitReached) fail(limitFailMessage(res.limitReached, summary.id, summary.backend));
     if (!res.ok) fail(`${role.name} hata ile bitti: ${res.error ?? "bilinmiyor"}`);
     saveSummary();
     return res;
@@ -1114,16 +1176,22 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       for (const r of related) r.s.approvedTree = r.treeHash();
       refreshNotes();
       saveSummary();
-      const d = await opts.reviewChanges({
-        round,
-        diffStat: combinedDiff(wt, baseSha, X, related, true),
-        diff: () => combinedDiff(wt, baseSha, X, related, false),
-        reviewerNote: lastReviewerNote,
-        attention: summary.attention ?? [],
-        assumptions: summary.assumptions ?? [],
-        worktree: wt,
-        canRevise: true,
-      });
+      // önce inceleme maddeleri birlikte gözden geçirilir; "bu işte düzelt" seçilenler değişiklik isteği olur
+      const fixRequest = await triageAttention(summary, opts.triage);
+      saveSummary();
+      const d: ChangeDecision = fixRequest
+        ? { action: "revise", comment: fixRequest }
+        : await opts.reviewChanges({
+            round,
+            diffStat: combinedDiff(wt, baseSha, X, related, true),
+            diff: () => combinedDiff(wt, baseSha, X, related, false),
+            reviewerNote: lastReviewerNote,
+            attention: summary.attention ?? [],
+            assumptions: summary.assumptions ?? [],
+            triage: summary.triage,
+            worktree: wt,
+            canRevise: true,
+          });
       if (d.action === "approve") {
         summary.userApproved = true;
         break;
@@ -1421,6 +1489,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     summary.phases.push({ phase, role: role.name, costUsd: res.costUsd, sessionId: res.sessionId, models: res.models });
     log.info(`  ${role.name}: $${res.costUsd.toFixed(2)}${res.denials.length ? ` · ${res.denials.length} reddedilen işlem` : ""}`);
     if (!res.ok && res.budgetExceeded) fail(budgetMessage(cfg, phase, summary.totalCostUsd, role.name));
+    if (!res.ok && res.limitReached) fail(limitFailMessage(res.limitReached, summary.id, summary.backend));
     if (!res.ok) fail(`${role.name} hata ile bitti: ${res.error ?? "bilinmiyor"}`);
     saveSummary();
     return res;
@@ -1557,16 +1626,21 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     summary.changeRequests = summary.changeRequests ?? [];
     for (;;) {
       const round = summary.changeRequests.length + 1;
-      const d = await opts.reviewChanges({
-        round,
-        diffStat: combinedDiff(wt, baseSha, X, related, true),
-        diff: () => combinedDiff(wt, baseSha, X, related, false),
-        reviewerNote: summary.lastPassReport ?? "",
-        attention: summary.attention ?? [],
-        assumptions: summary.assumptions ?? [],
-        worktree: wt,
-        canRevise: true,
-      });
+      const fixRequest = await triageAttention(summary, opts.triage);
+      saveSummary();
+      const d: ChangeDecision = fixRequest
+        ? { action: "revise", comment: fixRequest }
+        : await opts.reviewChanges({
+            round,
+            diffStat: combinedDiff(wt, baseSha, X, related, true),
+            diff: () => combinedDiff(wt, baseSha, X, related, false),
+            reviewerNote: summary.lastPassReport ?? "",
+            attention: summary.attention ?? [],
+            assumptions: summary.assumptions ?? [],
+            triage: summary.triage,
+            worktree: wt,
+            canRevise: true,
+          });
       if (d.action === "approve") break;
       if (d.action === "cancel") fail(`Değişiklikler onaylanmadı; commit yapılmadı. Sonra tekrar: flowloop resume ${summary.id}`);
       if (d.action !== "revise" || !d.comment.trim()) continue;

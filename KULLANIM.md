@@ -353,6 +353,29 @@ Değişiklikler uygun mu?
 - **[y] Değişiklik iste:** birden fazla satır yazabilirsin, bitirmek için boş satırda Enter. Yorumun developer'a öncelikli istek olarak gider; developer mevcut çalışmanın üzerine uygular, otomatik kontroller çalışır ve reviewer isteğinin karşılanıp karşılanmadığını da kontrol eder. Sonuç sana tekrar sorulur. Önceki isteklerin de hatırlatılır.
 - **[h] Şimdilik onaylama:** commit yapılmaz, çalışma alanı olduğu gibi kalır. İncelemeyi bitirince `flowloop resume <id>` aynı soruyu tekrar sorar. Onay verirsen commit, push ve Jira yorumu yapılır; değişiklik de isteyebilirsin.
 
+### İnceleme maddelerini gözden geçirme
+
+Reviewer onay verdikten sonra, commit onayından önce "İncelenmesi önerilenler" madde madde sorulur:
+
+```
+━━ İNCELENMESİ ÖNERİLENLER — commit'ten önce birlikte bakalım (5 madde) ━━
+(1/5) [elle] appsettings.LocalTest.json: V1 anahtarları silinmeli (dosya gizli listede)
+Seçimin [d/e/a/g/t] (Enter = e):
+```
+
+| Tuş | Ne olur |
+|---|---|
+| **d** — bu işte düzelt | Notunla birlikte developer'a gider; kontroller ve reviewer tekrar çalışır |
+| **e** — elle yapacağım | Jira yorumuna "Elle yapılacaklar" kontrol listesi olarak girer |
+| **a** — ayrı iş | Jira yorumunda "Önerilen ayrı işler" başlığına gider |
+| **g** — geç | Sadece `run.json`'da kalır |
+| **t** | Kalan maddelere reviewer'ın önerisini uygular |
+
+- **Etiketler:** reviewer her maddeye `[düzelt]`, `[elle]`, `[ayrı iş]` ya da `[bilgi]` etiketi koyar; Enter bu öneriyi seçer.
+- **Sorulmayanlar:** `[bilgi]` maddeleri sorulmaz. Bir kez bakılan madde de tekrar sorulmaz.
+- **Tekrarlar:** reviewer ile developer aynı konudan bahsediyorsa tek madde olarak gösterilir.
+- **Etkileşimsiz çalıştırma:** maddeler eskisi gibi "İncelenmesi önerilenler" başlığıyla Jira'ya yazılır.
+
 ### Karar gerekli
 
 Reviewer görev metni, plan, açık sorulara verdiğin cevaplar ve referanslar (ör. başka bir branch) arasında çelişki görürse taraf seçmez ve developer'a da seçtirmez. flowloop durup sana sorar:

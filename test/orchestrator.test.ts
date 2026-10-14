@@ -1190,3 +1190,63 @@ test("karar istenir ama soracak kimse yoksa durur; resume kararı sorup develope
   assert.equal(s.status, "success");
   assert.deepEqual(agent.calls.map((c) => c.role), ["developer", "reviewer", "committer"]);
 });
+
+test("inceleme maddeleri commit'ten önce gözden geçirilir: düzelt developer'a gider, elle/ayrı iş Jira'ya kontrol listesi olur", async () => {
+  const posts: string[] = [];
+  const fetchFn = async (_url: string, init: any) => (posts.push(JSON.parse(init.body).body), { ok: true, status: 201, json: async () => ({ id: "1" }), text: async () => "" });
+  const root = makeRepo('jira: { baseUrl: "https://kg.atlassian.net", comment: true }');
+  const NOTES = "✅\n\n## İncelenmesi önerilenler\n- [düzelt] fiyat.js'de 50 sabiti isimlendirilmeli\n- [elle] cihazda sepet toplamını dene\n- [ayrı iş] eski yuvarlama hatası\n- [bilgi] diff küçük\n\nVERDICT: PASS";
+  const asked: string[][] = [];
+  let changeScreens = 0;
+  const agent = new FakeAgent({
+    ...good,
+    reviewer: () => NOTES,
+    developer: (req, n) => {
+      good.developer!(req, n);
+      if (n === 2) assert.match(req.prompt, /BU İŞTE DÜZELTİLMESİNİ İSTEDİĞİ MADDELER[\s\S]*50 sabiti isimlendirilmeli[\s\S]*Kullanıcının notu: EKSPRES_UCRETI olsun/);
+    },
+  });
+  const s = await runTask({
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, jira: { fetchFn, email: "a", token: "t" },
+    triage: async (items) => {
+      asked.push(items.map((i) => i.tag ?? "-"));
+      return items.map((i) => (i.tag === "fix" ? { choice: "fix" as const, note: "EKSPRES_UCRETI olsun" } : i.tag === "manual" ? { choice: "manual" as const } : { choice: "followup" as const }));
+    },
+    reviewChanges: async (info) => (changeScreens++, assert.equal(info.triage!.length, 3), { action: "approve" }),
+  });
+  assert.equal(s.status, "success");
+  assert.deepEqual(asked, [["fix", "manual", "followup"]], "bilgi maddesi sorulmaz; aynı maddeler ikinci kez sorulmaz");
+  assert.equal(changeScreens, 1, "düzelt seçilince önce developer çalışır, onay ekranı sonra gelir");
+  assert.deepEqual(agent.calls.map((c) => c.role), ["analist", "developer", "reviewer", "developer", "reviewer", "committer"]);
+  const body = posts.at(-1)!;
+  assert.match(body, /h3\. Elle yapılacaklar\n\* \[ \] cihazda sepet toplamını dene/);
+  assert.match(body, /h3\. Önerilen ayrı işler\n\* eski yuvarlama hatası/);
+  assert.match(body, /h3\. İncelemede bu işte düzeltilenler\n\* fiyat\.js'de 50 sabiti isimlendirilmeli \(not: EKSPRES_UCRETI olsun\)/);
+  assert.doesNotMatch(body, /İncelenmesi önerilenler|diff küçük/);
+});
+
+test("kullanım limiti dolarsa hata yığını yerine nasıl devam edileceği söylenir; resume tamamlar", async () => {
+  class LimitAgent extends FakeAgent {
+    async run(req: AgentRequest) {
+      if (req.role === "committer" && !this.calls.some((c) => c.role === "committer")) {
+        this.calls.push({ role: req.role, prompt: req.prompt, mcp: [] });
+        throw new Error("Claude Code returned an error result: You've hit your session limit · resets 8pm (Europe/Istanbul)");
+      }
+      return super.run(req);
+    }
+  }
+  const root = makeRepo("");
+  const agent = new LimitAgent(good);
+  let err = "";
+  try {
+    await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true });
+  } catch (e) {
+    err = (e as Error).message;
+  }
+  assert.match(err, /Claude kullanım limiti doldu: You've hit your session limit · resets 8pm[\s\S]*İş kaybolmadı[\s\S]*flowloop resume (\S+)[\s\S]*--agent cursor/);
+  const id = /flowloop resume (\S+)/.exec(err)![1];
+  const s = await resumeRun({ root, resume: id, taskFile: "", agent: new FakeAgent(good), log: silentLogger(), noPush: true });
+  assert.equal(s.status, "success");
+  const { failReason } = await import("../src/stats.js");
+  assert.equal(failReason(err), "kullanım limiti");
+});

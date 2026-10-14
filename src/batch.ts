@@ -297,6 +297,7 @@ export async function runBatch(opts: BatchOptions): Promise<BatchState> {
         st.totalCostUsd += res.costUsd;
         budgetLeft -= res.costUsd;
         log.info(`  analist (toplu plan): $${res.costUsd.toFixed(2)}${res.denials.length ? ` · ${res.denials.length} reddedilen işlem` : ""}`);
+        if (!res.ok && res.limitReached) fail(`Kullanım limiti doldu: ${res.limitReached}\n  Toplu plan saklandı; limit sıfırlanınca aynı komutla devam et: ${rerun}`);
         if (!res.ok) fail(res.budgetExceeded ? `Toplu plan için ayrılan bütçe doldu ($${st.totalCostUsd.toFixed(2)}). flowloop.yaml → budgets.analist'i artır.` : `Analist hata ile bitti: ${res.error ?? "bilinmiyor"}`);
         if (workingTreeHash(planWt, X) !== h0) fail("Analist kod değiştirdi! Rol ihlali.");
         if (!fs.existsSync(planFile) || !fs.readFileSync(planFile, "utf8").trim()) fail("Analist toplu plan yazmadı.");

@@ -48,6 +48,29 @@ export interface AgentResult {
   models?: string[];
   /** Rolün bütçesi dolduğu için durdu (aynı oturumdan devam edilebilir) */
   budgetExceeded?: boolean;
+  /** Claude/Cursor kullanım ya da oturum limiti doldu (mesajı; ör. "resets 8pm") */
+  limitReached?: string;
+}
+
+const LIMIT_RE = /(session|usage|rate|weekly|5-hour)[ -]limit|hit your .*limit|limit reached|quota exceeded|overloaded|429/i;
+
+/** Ajan çalıştırıcıdan gelen hata bir kullanım limiti mi? */
+export function limitMessage(text: string | undefined): string | undefined {
+  if (!text || !LIMIT_RE.test(text)) return undefined;
+  const line = text.split("\n").find((l) => LIMIT_RE.test(l)) ?? text;
+  return line.replace(/^.*?error result:\s*/i, "").trim().slice(0, 200);
+}
+
+/** agent.run fırlatırsa (ör. SDK limit hatası) sonucu hataya çevirir; yarım iş çalışma kopyasında kalır */
+async function safeRun(agent: AgentRunner, req: AgentRequest): Promise<AgentResult> {
+  try {
+    const r = await agent.run(req);
+    const lim = r.ok ? undefined : limitMessage(r.error);
+    return lim ? { ...r, limitReached: lim } : r;
+  } catch (e) {
+    const msg = (e as Error)?.message ?? String(e);
+    return { ok: false, text: "", costUsd: 0, denials: [], error: msg.split("\n")[0].slice(0, 300), limitReached: limitMessage(msg) };
+  }
 }
 
 /** Ajan çalıştırıcı soyutlaması: gerçek hâli SDK, testlerde sahte ajan. */
@@ -203,7 +226,7 @@ export async function runWithBudget(
   req: AgentRequest,
   o: { extendBudget?: (b: BudgetRequest) => Promise<number>; totalSpentBefore: number; onExtend?: (extra: number) => void },
 ): Promise<AgentResult> {
-  let res = await agent.run(req);
+  let res = await safeRun(agent, req);
   let total = res.costUsd;
   let sessionCost = res.costUsd;
   const denials = [...res.denials];
@@ -213,7 +236,7 @@ export async function runWithBudget(
     if (!(extra > 0)) break;
     o.onExtend?.(extra);
     req.log.info(`  ${req.role}: +$${extra.toFixed(2)} ek bütçeyle kaldığı yerden devam ediyor…`);
-    const r2 = await agent.run({ ...req, prompt: CONTINUE_PROMPT, resumeSessionId: res.sessionId, budgetUsd: extra });
+    const r2 = await safeRun(agent, { ...req, prompt: CONTINUE_PROMPT, resumeSessionId: res.sessionId, budgetUsd: extra });
     // devam edilen oturumun maliyeti önceki turları da içerir; sadece yeni harcamayı ekle
     const delta = r2.costUsd >= sessionCost ? r2.costUsd - sessionCost : r2.costUsd;
     sessionCost = Math.max(sessionCost, r2.costUsd);

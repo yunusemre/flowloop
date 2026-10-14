@@ -19,8 +19,8 @@ import { detectMemoryServers, expandServerNames, loadMcpServers, userClaudeMdPat
 
 import { git } from "./git.js";
 import { color, consoleLogger } from "./log.js";
-import { FlowloopError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type QuestionDecision, type RunSummary, type ScopeDecision, type ScopeReviewInfo } from "./orchestrator.js";
-import type { AttentionItem, OpenQuestion } from "./notes.js";
+import { FlowloopError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type QuestionDecision, type RunSummary, type ScopeDecision, type ScopeReviewInfo, type TriageChoice, type TriageEntry } from "./orchestrator.js";
+import { TAG_LABEL, type AttentionItem, type OpenQuestion } from "./notes.js";
 import { computeStats, loadRecords, parseSince, renderStats } from "./stats.js";
 import { PACKAGE_ROOT, loadRoles } from "./roles.js";
 import { JIRA_KEY, JiraError, epicChildren, fetchIssue, issueToTask } from "./jira.js";
@@ -233,6 +233,52 @@ async function answerQuestionsPrompt(qs: OpenQuestion[], ctx: { round: number; c
 }
 
 /** Varsayımlar ve incelenmesi önerilenler (onay ekranı ve bitiş özeti) */
+/** İnceleme maddelerini commit'ten önce tek tek gözden geçir */
+async function triagePrompt(items: AttentionItem[]): Promise<{ choice: TriageChoice; note?: string }[]> {
+  console.log("\n" + color.bold(`━━ İNCELENMESİ ÖNERİLENLER — commit'ten önce birlikte bakalım (${items.length} madde) ━━`));
+  console.log(color.dim("Her madde için: [d] bu işte düzelt (developer'a gider) · [e] elle yapacağım · [a] ayrı iş · [g] geç · [t] kalanlara önerileni uygula · Enter = öneri"));
+  const suggest = (a: AttentionItem): TriageChoice =>
+    a.tag === "fix" || a.tag === "decision" ? "fix" : a.tag === "followup" || a.kind === "preexisting" ? "followup" : a.tag === "info" ? "skip" : "manual";
+  const keyOf: Record<TriageChoice, string> = { fix: "d", manual: "e", followup: "a", skip: "g" };
+  const out: { choice: TriageChoice; note?: string }[] = [];
+  let auto = false;
+  for (const [i, a] of items.entries()) {
+    const label = a.tag ? TAG_LABEL[a.tag] : a.kind === "preexisting" ? "önceden var" : a.kind === "skipped" ? "doğrulanmadı" : a.kind === "risk" ? "risk" : "inceleme";
+    const sug = suggest(a);
+    if (auto) {
+      out.push({ choice: sug });
+      continue;
+    }
+    console.log(`\n${color.bold(`(${i + 1}/${items.length})`)} ${color.yellow(`[${label}]`)} ${a.text.replace(/\n/g, "\n      ")}`);
+    for (;;) {
+      const ans = (await ask(`Seçimin [d/e/a/g/t] (Enter = ${keyOf[sug]}): `)).trim().toLowerCase();
+      const pick = ans === "" ? sug : ans === "d" ? "fix" : ans === "e" ? "manual" : ans === "a" ? "followup" : ans === "g" ? "skip" : ans === "t" ? "auto" : undefined;
+      if (!pick) continue;
+      if (pick === "auto") {
+        auto = true;
+        out.push({ choice: sug });
+        break;
+      }
+      const note = pick === "fix" || a.tag === "decision" ? await readComment(a.tag === "decision" ? "Kararın / notun (boş = reviewer'ın önerisi)" : "Developer'a not (isteğe bağlı)") : undefined;
+      out.push({ choice: pick, note });
+      break;
+    }
+  }
+  const n = (c: TriageChoice) => out.filter((o) => o.choice === c).length;
+  console.log(color.dim(`\nÖzet: ${n("fix")} düzeltilecek · ${n("manual")} elle · ${n("followup")} ayrı iş · ${n("skip")} geçildi`));
+  return out;
+}
+
+function printTriage(entries: TriageEntry[]): void {
+  const group = (c: TriageChoice, title: string) => {
+    const xs = entries.filter((e) => e.choice === c);
+    if (xs.length) console.log("\n" + color.bold(title) + "\n" + xs.map((e) => `  - ${e.text.replace(/\s*\n\s*/g, " ")}`).join("\n"));
+  };
+  group("manual", "Elle yapılacaklar (PR açıklamasına ve Jira'ya kontrol listesi olarak gider):");
+  group("followup", "Önerilen ayrı işler:");
+  group("fix", "İncelemede bu işte düzeltilenler:");
+}
+
 function printNotes(assumptions: string[], attention: AttentionItem[], max = 10): void {
   const list = (items: string[]) => items.slice(0, max).map((t) => `  - ${t.replace(/\s*\n\s*/g, " ")}`).join("\n") + (items.length > max ? `\n  … ve ${items.length - max} madde daha (run.json)` : "");
   if (assumptions.length) console.log("\n" + color.yellow("Varsayımlar") + color.dim(" (doğru değilse değişiklik iste):") + "\n" + list(assumptions));
@@ -249,7 +295,10 @@ async function reviewChangesPrompt(info: ChangeReviewInfo): Promise<ChangeDecisi
     const note = info.reviewerNote.trim().split("\n").filter((l) => !/^VERDICT:/i.test(l.trim())).slice(0, 15).join("\n");
     if (note) console.log(color.dim("Reviewer:\n" + note));
   }
-  printNotes(info.assumptions, info.attention);
+  if (info.triage?.length) {
+    if (info.assumptions.length) printNotes(info.assumptions, []);
+    printTriage(info.triage);
+  } else printNotes(info.assumptions, info.attention);
   console.log("\nDeğişen dosyalar:\n" + (info.diffStat.trim() || "(fark yok)"));
   console.log(color.dim(`\nKodu editöründe de açabilirsin: ${info.worktree}`));
   const options = [
@@ -424,6 +473,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
       questionsMode: qm as "ask" | "jira" | "assume" | undefined,
       reviewScope: process.stdin.isTTY ? reviewScopePrompt : undefined,
       reviewChanges: !values["dry-run"] && !values["skip-review"] && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+      triage: !values["dry-run"] && !values["skip-review"] && process.stdin.isTTY ? triagePrompt : undefined,
       extendBudget: process.stdin.isTTY ? extendBudgetPrompt : undefined,
     });
     if (values["dry-run"]) {
@@ -451,6 +501,7 @@ async function cmdRun(root: string, args: string[]): Promise<number> {
     reviewScope: process.stdin.isTTY ? reviewScopePrompt : undefined,
     // etkileşimli terminalde iş bitince commit'ten önce sorulur; --skip-review ile atlanır
     reviewChanges: !values["dry-run"] && !values["skip-review"] && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+    triage: !values["dry-run"] && !values["skip-review"] && process.stdin.isTTY ? triagePrompt : undefined,
     extendBudget: process.stdin.isTTY ? extendBudgetPrompt : undefined,
   });
   if (s.status === "dry-run") return 0;
@@ -471,7 +522,10 @@ function printDone(root: string, s: RunSummary, log: ReturnType<typeof consoleLo
   İncele  : git checkout ${s.branch}   ya da   git diff ${s.baseSha!.slice(0, 7)}..${s.branch}
   Temizle : flowloop clean   (merge edildikten sonra)`);
   for (const w of s.warnings) console.log(color.yellow(`  ! ${w}`));
-  if (s.assumptions?.length || s.attention?.some((a) => a.kind !== "preexisting")) {
+  if (s.triage?.length) {
+    printTriage(s.triage);
+    if (s.jiraCommentUrl) console.log(color.dim("  (bunlar Jira yorumuna da eklendi)"));
+  } else if (s.assumptions?.length || s.attention?.some((a) => a.kind !== "preexisting")) {
     printNotes(s.assumptions ?? [], (s.attention ?? []).filter((a) => a.kind !== "preexisting"), 6);
     if (s.jiraCommentUrl) console.log(color.dim("  (bunlar Jira yorumuna da eklendi)"));
   }
@@ -663,6 +717,7 @@ async function main(): Promise<number> {
       const s = await resumeRun({
         root, resume: id, taskFile: "", agent: r.runner, backend: r.backend, log, noPush: rest.includes("--no-push"),
         reviewChanges: !mapLegacyFlags(rest).includes("--skip-review") && process.stdin.isTTY ? reviewChangesPrompt : undefined,
+        triage: !mapLegacyFlags(rest).includes("--skip-review") && process.stdin.isTTY ? triagePrompt : undefined,
         answerQuestions: process.stdin.isTTY ? answerQuestionsPrompt : undefined,
         extendBudget: process.stdin.isTTY ? extendBudgetPrompt : undefined,
       });

@@ -95,7 +95,14 @@ VERDICT'ten önce, PASS versen bile, şu bölümü yaz (onay ekranında ve Jira 
 ## İncelenmesi önerilenler
 Merge'den önce bir insanın bakması gereken noktalar: cihazda ya da ekranda elle denenmesi gerekenler, testle
 doğrulanamayan davranışlar, geriye dönük uyumluluk, performans, güvenlik, veri, başka ekipleri etkileyen
-değişiklikler. Her biri tek satır ve somut (nerede, neye bakılmalı). Yoksa "Yok" yaz.
+değişiklikler. Her biri tek satır ve somut (nerede, neye bakılmalı); aynı konuyu bir kez yaz. Yoksa "Yok" yaz.
+Commit'ten önce kullanıcı bu listeyi madde madde gözden geçirir; her maddenin başına ne yapılması gerektiğini
+yaz:
+- `[düzelt]` bu işte düzeltilmesi iyi olur (ama FAIL gerektirmeyen küçük eksik)
+- `[elle]` kullanıcının PR'da, cihazda ya da deploy'da yapması gereken (ör. gizli dosyadaki değişiklik, CI kontrolü)
+- `[ayrı iş]` bu işin kapsamı dışında ama takip edilmeli (ör. önceden var olan bir hata)
+- `[bilgi]` sadece bilgi
+Görevin bir kabul kriteriyle (Jira dahil) uyuşmayan bir durum bu listeye DEĞİL, "Karar gerekli" bölümüne yazılır.
 
 Her kontrol için ✅/❌ + tek cümle kanıt. FAIL ise developer'ın tek talimatı senin
 yazdıkların: `dosya:satır — sorun — öneri`.

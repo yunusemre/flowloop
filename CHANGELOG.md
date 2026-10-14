@@ -6,6 +6,19 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.9.0 — 2026-10-14
+
+### Yeni
+- **İnceleme maddeleri commit'ten önce birlikte gözden geçiriliyor.** Reviewer "İncelenmesi önerilenler"deki her maddeyi etiketliyor: `[düzelt]`, `[elle]`, `[ayrı iş]`, `[bilgi]`. Commit onayından önce flowloop maddeleri tek tek soruyor: bu işte düzelt / elle yapacağım / ayrı iş / geç (Enter = reviewer'ın önerisi, `t` = kalanlara önerileni uygula).
+  - "Düzelt" seçtiklerin notunla birlikte developer'a gidiyor; kontroller ve reviewer tekrar çalışıyor.
+  - "Elle" seçtiklerin Jira yorumuna "Elle yapılacaklar" kontrol listesi olarak giriyor.
+  - "Ayrı iş" seçtiklerin "Önerilen ayrı işler" başlığına gidiyor.
+  - Bir kez bakılan madde tekrar sorulmuyor. Reviewer'ın ve developer'ın aynı konudaki maddeleri tek madde olarak gösteriliyor.
+- Görevin bir kabul kriteriyle uyuşmayan durumlar inceleme listesine değil "Karar gerekli"ye yazılıyor.
+
+### Düzeltme
+- **Kullanım limiti dolunca hata yığını basılıyordu.** Claude'un oturum ya da kullanım limiti dolarsa flowloop artık şunları söylüyor: iş kaybolmadı, limit sıfırlanınca `flowloop resume <id>` ile devam edilir, beklemeden devam etmek için `--agent cursor` kullanılabilir.
+
 ## 1.8.0 — 2026-10-13
 
 ### Yeni
