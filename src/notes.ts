@@ -39,6 +39,27 @@ const TAGS: [RegExp, AttentionTag][] = [
 
 export const TAG_LABEL: Record<AttentionTag, string> = { fix: "düzelt", decision: "karar", manual: "elle", followup: "ayrı iş", info: "bilgi" };
 
+/** Maddenin ekranda görünen etiketi */
+export function attentionLabel(a: AttentionItem): string {
+  return a.tag ? TAG_LABEL[a.tag] : a.kind === "preexisting" ? "önceden var" : a.kind === "skipped" ? "doğrulanmadı" : a.kind === "risk" ? "risk" : "inceleme";
+}
+
+/** Önerilen seçim: fix (bu işte düzelt) · manual (elle) · followup (ayrı iş) · skip (geç) */
+export function suggestTriage(a: AttentionItem): "fix" | "manual" | "followup" | "skip" {
+  return a.tag === "fix" || a.tag === "decision" ? "fix" : a.tag === "followup" || a.kind === "preexisting" ? "followup" : a.tag === "info" ? "skip" : "manual";
+}
+
+/**
+ * Kullanıcının kararını gerektiren madde mi? Elle yapılacak doğrulamalar, ayrı iş önerileri,
+ * bilgi notları ve önceden var olan sorunlarda ajanın yapabileceği bir şey yok; bunlar sorulmadan
+ * önerilen yere kaydedilir. Risk, doğrulanmadı, karar ve düzelt maddeleri sorulur.
+ */
+export function needsDecision(a: AttentionItem): boolean {
+  if (a.tag === "manual" || a.tag === "followup" || a.tag === "info") return false;
+  if (!a.tag && a.kind === "preexisting") return false;
+  return true;
+}
+
 /** "[elle] metin" → { tag: "manual", text: "metin" } */
 export function splitTag(text: string): { tag?: AttentionTag; text: string } {
   const m = /^\s*[*_`]*\s*[\[(]\s*([^\])]{2,20}?)\s*[\])]\s*[*_`]*\s*[:—–-]?\s*/.exec(text);

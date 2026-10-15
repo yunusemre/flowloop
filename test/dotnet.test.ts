@@ -43,7 +43,36 @@ test(".NET Framework test projeleri Windows dışında çalıştırılmaz ve ayr
     assert.equal(fillFiles("dotnet test {{testProject}}", files, root), "dotnet test 'New.Tests/New.Tests.csproj'");
     assert.deepEqual(unrunnableTestProjects(files, root), ["Old.Test/Old.Test.csproj"]);
   }
-  assert.deepEqual(unrunnableTestProjects(files, root, "win32"), []);
+  // Windows'ta MSBuild/vstest varsa koşturulur, yoksa bildirilir
+  const tools = { msbuild: "C:\\VS\\MSBuild\\Current\\Bin\\MSBuild.exe", vstest: "C:\\VS\\TestPlatform\\vstest.console.exe" };
+  assert.deepEqual(unrunnableTestProjects(files, root, "win32", () => tools), []);
+  assert.deepEqual(unrunnableTestProjects(files, root, "win32", () => undefined), ["Old.Test/Old.Test.csproj"]);
+});
+
+test("Windows: .NET Framework testleri MSBuild + vstest ile koşturulur", () => {
+  const OLD = '<Project ToolsVersion="15.0"><PropertyGroup><TargetFrameworkVersion>v4.8</TargetFrameworkVersion><AssemblyName>YNK.BL.Test</AssemblyName></PropertyGroup>' +
+    '<PropertyGroup Condition=" \'$(Configuration)|$(Platform)\' == \'Debug|AnyCPU\' "><OutputPath>bin\\Debug\\</OutputPath></PropertyGroup></Project>';
+  const root = repo({ "Old.Test/Old.Test.csproj": OLD, "Old.Test/GsmTests.cs": "", "New.Tests/New.Tests.csproj": SDK, "New.Tests/NewTests.cs": "" });
+  const tools = { msbuild: "C:\\VS\\MSBuild.exe", vstest: "C:\\VS\\vstest.console.exe" };
+  const out = fillFiles('dotnet test {{testProject}} --filter "{{testFilter}}"', ["Old.Test/GsmTests.cs", "New.Tests/NewTests.cs"], root, { platform: "win32", fx: () => tools });
+  assert.equal(
+    out,
+    "'C:/VS/MSBuild.exe' 'Old.Test/Old.Test.csproj' -restore -p:RestorePackagesConfig=true -p:Configuration=Debug -v:q -nologo && " +
+      "'C:/VS/vstest.console.exe' 'Old.Test/bin/Debug/YNK.BL.Test.dll' '/TestCaseFilter:FullyQualifiedName~GsmTests' && " +
+      "dotnet test 'New.Tests/New.Tests.csproj' --filter \"FullyQualifiedName~NewTests\"",
+  );
+  // araç yoksa eski biçim proje atlanır
+  assert.equal(fillFiles("dotnet test {{testProject}}", ["Old.Test/GsmTests.cs"], root, { platform: "win32", fx: () => undefined }), "");
+});
+
+test("komut başarılı ama hiç test koşmadıysa yakalanır", async () => {
+  const { noTestsRan } = await import("../src/checks.js");
+  assert.equal(noTestsRan("dotnet test 'A.csproj'", "  Determining projects to restore...\n  All projects are up-to-date for restore.\n"), true);
+  assert.equal(noTestsRan("dotnet test 'A.csproj'", "No test matches the given testcase filter `FullyQualifiedName~X`"), true);
+  assert.equal(noTestsRan("dotnet test 'A.csproj'", "Passed!  - Failed:     0, Passed:    21, Skipped:     0, Total:    21"), false);
+  assert.equal(noTestsRan("dotnet test 'A.csproj'", "Başarılı!  - Başarısız:     0, Başarılı:    21"), false);
+  assert.equal(noTestsRan("'C:/VS/vstest.console.exe' 'a.dll'", "Total tests: 21\n     Passed: 21"), false);
+  assert.equal(noTestsRan("npm test -- a.test.ts", "ok"), false, "diğer koşucularda özet aranmaz");
 });
 
 test("birden fazla solution: .NET Framework içermeyen, CI'da geçen ve en çok projeli seçilir", () => {

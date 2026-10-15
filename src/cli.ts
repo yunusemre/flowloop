@@ -20,7 +20,7 @@ import { detectMemoryServers, expandServerNames, loadMcpServers, userClaudeMdPat
 import { git } from "./git.js";
 import { color, consoleLogger } from "./log.js";
 import { FlowloopError, ensureExcluded, resumeRun, runTask, type ChangeDecision, type ChangeReviewInfo, type PlanDecision, type QuestionDecision, type RunSummary, type ScopeDecision, type ScopeReviewInfo, type TriageChoice, type TriageEntry } from "./orchestrator.js";
-import { TAG_LABEL, type AttentionItem, type OpenQuestion } from "./notes.js";
+import { attentionLabel, needsDecision, suggestTriage, type AttentionItem, type OpenQuestion } from "./notes.js";
 import { computeStats, loadRecords, parseSince, renderStats } from "./stats.js";
 import { PACKAGE_ROOT, loadRoles } from "./roles.js";
 import { JIRA_KEY, JiraError, epicChildren, fetchIssue, issueToTask } from "./jira.js";
@@ -235,39 +235,65 @@ async function answerQuestionsPrompt(qs: OpenQuestion[], ctx: { round: number; c
 
 /** Varsayımlar ve incelenmesi önerilenler (onay ekranı ve bitiş özeti) */
 /** İnceleme maddelerini commit'ten önce tek tek gözden geçir */
+const TRIAGE_KEYS =
+  "  [d] Bu işte düzelt    → developer şimdi düzeltir; testler ve reviewer tekrar çalışır\n" +
+  "  [e] Elle yapacağım    → kod değişmez; Jira'ya kontrol listesi maddesi olarak yazılır\n" +
+  "  [a] Ayrı iş           → kod değişmez; Jira'ya \"önerilen ayrı işler\" altına yazılır\n" +
+  "  [g] Geç               → hiçbir yere yazılmaz\n" +
+  "  [t] Kalanların hepsine önerileni uygula · Enter = bu madde için öneri";
+const CHOICE_TEXT: Record<TriageChoice, string> = { fix: "bu işte düzelt", manual: "elle yapacağım", followup: "ayrı iş", skip: "geç" };
+
 async function triagePrompt(items: AttentionItem[]): Promise<{ choice: TriageChoice; note?: string }[]> {
-  console.log("\n" + color.bold(`━━ İNCELENMESİ ÖNERİLENLER — commit'ten önce birlikte bakalım (${items.length} madde) ━━`));
-  console.log(color.dim("Her madde için: [d] bu işte düzelt (developer'a gider) · [e] elle yapacağım · [a] ayrı iş · [g] geç · [t] kalanlara önerileni uygula · Enter = öneri"));
-  const suggest = (a: AttentionItem): TriageChoice =>
-    a.tag === "fix" || a.tag === "decision" ? "fix" : a.tag === "followup" || a.kind === "preexisting" ? "followup" : a.tag === "info" ? "skip" : "manual";
+  console.log("\n" + color.bold(`━━ İNCELENMESİ ÖNERİLENLER — commit'ten önce (${items.length} madde) ━━`));
+  const out: ({ choice: TriageChoice; note?: string } | undefined)[] = items.map(() => undefined);
+  // ajanın yapabileceği bir şey olmayan maddeler sorulmadan önerilen yere kaydedilir
+  const autoIdx = items.map((a, i) => (needsDecision(a) ? -1 : i)).filter((i) => i >= 0);
+  let askIdx = items.map((a, i) => (needsDecision(a) ? i : -1)).filter((i) => i >= 0);
+  if (autoIdx.length) {
+    console.log(color.dim("\nSorulmadan kaydedilenler (Jira yorumuna yazılır):"));
+    for (const i of autoIdx) console.log(`  ${color.yellow(`[${attentionLabel(items[i])}]`)} → ${CHOICE_TEXT[suggestTriage(items[i])]}: ${items[i].text.replace(/\s*\n\s*/g, " ")}`);
+    const a = (await ask(color.dim("Enter = böyle kalsın · [h] bunları da tek tek sor: "))).trim().toLowerCase();
+    if (a === "h") askIdx = items.map((_, i) => i);
+    else for (const i of autoIdx) out[i] = { choice: suggestTriage(items[i]) };
+  }
+  if (askIdx.length) {
+    console.log("\n" + color.bold(`Kararını gerektiren ${askIdx.length} madde.`) + " Her biri için:\n" + color.dim(TRIAGE_KEYS));
+  }
   const keyOf: Record<TriageChoice, string> = { fix: "d", manual: "e", followup: "a", skip: "g" };
-  const out: { choice: TriageChoice; note?: string }[] = [];
   let auto = false;
-  for (const [i, a] of items.entries()) {
-    const label = a.tag ? TAG_LABEL[a.tag] : a.kind === "preexisting" ? "önceden var" : a.kind === "skipped" ? "doğrulanmadı" : a.kind === "risk" ? "risk" : "inceleme";
-    const sug = suggest(a);
+  for (const [n, i] of askIdx.entries()) {
+    const a = items[i];
+    const sug = suggestTriage(a);
     if (auto) {
-      out.push({ choice: sug });
+      out[i] = { choice: sug };
       continue;
     }
-    console.log(`\n${color.bold(`(${i + 1}/${items.length})`)} ${color.yellow(`[${label}]`)} ${a.text.replace(/\n/g, "\n      ")}`);
+    console.log(`\n${color.bold(`(${n + 1}/${askIdx.length})`)} ${color.yellow(`[${attentionLabel(a)}]`)} ${a.text.replace(/\n/g, "\n      ")}`);
     for (;;) {
-      const ans = (await ask(`Seçimin [d/e/a/g/t] (Enter = ${keyOf[sug]}): `)).trim().toLowerCase();
+      const ans = (await ask(`Seçimin [d/e/a/g/t] (Enter = ${keyOf[sug]}: ${CHOICE_TEXT[sug]}, ? = açıklama): `)).trim().toLowerCase();
+      if (ans === "?") {
+        console.log(color.dim(TRIAGE_KEYS));
+        continue;
+      }
       const pick = ans === "" ? sug : ans === "d" ? "fix" : ans === "e" ? "manual" : ans === "a" ? "followup" : ans === "g" ? "skip" : ans === "t" ? "auto" : undefined;
-      if (!pick) continue;
+      if (!pick) {
+        console.log(color.dim(TRIAGE_KEYS));
+        continue;
+      }
       if (pick === "auto") {
         auto = true;
-        out.push({ choice: sug });
+        out[i] = { choice: sug };
         break;
       }
       const note = pick === "fix" || a.tag === "decision" ? await readComment(a.tag === "decision" ? "Kararın / notun (boş = reviewer'ın önerisi)" : "Developer'a not (isteğe bağlı)") : undefined;
-      out.push({ choice: pick, note });
+      out[i] = { choice: pick, note };
       break;
     }
   }
-  const n = (c: TriageChoice) => out.filter((o) => o.choice === c).length;
-  console.log(color.dim(`\nÖzet: ${n("fix")} düzeltilecek · ${n("manual")} elle · ${n("followup")} ayrı iş · ${n("skip")} geçildi`));
-  return out;
+  const res = out.map((o, i) => o ?? { choice: suggestTriage(items[i]) });
+  const c = (x: TriageChoice) => res.filter((o) => o.choice === x).length;
+  console.log(color.dim(`\nÖzet: ${c("fix")} düzeltilecek · ${c("manual")} elle · ${c("followup")} ayrı iş · ${c("skip")} geçildi`));
+  return res;
 }
 
 function printTriage(entries: TriageEntry[]): void {

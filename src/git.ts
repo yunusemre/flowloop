@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { readText, shellCommand } from "./platform.js";
+import { isWindows, readText, shellCommand, slashPath } from "./platform.js";
 import { scrubEnv } from "./secrets.js";
 
 export interface ExecResult {
@@ -169,9 +169,59 @@ export function isClassicDotnetProject(project: string, cwd: string): boolean {
   }
 }
 
-/** Bu makinede çalıştırılamayan test projeleri (Windows dışında .NET Framework projeleri) */
-export function unrunnableTestProjects(files: string[], cwd: string, platform = process.platform): string[] {
-  if (platform === "win32") return [];
+/** .NET Framework testlerini Windows'ta koşturan araçlar (Visual Studio / Build Tools) */
+export interface DotnetFxTools {
+  msbuild: string;
+  vstest: string;
+}
+
+let cachedFx: DotnetFxTools | null | undefined;
+/**
+ * MSBuild.exe ve vstest.console.exe: önce FLOWLOOP_MSBUILD / FLOWLOOP_VSTEST, yoksa vswhere ile
+ * kurulu Visual Studio ya da Build Tools içinde aranır. Bulunamazsa undefined.
+ */
+export function findDotnetFxTools(env: NodeJS.ProcessEnv = process.env, platform: NodeJS.Platform = process.platform): DotnetFxTools | undefined {
+  if (!isWindows(platform)) return undefined;
+  if (cachedFx !== undefined) return cachedFx ?? undefined;
+  const vswhere = path.win32.join(env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", "Microsoft Visual Studio", "Installer", "vswhere.exe");
+  const find = (pattern: string, extra: string[] = []) => {
+    if (!fs.existsSync(vswhere)) return undefined;
+    const r = sh(vswhere, ["-latest", "-products", "*", ...extra, "-find", pattern], os.homedir());
+    return r.code === 0 ? r.stdout.split(/\r?\n/).map((l) => l.trim()).find(Boolean) : undefined;
+  };
+  const msbuild = env.FLOWLOOP_MSBUILD || find("MSBuild\\**\\Bin\\MSBuild.exe", ["-requires", "Microsoft.Component.MSBuild"]);
+  const vstest = env.FLOWLOOP_VSTEST || find("**\\TestPlatform\\vstest.console.exe");
+  cachedFx = msbuild && vstest ? { msbuild, vstest } : null;
+  return cachedFx ?? undefined;
+}
+
+/** Eski biçim projenin Debug çıktısındaki test DLL'i (repo-göreli, düz bölülü) */
+export function classicTestDll(project: string, cwd: string): string {
+  const xml = readText(path.join(cwd, project));
+  const name = /<AssemblyName>([^<]+)<\/AssemblyName>/.exec(xml)?.[1]?.trim() || path.basename(project).replace(/\.[^.]+$/, "");
+  // Debug koşullu PropertyGroup'taki OutputPath; yoksa bin/Debug/
+  const debugGroup = /<PropertyGroup[^>]*Condition="[^"]*Debug[^"]*"[^>]*>([\s\S]*?)<\/PropertyGroup>/i.exec(xml)?.[1] ?? "";
+  const out = (/<OutputPath>([^<]+)<\/OutputPath>/.exec(debugGroup)?.[1] ?? "bin\\Debug\\").trim();
+  return slashPath(path.posix.join(slashPath(path.dirname(project)), slashPath(out), `${name}.dll`));
+}
+
+/**
+ * .NET Framework test projesi için komut: MSBuild ile derle (packages.config dahil restore), vstest ile koştur.
+ * `dotnet test` bu projelerde hiçbir test koşmadan başarılı döner.
+ */
+export function classicTestCommand(project: string, filter: string, cwd: string, tools: DotnetFxTools): string {
+  const q = (f: string) => `'${slashPath(f).replace(/'/g, "'\\''")}'`;
+  const build = `${q(tools.msbuild)} ${q(project)} -restore -p:RestorePackagesConfig=true -p:Configuration=Debug -v:q -nologo`;
+  const run = `${q(tools.vstest)} ${q(classicTestDll(project, cwd))}${filter ? ` ${q(`/TestCaseFilter:${filter}`)}` : ""}`;
+  return `${build} && ${run}`;
+}
+
+/**
+ * Bu makinede çalıştırılamayan test projeleri: Windows dışında .NET Framework projeleri;
+ * Windows'ta da MSBuild/vstest bulunamazsa.
+ */
+export function unrunnableTestProjects(files: string[], cwd: string, platform = process.platform, fx: () => DotnetFxTools | undefined = () => findDotnetFxTools(process.env, platform)): string[] {
+  if (platform === "win32" && fx()) return [];
   const ps = new Set(files.filter((f) => TEST_FILE.test(f)).map((t) => nearestProject(t, cwd)).filter((p): p is string => !!p));
   return [...ps].filter((p) => isClassicDotnetProject(p, cwd));
 }
@@ -184,15 +234,22 @@ export function unrunnableTestProjects(files: string[], cwd: string, platform = 
  *   {{testProject}}  komut her test projesi için ayrı çalışır (&& ile); {{testFilter}} o projedeki
  *                    test sınıflarına göre dotnet --filter ifadesi olur
  */
-export function fillFiles(command: string, files: string[], cwd = process.cwd()): string {
+export function fillFiles(
+  command: string,
+  files: string[],
+  cwd = process.cwd(),
+  opts: { platform?: NodeJS.Platform; fx?: () => DotnetFxTools | undefined } = {},
+): string {
+  const platform = opts.platform ?? process.platform;
+  const fx = opts.fx ?? (() => findDotnetFxTools(process.env, platform));
   const quote = (f: string) => `'${f.replace(/'/g, "'\\''")}'`;
   const tests = files.filter((f) => TEST_FILE.test(f));
   const byProject = new Map<string, string[]>();
   if (/\{\{test(Project|Projects|Filter)\}\}/.test(command)) {
     for (const t of tests) {
       const p = nearestProject(t, cwd);
-      // .NET Framework projeleri Windows dışında çalıştırılamaz (CI'da doğrulanır)
-      if (p && process.platform !== "win32" && isClassicDotnetProject(p, cwd)) continue;
+      // .NET Framework projeleri Windows dışında (ya da Windows'ta MSBuild/vstest yoksa) çalıştırılamaz
+      if (p && isClassicDotnetProject(p, cwd) && (platform !== "win32" || !fx())) continue;
       if (p) byProject.set(p, [...(byProject.get(p) ?? []), t]);
     }
   }
@@ -209,5 +266,25 @@ export function fillFiles(command: string, files: string[], cwd = process.cwd())
       .replace(/\{\{testProjects\}\}/g, [...byProject.keys()].map(quote).join(" "));
   if (!/\{\{testProject\}\}/.test(command)) return base(command).replace(/\{\{testFilter\}\}/g, filter(tests));
   if (!byProject.size) return "";
-  return [...byProject].map(([p, fs_]) => base(command).replace(/\{\{testProject\}\}/g, quote(p)).replace(/\{\{testFilter\}\}/g, filter(fs_))).join(" && ");
+  return [...byProject]
+    .map(([p, fs_]) => {
+      const tools = platform === "win32" && isClassicDotnetProject(p, cwd) ? fx() : undefined;
+      if (tools) return classicTestCommand(p, filter(fs_), cwd, tools);
+      return base(command).replace(/\{\{testProject\}\}/g, quote(p)).replace(/\{\{testFilter\}\}/g, filter(fs_));
+    })
+    .join(" && ");
+}
+
+/**
+ * Başarısız bir komutun çıktısından gösterilecek satırlar: önce hata satırları (uyarılar değil),
+ * sonra son birkaç satır. dotnet/npm yüzlerce uyarı basıp asıl hatayı arada bırakabiliyor.
+ */
+export function failureLines(output: string, max = 12): string[] {
+  const lines = output.replace(/\r\n?/g, "\n").split("\n").map((l) => l.trimEnd()).filter((l) => l.trim());
+  const isErr = (l: string) => /\berror\b|\bhata\b|ERR!|failed|fatal|too long|exception/i.test(l) && !/\bwarning\b|\bwarn\b/i.test(l);
+  const errs = [...new Set(lines.filter(isErr))];
+  const tail = lines.slice(-3).filter((l) => !errs.includes(l));
+  if (!errs.length) return lines.slice(-max);
+  const warns = lines.length - errs.length - tail.length;
+  return [...errs.slice(0, max), ...(errs.length > max ? [`… ${errs.length - max} hata satırı daha`] : []), ...(warns > 0 ? [`(${warns} uyarı/bilgi satırı gizlendi)`] : []), ...tail];
 }

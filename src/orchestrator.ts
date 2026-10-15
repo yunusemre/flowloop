@@ -4,7 +4,7 @@ import picomatch from "picomatch";
 import { runWithBudget, type AgentRequest, type AgentResult, type AgentRunner, type BudgetRequest, type Denial } from "./agent.js";
 import { ScopedChecks, renderReport, type CheckResult, type CheckRunner } from "./checks.js";
 import { FLOWLOOP_DIR, jiraBaseUrl, loadConfig, workDirFor, workDirsFor } from "./config.js";
-import { changedExisting, changedPaths, diffAgainst, fillFiles, git, gitOk, headSha, runConfigured, statusPorcelain, workingTreeHash } from "./git.js";
+import { changedExisting, changedPaths, diffAgainst, failureLines, fillFiles, git, gitOk, headSha, runConfigured, statusPorcelain, workingTreeHash } from "./git.js";
 import type { Logger } from "./log.js";
 import { MutantSandbox } from "./mutant.js";
 import { DEFAULT_FORBIDDEN_FLAGS, type PolicyContext } from "./policy.js";
@@ -23,7 +23,7 @@ import { CURSOR_CO_AUTHOR } from "./cursor.js";
 import { createHash } from "node:crypto";
 import { DECISIONS_SECTION, attentionKey, collectAttention, extractAssumptions, parseDecisions, removeSection, type AttentionItem, type AttentionTag, type OpenQuestion } from "./notes.js";
 import { questionsMarkdown as qMarkdown, resolveQuestions as questionLoop, type AskQuestions, type QuestionDecision, type QuestionRecord, type QuestionsMode } from "./questions.js";
-import { linkDir, readText } from "./platform.js";
+import { isWindows, linkDir, readText } from "./platform.js";
 export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
 
 /** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
@@ -295,6 +295,15 @@ export async function triageAttention(s: RunSummary, triage: TriageFn | undefine
 }
 
 /** Kullanım limiti dolunca: iş kaybolmadı, nasıl devam edileceği */
+/** Claude/Cursor girişi düşmüşse ne yapılacağı (hata metninden) */
+export function authHint(error: string | undefined): string {
+  if (!error || !/authenticat|oauth|401|invalid api key|not logged in|login/i.test(error)) return "";
+  return (
+    "\n  Claude girişi geçersiz ya da süresi dolmuş. Yenile: terminalde `claude` → `/login` (ya da `flowloop setup --force`)." +
+    "\n  Sonra komutu tekrar çalıştır."
+  );
+}
+
 export function limitFailMessage(limit: string, id: string, backend?: string): string {
   return (
     `${backend === "cursor" ? "Cursor" : "Claude"} kullanım limiti doldu: ${limit}\n` +
@@ -659,7 +668,8 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const slug = taskSlug(taskText, path.basename(taskPath, path.extname(taskPath)));
   const jira = jiraKey(taskText);
   const date = stamp(now());
-  const id = `${slugify(jira || "gorev")}-${slug}-${date}`.replace(/^gorev-/, "");
+  // Windows: yol uzunluğu sınırı (260) yüzünden çalışma klasörü adı kısa tutulur (başlık özeti yok)
+  const id = (isWindows() && jira ? `${slugify(jira)}-${date}` : `${slugify(jira || "gorev")}-${slug}-${date}`).replace(/^gorev-/, "");
   const summary: RunSummary = { status: "failed", id, projectDocs: [], commits: [], totalCostUsd: 0, iterations: 0, phases: [], checks: [], denials: [], warnings: [], jiraKey: jira || undefined, startedAt: now().toISOString() };
 
   // ───────────── base branch ─────────────
@@ -794,7 +804,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     const s = runConfigured(cfg.commands.install, wt, undefined, { fullEnv: true }); // özel npm registry token'ı gerekebilir
     if (s.code !== 0) {
       // dotnet, npm gibi araçlar hatayı stdout'a da yazar
-      const out = (s.stdout + "\n" + s.stderr).trim().split("\n").filter((l) => l.trim()).slice(-12).join("\n    ");
+      const out = failureLines(s.stdout + "\n" + s.stderr).join("\n    ");
       fail(`Kurulum başarısız (${cfg.commands.install}, çıkış kodu ${s.code}):\n    ${out || "(çıktı yok)"}\n  Komutu .flowloop/flowloop.yaml → commands.install'dan düzeltebilirsin.`);
     }
     linkInto(wt, baseWt, cfg.linkDirs);
@@ -884,7 +894,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     log.info(`  ${role.name}: $${res.costUsd.toFixed(2)}${res.sessionId ? ` · oturum: ${res.sessionId}` : ""}${res.denials.length ? ` · ${res.denials.length} reddedilen işlem` : ""}`);
     if (!res.ok && res.budgetExceeded) fail(budgetMessage(cfg, phase, summary.totalCostUsd, role.name));
     if (!res.ok && res.limitReached) fail(limitFailMessage(res.limitReached, summary.id, summary.backend));
-    if (!res.ok) fail(`${role.name} hata ile bitti: ${res.error ?? "bilinmiyor"}`);
+    if (!res.ok) fail(`${role.name} hata ile bitti: ${res.error ?? "bilinmiyor"}${authHint(res.error)}`);
     saveSummary();
     return res;
   };
@@ -1491,7 +1501,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     log.info(`  ${role.name}: $${res.costUsd.toFixed(2)}${res.denials.length ? ` · ${res.denials.length} reddedilen işlem` : ""}`);
     if (!res.ok && res.budgetExceeded) fail(budgetMessage(cfg, phase, summary.totalCostUsd, role.name));
     if (!res.ok && res.limitReached) fail(limitFailMessage(res.limitReached, summary.id, summary.backend));
-    if (!res.ok) fail(`${role.name} hata ile bitti: ${res.error ?? "bilinmiyor"}`);
+    if (!res.ok) fail(`${role.name} hata ile bitti: ${res.error ?? "bilinmiyor"}${authHint(res.error)}`);
     saveSummary();
     return res;
   };

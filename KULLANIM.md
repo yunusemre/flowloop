@@ -107,7 +107,7 @@ Windows'ta bilinmesi gerekenler:
 - **Git Bash zorunlu.** Claude Code Windows'ta Git for Windows'un `bash.exe`'sini kullanır; flowloop da `flowloop.yaml`'daki komutları (test, derleme, lint) aynı kabukla çalıştırır. Böylece ayar dosyası her sistemde aynı yazılır. `bash.exe` standart yerde değilse yolunu `FLOWLOOP_BASH` (ya da Claude Code'un `CLAUDE_CODE_GIT_BASH_PATH`) değişkeniyle ver.
 - `node_modules` gibi bağlantılı klasörler (`linkDirs`) Windows'ta *junction* olarak oluşturulur; yönetici izni ya da Geliştirici Modu gerekmez.
 - Gizli bilgiler `%USERPROFILE%\.flowloop\credentials.dpapi.json` dosyasında Windows DPAPI ile şifreli durur; sadece aynı Windows kullanıcısı çözebilir.
-- .NET Framework (4.x) test projeleri Windows'ta atlanmaz, diğer projelerle birlikte çalıştırılır.
+- .NET Framework (4.x) test projeleri Windows'ta MSBuild ile derlenip `vstest.console.exe` ile koşturulur (`dotnet test` bu projelerde hiçbir test koşmadan başarılı döner). Araçlar Visual Studio ya da Build Tools'tan (vswhere ile) bulunur; farklı yerdeyse `FLOWLOOP_MSBUILD` ve `FLOWLOOP_VSTEST` ile ver. Bulunamazsa testler "doğrulanmadı" olarak raporlanır.
 - Cursor ile kullanım Windows'ta henüz denenmedi; Claude önerilir.
 
 ### Güncelleme
@@ -380,26 +380,36 @@ Değişiklikler uygun mu?
 
 ### İnceleme maddelerini gözden geçirme
 
-Reviewer onay verdikten sonra, commit onayından önce "İncelenmesi önerilenler" madde madde sorulur:
+Reviewer onay verdikten sonra, commit onayından önce "İncelenmesi önerilenler" gösterilir. Bu bir onay adımı değil, dağıtım adımıdır: her maddenin nereye gideceğine karar verirsin, commit her durumda devam eder.
+
+**Sorulmadan kaydedilenler.** Ajanın yapabileceği bir şey olmayan maddeler tek tek sorulmaz, önerilen yere yazılır ve liste olarak gösterilir:
+
+| Etiket | Nereye gider |
+|---|---|
+| `[elle]` | Jira'da "Elle yapılacaklar" kontrol listesi |
+| `[ayrı iş]`, önceden var olan sorunlar | Jira'da "Önerilen ayrı işler" |
+| `[bilgi]` | Hiçbir yere (sadece `run.json`) |
+
+Enter ile onaylarsın; `h` yazarsan bunlar da tek tek sorulur.
+
+**Kararını gerektirenler.** `[risk]`, `[doğrulanmadı]`, `[karar]` ve `[düzelt]` maddeleri tek tek sorulur:
 
 ```
-━━ İNCELENMESİ ÖNERİLENLER — commit'ten önce birlikte bakalım (5 madde) ━━
-(1/5) [elle] appsettings.LocalTest.json: V1 anahtarları silinmeli (dosya gizli listede)
-Seçimin [d/e/a/g/t] (Enter = e):
+(1/3) [risk] FE kayıtlı numarayı yeniden biçimlendirip gönderirse kontrol yine uygulanır…
+Seçimin [d/e/a/g/t] (Enter = e: elle yapacağım, ? = açıklama):
 ```
 
 | Tuş | Ne olur |
 |---|---|
-| **d** — bu işte düzelt | Notunla birlikte developer'a gider; kontroller ve reviewer tekrar çalışır |
-| **e** — elle yapacağım | Jira yorumuna "Elle yapılacaklar" kontrol listesi olarak girer |
-| **a** — ayrı iş | Jira yorumunda "Önerilen ayrı işler" başlığına gider |
-| **g** — geç | Sadece `run.json`'da kalır |
-| **t** | Kalan maddelere reviewer'ın önerisini uygular |
+| **d** — bu işte düzelt | Notunla birlikte developer'a gider; kontroller ve reviewer tekrar çalışır, commit sonra |
+| **e** — elle yapacağım | Kod değişmez; Jira yorumuna "Elle yapılacaklar" kontrol listesi maddesi olarak girer |
+| **a** — ayrı iş | Kod değişmez; Jira yorumunda "Önerilen ayrı işler" başlığına gider |
+| **g** — geç | Hiçbir yere yazılmaz (sadece `run.json`'da kalır) |
+| **t** | Kalan maddelerin hepsine önerileni uygular |
+| **Enter** / **?** | Bu madde için öneri / tuşların açıklaması |
 
-- **Etiketler:** reviewer her maddeye `[düzelt]`, `[elle]`, `[ayrı iş]` ya da `[bilgi]` etiketi koyar; Enter bu öneriyi seçer.
-- **Sorulmayanlar:** `[bilgi]` maddeleri sorulmaz. Bir kez bakılan madde de tekrar sorulmaz.
-- **Tekrarlar:** reviewer ile developer aynı konudan bahsediyorsa tek madde olarak gösterilir.
-- **Etkileşimsiz çalıştırma:** maddeler eskisi gibi "İncelenmesi önerilenler" başlığıyla Jira'ya yazılır.
+- Bir kez bakılan madde tekrar sorulmaz. Reviewer ile developer aynı konudan bahsediyorsa tek madde olarak gösterilir.
+- **Etkileşimsiz çalıştırma:** maddeler "İncelenmesi önerilenler" başlığıyla Jira'ya yazılır.
 
 ### Karar gerekli
 
@@ -568,7 +578,7 @@ En çok değiştirilenler:
 - `{{testFilter}}`: o projede değişen test sınıflarına göre bir `--filter` ifadesi olur.
 - Örnek: `dotnet test {{testProject}} --no-restore --filter "{{testFilter}}"`.
 - Kökte birden fazla solution varsa komutlara hangisinin kullanılacağı yazılır (ör. `dotnet restore YnkDC.sln`).
-- .NET Framework (eski biçim) projeleri macOS ve Linux'ta derlenemez; bu projelerdeki testler yerelde atlanır, CI'da doğrulanmalıdır.
+- .NET Framework (eski biçim) projeleri macOS ve Linux'ta derlenemez; bu projelerdeki testler yerelde atlanır, CI'da doğrulanmalıdır. Windows'ta MSBuild + vstest ile koşturulur.
 - **Format komutu commit hook'unun formatter'ıyla aynı olmalı.** Hook (husky, lint-staged, Husky.Net) commit sırasında dosyaları farklı biçimlendirirse commit'lenen içerik onaylanandan farklı olur ve flowloop durur. CSharpier kullanılan .NET projelerinde `flowloop init` bunu kendisi ayarlar: `dotnet csharpier format {{files:cs,csx,csproj,props,targets,xml}}`. `{{files:uzantılar}}` sadece o uzantılardaki değişen dosyaları verir. Durduysa format'ı düzeltip `flowloop resume <id>` ile devam edersin; güncel içerik kontrollerden ve reviewer'dan yeniden geçer.
 - .NET'te varsayılan format komutu `dotnet format whitespace` (sadece boşluk ve girinti). Stil düzeltmeleri dosyanın tamamını değiştirip PR'ı şişirdiği için format adımında uygulanmaz.
 
@@ -631,6 +641,7 @@ Gerisi kendiliğinden olur:
 | Windows: `install.ps1 ... running scripts is disabled` | Betiği `powershell -ExecutionPolicy Bypass -File install.ps1` ile çalıştır |
 | Windows: `flowloop.ps1 cannot be loaded because running scripts is disabled` | `install.ps1`'i tekrar çalıştır (1.10.0+ bu kısayolu kaldırır) ya da `flowloop.cmd ...` yaz. Kalıcı çözüm: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (npm'in önerdiği ayar; sadece senin kullanıcını etkiler) |
 | Windows: `'chmod' is not recognized` (`npm run build`) | 1.10.0'dan eski bir sürüm; güncel kaynağı çekip `install.ps1`'i çalıştır |
+| Windows: restore/derleme `path too long` ya da açıklamasız `Failed to restore` | Yol uzunluğu sınırı. Yönetici PowerShell'de bir kez: `New-ItemProperty -Path HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem -Name LongPathsEnabled -Value 1 -PropertyType DWORD -Force` ve `git config --global core.longpaths true` |
 | Windows: `flowloop` komutu bulunamıyor | Yeni bir PowerShell penceresi aç; olmazsa `install.ps1`'in yazdığı PATH komutunu bir kez çalıştır |
 | Eski `.kgflow` / `.ekip` klasörü | İlk `flowloop` komutunda otomatik `.flowloop`'a taşınır |
 

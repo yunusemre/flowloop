@@ -61,3 +61,19 @@ test("etiket kod biçiminde (`[elle]`) ya da kalın (**[düzelt]**) yazılsa da 
   assert.equal(splitTag("**[düzelt]** `$` yerine `\\z`").tag, "fix");
   assert.equal(splitTag("_[bilgi]_ not").tag, "info");
 });
+
+test("triage: sadece karar gerektiren maddeler sorulur", async () => {
+  const { needsDecision, suggestTriage } = await import("../src/notes.js");
+  const r = (tag?: any, kind: any = "review") => ({ from: "reviewer" as const, kind, text: "x", ...(tag ? { tag } : {}) });
+  assert.equal(needsDecision(r("manual")), false);
+  assert.equal(needsDecision(r("followup")), false);
+  assert.equal(needsDecision(r("info")), false);
+  assert.equal(needsDecision(r(undefined, "preexisting")), false);
+  assert.equal(needsDecision(r(undefined, "risk")), true);
+  assert.equal(needsDecision(r(undefined, "skipped")), true);
+  assert.equal(needsDecision(r("decision")), true);
+  assert.equal(needsDecision(r("fix")), true);
+  assert.equal(suggestTriage(r("manual")), "manual");
+  assert.equal(suggestTriage(r("followup")), "followup");
+  assert.equal(suggestTriage(r(undefined, "risk")), "manual");
+});

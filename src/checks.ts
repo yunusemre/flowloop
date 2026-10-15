@@ -38,6 +38,18 @@ const ISSUE = /\berror\s+[A-Z]{1,8}\d+\s*:|:\s*error\s*:/i;
 const ENV_FAILURES: [RegExp, string][] = [
   [/DockerUnavailableException|Failed to connect to Docker endpoint|Cannot connect to the Docker daemon|docker\.sock.*(refused|no such file)/i, "Docker çalışmıyor (testler Docker/Testcontainers kullanıyor). Docker Desktop'ı başlatıp tekrar çalıştır."],
 ];
+/** Test koşucusunun "hiç test bulunamadı/koşmadı" çıktıları */
+const NO_TESTS = /No test is available|No test matches the given testcase filter|Total tests:\s*0\b|\b0 tests? (ran|passed|found)\b|No tests (were )?(found|ran)|Kullanılabilir test yok|Verilen test durumu filtresiyle eşleşen test yok/i;
+/** dotnet test / vstest'in test koştuğunu gösteren özet satırları (İngilizce ve Türkçe) */
+const RAN_TESTS = /Passed!|Failed!|Total tests:\s*[1-9]|Passed:\s*[1-9]|Failed:\s*[1-9]|Başarılı!|Başarısız!|Toplam test( sayısı)?:\s*[1-9]|Başarılı:\s*[1-9]/i;
+
+/** Komut başarılı döndü ama hiç test koşmadı mı? (dotnet test eski biçim projelerde sessizce 0 test koşar) */
+export function noTestsRan(command: string, output: string): boolean {
+  if (NO_TESTS.test(output)) return true;
+  if (/\bdotnet\s+test\b|vstest\.console/i.test(command)) return !RAN_TESTS.test(output);
+  return false;
+}
+
 export function envFailure(output: string): string | undefined {
   return ENV_FAILURES.find(([re]) => re.test(output))?.[1];
 }
@@ -121,11 +133,27 @@ export class ScopedChecks {
     };
     if (!filled.trim()) {
       const classic = unrunnableTestProjects(files, this.wt);
-      if (classic.length) return { name: "testler", status: "skip", summary: `testler bu makinede çalıştırılamıyor (.NET Framework, sadece Windows): ${classic.join(", ")} — CI'da doğrulanmalı` };
+      if (classic.length) {
+        const why =
+          process.platform === "win32"
+            ? ".NET Framework projesi; MSBuild ya da vstest.console.exe bulunamadı (Visual Studio ya da Build Tools kur, veya FLOWLOOP_MSBUILD / FLOWLOOP_VSTEST ver)"
+            : ".NET Framework, sadece Windows";
+        return { name: "testler", status: "skip", summary: `testler bu makinede çalıştırılamıyor (${why}): ${classic.join(", ")} — doğrulanmadı, CI'da ya da elle doğrulanmalı` };
+      }
       return { name: "testler", status: "fail", summary: "değişen test dosyalarının ait olduğu test projesi (.csproj) bulunamadı" };
     }
     const r = this.runner.run(filled, this.wt);
-    if (r.code === 0) return { name: "testler", status: "ok", summary: `ilgili testler geçti (${filled})` };
+    if (r.code === 0) {
+      if (noTestsRan(filled, r.stdout + "\n" + r.stderr)) {
+        return {
+          name: "testler",
+          status: "fail",
+          summary: `komut başarılı döndü ama HİÇ TEST KOŞMADI (${filled})`,
+          details: "Filtre test sınıflarıyla eşleşmiyor olabilir (filtre test dosyasının adından üretilir: dosya adı = sınıf adı olmalı) ya da proje test koşucusu tarafından tanınmıyor.\n" + clip((r.stdout + "\n" + r.stderr).trim().split("\n").slice(-15)),
+        };
+      }
+      return { name: "testler", status: "ok", summary: `ilgili testler geçti (${filled})` };
+    }
     const env = envCheck(r.stdout + "\n" + r.stderr);
     if (env) return env;
     // Base'de de aynı testler kırmızı mıydı?

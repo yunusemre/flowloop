@@ -52,3 +52,27 @@ test("platform: CRLF ve BOM'lu metin LF'e çevrilir (Windows'ta git autocrlf)", 
   const path = await import("node:path");
   const { readText } = await import("../src/platform.js");
 });
+
+test("başarısız komut çıktısında hata satırları uyarıların arasından çıkarılır", async () => {
+  const { failureLines } = await import("../src/git.js");
+  const out = [
+    "  Determining projects to restore...",
+    ...Array.from({ length: 20 }, (_, i) => `x.csproj : warning NU1903: Package 'A' 8.0.2 has a known high severity vulnerability ${i}`),
+    "C:\\w\\x.csproj : error NU1301: Unable to load the service index for source https://pkgs.example/feed.",
+    ...Array.from({ length: 5 }, (_, i) => `y.csproj : warning NU1903: vuln ${i}`),
+    "  Failed to restore C:\\w\\x.csproj (in 4.26 sec).",
+  ].join("\r\n");
+  const lines = failureLines(out);
+  assert.match(lines[0], /error NU1301/);
+  assert.ok(lines.some((l) => /Failed to restore/.test(l)));
+  assert.ok(!lines.some((l) => /NU1903: Package 'A'/.test(l)));
+  assert.ok(lines.some((l) => /uyarı\/bilgi satırı gizlendi/.test(l)));
+  // hata satırı yoksa son satırlar
+  assert.deepEqual(failureLines("a\nb\nc", 2), ["b", "c"]);
+});
+
+test("giriş süresi dolunca ne yapılacağı söylenir", async () => {
+  const { authHint } = await import("../src/orchestrator.js");
+  assert.match(authHint("Claude Code returned an error result: Failed to authenticate: OAuth session expired and could not be refreshed"), /\/login/);
+  assert.equal(authHint("tool hatası"), "");
+});

@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { gitOk, runConfigured } from "./git.js";
+import { failureLines, gitOk, runConfigured } from "./git.js";
 import { currentVersion } from "./update.js";
 import { linkDir, readText } from "./platform.js";
 
@@ -64,7 +64,7 @@ export class MutantSandbox {
     let installError: string | undefined;
     if (!previous && this.installCmd.trim()) {
       const r = runConfigured(this.installCmd, this.dir, this.timeoutSec * 1000, { fullEnv: true });
-      if (r.code !== 0) installError = `Kopyada kurulum başarısız (${this.installCmd}): ${(r.stdout + "\n" + r.stderr).trim().split("\n").slice(-5).join(" / ")}`;
+      if (r.code !== 0) installError = `Kopyada kurulum başarısız (${this.installCmd}): ${failureLines(r.stdout + "\n" + r.stderr, 5).join(" / ")}`;
     }
     fs.writeFileSync(this.manifest, JSON.stringify({ files }));
     return { files: files.length, installError };
