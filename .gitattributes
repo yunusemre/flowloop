@@ -1,0 +1,4 @@
+# flowloop'un şablonları ve kaynakları her sistemde LF ile çıkarılır (Windows'ta autocrlf CRLF'e çevirmesin)
+* text=auto eol=lf
+*.ps1 text eol=crlf
+*.png binary

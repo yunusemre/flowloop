@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { readText } from "./platform.js";
 
 /**
  * Görev başına repo kapsamı.
@@ -104,7 +105,7 @@ export interface ScopeRequest {
 export function takeScopeRequest(runRoot: string, turn: number): ScopeRequest | undefined {
   const f = path.join(runRoot, SCOPE_REQUEST_FILE);
   if (!fs.existsSync(f)) return undefined;
-  const text = fs.readFileSync(f, "utf8").trim();
+  const text = readText(f).trim();
   fs.rmSync(f, { force: true });
   if (!text) return undefined;
   fs.appendFileSync(path.join(runRoot, "scope-requests.md"), `## Tur ${turn}\n${text}\n\n`);

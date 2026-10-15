@@ -6,6 +6,7 @@ import type { FlowloopConfig } from "./config.js";
 import { git } from "./git.js";
 import { PACKAGE_ROOT } from "./roles.js";
 import { userClaudeMdPath } from "./usermcp.js";
+import { readText } from "./platform.js";
 
 /** base kopyada projectDocs desenleriyle eşleşen (git'te izlenen) dosyalar */
 export function findProjectDocs(dir: string, patterns: string[]): string[] {
@@ -28,18 +29,18 @@ const PROCESS_NOTE = `> Bu dosyalar insanlarla etkileşimli çalışan AI araçl
 export function composeRules(cfg: FlowloopConfig, root: string, baseDir: string, home = os.homedir()): { text: string; docs: string[] } {
   const parts: string[] = [];
   if (cfg.tech.trim()) parts.push(`# Teknoloji\n\nBu projede kullanılan teknolojiler. Çözümü bunlara göre üret; başka kütüphane ekleme.\n\n${cfg.tech.trim()}`);
-  parts.push(fs.readFileSync(path.join(PACKAGE_ROOT, "templates", "rules-base.md"), "utf8").trim());
+  parts.push(readText(path.join(PACKAGE_ROOT, "templates", "rules-base.md")).trim());
 
   const docs = findProjectDocs(baseDir, cfg.projectDocs);
   if (docs.length) {
     parts.push(`# Projenin mevcut kuralları\n\n${PROCESS_NOTE}`);
-    for (const d of docs) parts.push(`## ${d}\n\n${fs.readFileSync(path.join(baseDir, d), "utf8").trim()}`);
+    for (const d of docs) parts.push(`## ${d}\n\n${readText(path.join(baseDir, d)).trim()}`);
   }
   const personal = userClaudeMdPath(home);
   if (cfg.userClaudeMd && fs.existsSync(personal)) {
-    parts.push(`# Geliştiricinin kişisel kuralları (~/.claude/CLAUDE.md)\n\n${PROCESS_NOTE}\n> Proje kuralıyla çelişirse PROJE kuralı geçerlidir.\n\n${fs.readFileSync(personal, "utf8").trim()}`);
+    parts.push(`# Geliştiricinin kişisel kuralları (~/.claude/CLAUDE.md)\n\n${PROCESS_NOTE}\n> Proje kuralıyla çelişirse PROJE kuralı geçerlidir.\n\n${readText(personal).trim()}`);
     docs.push("~/.claude/CLAUDE.md");
   }
-  for (const r of cfg.rules) parts.push(`## ${r}\n\n${fs.readFileSync(path.join(root, r), "utf8").trim()}`);
+  for (const r of cfg.rules) parts.push(`## ${r}\n\n${readText(path.join(root, r)).trim()}`);
   return { text: parts.join("\n\n---\n\n"), docs };
 }

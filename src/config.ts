@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { readText } from "./platform.js";
 
 export const FLOWLOOP_DIR = ".flowloop";
 
@@ -18,7 +19,7 @@ export function readUserConfig(home = os.homedir()): UserConfig {
   // eski adla (kgflow) yazılmış ayar da okunur
   for (const f of [userConfigFile(home), path.join(home, ".kgflow", "config.json")]) {
     try {
-      return JSON.parse(fs.readFileSync(f, "utf8")) as UserConfig;
+      return JSON.parse(readText(f)) as UserConfig;
     } catch {
       /* sıradaki */
     }
@@ -262,7 +263,7 @@ export function loadConfig(root: string): FlowloopConfig {
   if (!fs.existsSync(file)) throw new ConfigError(`${CONFIG_FILE} bulunamadı. Önce: flowloop init`);
   let raw: unknown;
   try {
-    raw = parseYaml(fs.readFileSync(file, "utf8"));
+    raw = parseYaml(readText(file));
   } catch (e) {
     throw new ConfigError(`${CONFIG_FILE} geçerli YAML değil: ${(e as Error).message}`);
   }

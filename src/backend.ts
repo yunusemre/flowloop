@@ -5,7 +5,7 @@ import path from "node:path";
 import { SdkAgentRunner, type AgentRunner } from "./agent.js";
 import type { FlowloopConfig } from "./config.js";
 import { CursorAgentRunner } from "./cursor.js";
-import { which } from "./platform.js";
+import { readText, which } from "./platform.js";
 import { getCredential } from "./secrets.js";
 
 export type Backend = "claude" | "cursor";
@@ -22,7 +22,7 @@ export function claudeAvailable(home = os.homedir(), env = process.env): boolean
   const cfg = path.join(home, ".claude.json");
   if (fs.existsSync(cfg)) {
     try {
-      const j = JSON.parse(fs.readFileSync(cfg, "utf8")) as { oauthAccount?: unknown; primaryApiKey?: unknown };
+      const j = JSON.parse(readText(cfg)) as { oauthAccount?: unknown; primaryApiKey?: unknown };
       if (j.oauthAccount || j.primaryApiKey) return true;
     } catch {
       /* okunamadı */

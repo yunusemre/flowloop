@@ -27,6 +27,7 @@ import { RelatedRepo } from "./related.js";
 import { PACKAGE_ROOT, loadRoles, render } from "./roles.js";
 import { detectBaseBranch } from "./tech.js";
 import { expandServerNames, loadMcpServers } from "./usermcp.js";
+import { readText } from "./platform.js";
 
 /**
  * Toplu çalışma: birbirine bağlı birden fazla görev.
@@ -117,7 +118,7 @@ export function parseBatchOrder(plan: string, keys: string[]): { order: string[]
 function readTask(file: string, root: string): { key: string; text: string; title: string } {
   const abs = path.resolve(root, file);
   if (!fs.existsSync(abs)) throw new FlowloopError(`Görev dosyası yok: ${file}`);
-  const text = fs.readFileSync(abs, "utf8");
+  const text = readText(abs);
   const key = jiraKey(text) || path.basename(abs, path.extname(abs));
   const title = (text.split("\n").find((l) => l.startsWith("#")) ?? key).replace(/^#+\s*/, "").replace(/^görev\s*:\s*/i, "").trim();
   return { key, text, title };
@@ -133,7 +134,7 @@ export function findUnfinishedBatch(dirs: string[], keys: string[]): BatchState 
       const f = path.join(base, id, BATCH_FILE);
       if (!fs.existsSync(f)) continue;
       try {
-        const s = JSON.parse(fs.readFileSync(f, "utf8")) as BatchState;
+        const s = JSON.parse(readText(f)) as BatchState;
         if (s.status !== "success" && [...s.keys].sort().join(",") === want) found.push(s);
       } catch {
         /* bozuk kayıt */
@@ -151,7 +152,7 @@ function latestTaskRun(dirs: string[], batchId: string, key: string): RunSummary
       const f = path.join(base, id, "run.json");
       if (id.startsWith(BATCH_PREFIX) || !fs.existsSync(f)) continue;
       try {
-        const s = JSON.parse(fs.readFileSync(f, "utf8")) as RunSummary;
+        const s = JSON.parse(readText(f)) as RunSummary;
         if (s.batch?.id !== batchId || s.batch.keys[s.batch.index - 1] !== key) continue;
         const t = s.startedAt ?? "";
         if (!best || t > best.t) best = { s, t };
@@ -255,7 +256,7 @@ export async function runBatch(opts: BatchOptions): Promise<BatchState> {
       const rulesFile = path.join(runRoot, "rules.md");
       fs.writeFileSync(rulesFile, composeRules(cfg, root, planWt, home).text);
       const tasksFile = path.join(runRoot, "tasks.md");
-      const epicText = opts.epicFile && fs.existsSync(path.resolve(root, opts.epicFile)) ? fs.readFileSync(path.resolve(root, opts.epicFile), "utf8") : "";
+      const epicText = opts.epicFile && fs.existsSync(path.resolve(root, opts.epicFile)) ? readText(path.resolve(root, opts.epicFile)) : "";
       const tasksText = [
         ...(epicText ? [`# Üst iş (epic) — bağlam\n\n${epicText.trim()}`] : []),
         ...tasks.map((t) => t.text.trim()),
@@ -283,7 +284,7 @@ export async function runBatch(opts: BatchOptions): Promise<BatchState> {
           ? `Kod hafızası araçları kullanılabilir (${Object.keys(userMcp).join(", ")}); kararını her zaman dosyayı okuyarak ver.`
           : "",
       };
-      const template = fs.readFileSync(path.join(PACKAGE_ROOT, "templates", "batch-plan.md"), "utf8");
+      const template = readText(path.join(PACKAGE_ROOT, "templates", "batch-plan.md"));
       let budgetLeft = cfg.budgets.analist * Math.max(1, Math.ceil(tasks.length / 3));
       const runPlanner = async (feedback = ""): Promise<AgentResult> => {
         const h0 = workingTreeHash(planWt, X);
@@ -300,13 +301,13 @@ export async function runBatch(opts: BatchOptions): Promise<BatchState> {
         if (!res.ok && res.limitReached) fail(`Kullanım limiti doldu: ${res.limitReached}\n  Toplu plan saklandı; limit sıfırlanınca aynı komutla devam et: ${rerun}`);
         if (!res.ok) fail(res.budgetExceeded ? `Toplu plan için ayrılan bütçe doldu ($${st.totalCostUsd.toFixed(2)}). flowloop.yaml → budgets.analist'i artır.` : `Analist hata ile bitti: ${res.error ?? "bilinmiyor"}`);
         if (workingTreeHash(planWt, X) !== h0) fail("Analist kod değiştirdi! Rol ihlali.");
-        if (!fs.existsSync(planFile) || !fs.readFileSync(planFile, "utf8").trim()) fail("Analist toplu plan yazmadı.");
+        if (!fs.existsSync(planFile) || !readText(planFile).trim()) fail("Analist toplu plan yazmadı.");
         save();
         return res;
       };
 
       log.step("1/2 TOPLU PLAN  (analist bütün görevleri birlikte okur — kod değiştiremez)");
-      if (fs.existsSync(planFile) && fs.readFileSync(planFile, "utf8").trim()) log.ok("Toplu plan önceki denemeden kullanılıyor.");
+      if (fs.existsSync(planFile) && readText(planFile).trim()) log.ok("Toplu plan önceki denemeden kullanılıyor.");
       else await runPlanner();
 
       const jiraBase = cfg.jira.baseUrl || jiraBaseFromTask(tasks[0].text) || jiraBaseUrl(cfg, home);
@@ -325,7 +326,7 @@ export async function runBatch(opts: BatchOptions): Promise<BatchState> {
 
       if (opts.planApproval) {
         for (let round = 1; ; round++) {
-          const planText = fs.readFileSync(planFile, "utf8");
+          const planText = readText(planFile);
           log.info("\n──── TOPLU PLAN" + (round > 1 ? ` (${round}. sürüm)` : "") + " ────\n" + planText + "\n──────────────");
           const d: PlanDecision = opts.reviewPlan
             ? await opts.reviewPlan(planText, { round, reused: false })
@@ -345,7 +346,7 @@ export async function runBatch(opts: BatchOptions): Promise<BatchState> {
         }
       }
 
-      const { order, warnings } = parseBatchOrder(fs.readFileSync(planFile, "utf8"), keys);
+      const { order, warnings } = parseBatchOrder(readText(planFile), keys);
       for (const w of warnings) log.warn(w);
       st.warnings.push(...warnings);
       st.order = order;
@@ -449,13 +450,13 @@ export async function runBatch(opts: BatchOptions): Promise<BatchState> {
     t.commits = [...s.commits, ...(s.related ?? []).flatMap((r) => (r.commits ?? []).map((c) => `${r.name}: ${c}`))];
     t.jiraCommentUrl = s.jiraCommentUrl;
     const sf = s.runDir ? path.join(s.runDir, "run", "summary.md") : "";
-    if (sf && fs.existsSync(sf)) t.summaryText = fs.readFileSync(sf, "utf8").trim().slice(0, 1500);
+    if (sf && fs.existsSync(sf)) t.summaryText = readText(sf).trim().slice(0, 1500);
     state!.prUrl = s.prUrl ?? state!.prUrl;
   }
 
   function batchContext(st: BatchState, t: BatchTask, i: number): string {
-    const plan = fs.existsSync(planFile) ? fs.readFileSync(planFile, "utf8").trim() : "";
-    const answers = fs.existsSync(contextFile) ? fs.readFileSync(contextFile, "utf8").trim() : "";
+    const plan = fs.existsSync(planFile) ? readText(planFile).trim() : "";
+    const answers = fs.existsSync(contextFile) ? readText(contextFile).trim() : "";
     const done = st.order.slice(0, i).map((k) => st.tasks.find((x) => x.key === k)!).filter((x) => x.status === "success");
     return [
       `## Toplu çalışma (${i + 1}/${st.order.length})`,

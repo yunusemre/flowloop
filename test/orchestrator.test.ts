@@ -1250,3 +1250,16 @@ test("kullanım limiti dolarsa hata yığını yerine nasıl devam edileceği s�
   const { failReason } = await import("../src/stats.js");
   assert.equal(failReason(err), "kullanım limiti");
 });
+
+test("Windows: CRLF satır sonlu rol dosyaları okunur", async () => {
+  const { loadRoles, PACKAGE_ROOT } = await import("../src/roles.js");
+  const { loadConfig } = await import("../src/config.js");
+  const root = makeRepo("");
+  const dst = path.join(root, ".flowloop/roles");
+  fs.mkdirSync(dst, { recursive: true });
+  const src = path.join(PACKAGE_ROOT, "templates", "roles");
+  for (const n of fs.readdirSync(src)) fs.writeFileSync(path.join(dst, n), fs.readFileSync(path.join(src, n), "utf8").replace(/\n/g, "\r\n"));
+  const roles = loadRoles(root, loadConfig(root));
+  assert.ok(roles.analist.persona);
+  assert.ok(!/\r/.test(roles.developer.persona));
+});

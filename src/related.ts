@@ -6,7 +6,7 @@ import { changedExisting, changedPaths, diffAgainst, git, gitOk, headSha, sh, st
 import type { Logger } from "./log.js";
 import { remoteLinks } from "./remote.js";
 import { detectBaseBranch, detectProject } from "./tech.js";
-import { linkDir } from "./platform.js";
+import { linkDir, readText } from "./platform.js";
 import picomatch from "picomatch";
 
 /** Çalıştırma kaydında (run.json) ilgili repo bilgisi */
@@ -198,8 +198,8 @@ export class RelatedRepo {
    */
   commit(messageFile: string, trailer: string, conventional: RegExp): string | undefined {
     if (!this.hasChanges()) return undefined;
-    if (!fs.existsSync(messageFile) || !fs.readFileSync(messageFile, "utf8").trim()) return `${this.name}: commit mesajı yazılmamış (${path.basename(messageFile)})`;
-    const msg = fs.readFileSync(messageFile, "utf8").trim();
+    if (!fs.existsSync(messageFile) || !readText(messageFile).trim()) return `${this.name}: commit mesajı yazılmamış (${path.basename(messageFile)})`;
+    const msg = readText(messageFile).trim();
     const subject = msg.split("\n")[0];
     if (!conventional.test(subject)) return `${this.name}: commit mesajı Conventional Commits'e uymuyor: ${subject}`;
     const full = msg.includes(trailer) ? msg : `${msg}\n\n${trailer}`;
@@ -257,7 +257,7 @@ function ensureExcludedIn(root: string, dirs: string[]): void {
   const common = path.resolve(root, gitOk(["rev-parse", "--git-common-dir"], root));
   const file = path.join(common, "info", "exclude");
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  const current = fs.existsSync(file) ? readText(file) : "";
   const lines = new Set(current.split("\n").map((l) => l.trim()));
   const add = dirs.map((d) => `/${d.replace(/^\/+|\/+$/g, "")}`).filter((l) => !lines.has(l));
   if (add.length) fs.appendFileSync(file, `${current && !current.endsWith("\n") ? "\n" : ""}# flowloop: yok sayılan yollar\n${add.join("\n")}\n`);

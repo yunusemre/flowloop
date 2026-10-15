@@ -187,7 +187,7 @@ export class SdkAgentRunner implements AgentRunner {
         for (const m of Object.keys(msg.modelUsage ?? {})) models.add(m);
         if (msg.subtype === "success") {
           ok = true;
-          text = msg.result;
+          text = msg.result.replace(/\r\n?/g, "\n"); // Windows: CRLF ayrıştırmayı bozmasın
         } else {
           budgetExceeded = msg.subtype === "error_max_budget_usd";
           error = `${msg.subtype}${msg.errors?.length ? ": " + msg.errors.join("; ") : ""}`;

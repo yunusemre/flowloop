@@ -23,7 +23,7 @@ import { CURSOR_CO_AUTHOR } from "./cursor.js";
 import { createHash } from "node:crypto";
 import { DECISIONS_SECTION, attentionKey, collectAttention, extractAssumptions, parseDecisions, removeSection, type AttentionItem, type AttentionTag, type OpenQuestion } from "./notes.js";
 import { questionsMarkdown as qMarkdown, resolveQuestions as questionLoop, type AskQuestions, type QuestionDecision, type QuestionRecord, type QuestionsMode } from "./questions.js";
-import { linkDir } from "./platform.js";
+import { linkDir, readText } from "./platform.js";
 export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
 
 /** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
@@ -112,7 +112,7 @@ function toolVersions(): { flowloop: string; sdk: string } {
   if (cachedVersions) return cachedVersions;
   const read = (f: string) => {
     try {
-      return JSON.parse(fs.readFileSync(f, "utf8")).version as string;
+      return JSON.parse(readText(f)).version as string;
     } catch {
       return "?";
     }
@@ -497,7 +497,7 @@ export function branchNameFor(pattern: string, vars: { jira: string; slug: strin
 function readLessons(root: string): string {
   const f = path.join(root, LESSONS_FILE);
   if (!fs.existsSync(f)) return "";
-  const t = fs.readFileSync(f, "utf8").trim();
+  const t = readText(f).trim();
   return t.length > 3000 ? "…\n" + t.slice(-3000) : t;
 }
 
@@ -536,7 +536,7 @@ export function ensureExcluded(root: string, dirs: string[]): void {
   const common = path.resolve(root, gitOk(["rev-parse", "--git-common-dir"], root));
   const file = path.join(common, "info", "exclude");
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+  const current = fs.existsSync(file) ? readText(file) : "";
   const lines = new Set(current.split("\n").map((l) => l.trim()));
   const add = dirs.map((d) => `/${d.replace(/^\/+|\/+$/g, "")}`).filter((l) => !lines.has(l));
   if (!add.length) return;
@@ -553,13 +553,13 @@ export function findPreviousPlan(cfg: ReturnType<typeof loadConfig>, root: strin
       const json = path.join(base, id, "run.json");
       if (!fs.existsSync(plan) || !fs.existsSync(json)) continue;
       try {
-        const s = JSON.parse(fs.readFileSync(json, "utf8")) as RunSummary;
+        const s = JSON.parse(readText(json)) as RunSummary;
         const key = s.taskKey ?? s.jiraKey;
         // sadece plan aşamasında kalmış çalıştırmalar: geliştirmeye geçmiş olanın planı onaylanmış ve kullanılmıştır
         const developed = s.phases?.some((p) => p.role === "developer");
         // görev metni değiştiyse (ör. sorulara Jira'da cevap verildi, --refresh ile çekildi) eski plan geçersizdir
         const sameTask = !taskHash || !s.taskHash || s.taskHash === taskHash;
-        if (key === taskKey && s.status === "failed" && !developed && sameTask && fs.readFileSync(plan, "utf8").trim()) {
+        if (key === taskKey && s.status === "failed" && !developed && sameTask && readText(plan).trim()) {
           found.push({ id, plan, baseSha: s.baseSha, mtime: fs.statSync(plan).mtimeMs });
         }
       } catch {
@@ -598,7 +598,7 @@ function attachRelated(related: RelatedRepo[], policy: PolicyContext, vars: Reco
       : findProjectDocs(r.s.baseWt, ["CLAUDE.md", "AGENTS.md", ".cursorrules", ".cursor/rules/*.mdc"]);
     if (!docs.length) continue;
     parts.push(`# İlgili repo kuralları: ${r.name}`);
-    for (const d of docs) parts.push(`## ${r.name}/${d}\n\n${fs.readFileSync(path.join(r.s.baseWt, d), "utf8").trim()}`);
+    for (const d of docs) parts.push(`## ${r.name}/${d}\n\n${readText(path.join(r.s.baseWt, d)).trim()}`);
   }
   if (parts.length && rulesFile) fs.appendFileSync(rulesFile, "\n\n---\n\n" + parts.join("\n\n"));
 }
@@ -655,7 +655,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
   const taskPath = path.resolve(root, opts.taskFile);
   if (!fs.existsSync(taskPath)) throw new FlowloopError(`Görev dosyası yok: ${opts.taskFile}`);
-  let taskText = fs.readFileSync(taskPath, "utf8");
+  let taskText = readText(taskPath);
   const slug = taskSlug(taskText, path.basename(taskPath, path.extname(taskPath)));
   const jira = jiraKey(taskText);
   const date = stamp(now());
@@ -895,12 +895,12 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   let analistBudget = cfg.budgets.analist;
   const runAnalist = async (feedback = "") => {
     const h0 = workingTreeHash(wt, X);
-    const before = fs.existsSync(files.plan) ? fs.readFileSync(files.plan, "utf8") : "";
+    const before = fs.existsSync(files.plan) ? readText(files.plan) : "";
     const res = await call(roles.analist, "analist", analistBudget, { planFeedback: feedback });
     analistBudget = Math.max(0.05, analistBudget - res.costUsd);
     if (workingTreeHash(wt, X) !== h0) fail("Analist kod değiştirdi! Rol ihlali.");
-    if (!fs.existsSync(files.plan) || !fs.readFileSync(files.plan, "utf8").trim()) fail("Analist plan yazmadı.");
-    if (feedback && fs.readFileSync(files.plan, "utf8") === before) log.warn("Analist planı değiştirmedi; gerekçesi aşağıda.");
+    if (!fs.existsSync(files.plan) || !readText(files.plan).trim()) fail("Analist plan yazmadı.");
+    if (feedback && readText(files.plan) === before) log.warn("Analist planı değiştirmedi; gerekçesi aşağıda.");
     return res;
   };
 
@@ -940,7 +940,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     const prevAnswers = path.join(path.dirname(prev.plan), "answers.md");
     if (fs.existsSync(prevAnswers)) {
       fs.copyFileSync(prevAnswers, path.join(runRoot, "answers.md"));
-      appendTask(`## Kullanıcının açık sorulara cevapları (önceki çalıştırmadan)\n\n${fs.readFileSync(prevAnswers, "utf8").replace(/^## \d+\. tur\n/gm, "")}`);
+      appendTask(`## Kullanıcının açık sorulara cevapları (önceki çalıştırmadan)\n\n${readText(prevAnswers).replace(/^## \d+\. tur\n/gm, "")}`);
     }
     summary.planFrom = prev.id;
     reused = true;
@@ -953,7 +953,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
   if (opts.planApproval) {
     for (let round = 1; ; round++) {
-      const planText = fs.readFileSync(files.plan, "utf8");
+      const planText = readText(files.plan);
       if (PLAN_SMELLS.test(planText)) log.warn("Plan rollerle çelişen talimat içeriyor (commit/push ya da dış skill). Developer bunları uygulayamaz.");
       log.info("\n──── PLAN" + (round > 1 ? ` (${round}. sürüm)` : reused ? " (önceki çalıştırmadan)" : "") + " ────\n" + planText + "\n──────────────");
       if (ceilings.length) {
@@ -998,7 +998,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
   // ───────────── görevin repo kapsamı ─────────────
   if (ceilings.length) {
-    const sc = resolveScope(fs.readFileSync(files.plan, "utf8"), ceilings);
+    const sc = resolveScope(readText(files.plan), ceilings);
     applyScope(sc.edit);
     summary.scope = { fromPlan: sc.fromPlan, edit: sc.edit };
     if (!opts.planApproval) for (const w of sc.warnings) log.warn(w);
@@ -1070,7 +1070,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const refreshNotes = () => {
     summary.attention = collectAttention(lastDevText, lastReviewerNote);
     summary.assumptions = [
-      ...extractAssumptions(fs.readFileSync(files.plan, "utf8")),
+      ...extractAssumptions(readText(files.plan)),
       ...(summary.questions ?? []).filter((q) => q.assumed).map((q) => `${q.id} cevaplanmadı (${q.text.replace(/\s*\n\s*/g, " ")}) → ${q.assumed}`),
     ];
   };
@@ -1363,7 +1363,7 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
 
   const jiraBase = cfg.jira.baseUrl || jiraBaseFromTask(ctx.taskText ?? "") || jiraBaseUrl(cfg);
   if (jira && cfg.jira.comment && jiraBase) {
-    const body = buildJiraComment(fs.existsSync(files.summary) ? fs.readFileSync(files.summary, "utf8") : "", summary, links);
+    const body = buildJiraComment(fs.existsSync(files.summary) ? readText(files.summary) : "", summary, links);
     try {
       summary.jiraCommentUrl = await postComment(jira, jiraBase, body, opts.jira ?? {});
       log.ok(`Jira'ya yorum eklendi: ${jira}`);
@@ -1392,7 +1392,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     : [...workDirsFor(cfg, root), workDirFor(cfg, root)].map((d) => path.join(d, opts.resume)).find((d) => fs.existsSync(path.join(d, "run.json"))) ?? path.join(workDirFor(cfg, root), opts.resume);
   const jsonPath = path.join(runDir, "run.json");
   if (!fs.existsSync(jsonPath)) throw new FlowloopError(`Çalıştırma bulunamadı: ${opts.resume} (flowloop runs ile listele)`);
-  const summary = JSON.parse(fs.readFileSync(jsonPath, "utf8")) as RunSummary;
+  const summary = JSON.parse(readText(jsonPath)) as RunSummary;
   summary.warnings = summary.warnings ?? [];
   if (opts.backend) summary.backend = opts.backend;
   if (summary.status === "success") throw new FlowloopError("Bu çalıştırma zaten başarıyla bitmiş.");
@@ -1446,7 +1446,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   }
 
   const files = { task: path.join(runRoot, "task.md"), plan: path.join(runRoot, "plan.md"), summary: path.join(runRoot, "summary.md"), mutant: path.join(runRoot, "mutant"), rules: path.join(runRoot, "rules.md") };
-  let resumeTaskText = fs.existsSync(files.task) ? fs.readFileSync(files.task, "utf8") : "";
+  let resumeTaskText = fs.existsSync(files.task) ? readText(files.task) : "";
   const appendResumeTask = (block: string) => {
     resumeTaskText = `${resumeTaskText.trimEnd()}\n\n${block.trim()}\n`;
     fs.writeFileSync(files.task, resumeTaskText);
@@ -1661,7 +1661,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     saveSummary();
   }
   const taskFile = path.join(runRoot, "task.md");
-  const taskText = fs.existsSync(taskFile) ? fs.readFileSync(taskFile, "utf8") : "";
+  const taskText = fs.existsSync(taskFile) ? readText(taskFile) : "";
   vars.relatedChanges = relatedChanges(related);
   return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira: summary.jiraKey ?? "", X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText, related, runRoot });
 }

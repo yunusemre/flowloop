@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { readText } from "./platform.js";
 
 /**
  * Kullanıcının Claude Code'da tanımlı MCP sunucularını bulur (sadece flowloop.yaml'da
@@ -10,7 +11,7 @@ export type McpConfig = Record<string, unknown>;
 
 function readJson(file: string): any {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    return JSON.parse(readText(file));
   } catch {
     return undefined;
   }

@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isWindows } from "./platform.js";
+import { isWindows, readText } from "./platform.js";
 import { PACKAGE_ROOT } from "./roles.js";
 
 /**
@@ -32,7 +32,7 @@ export function readInstallInfo(home = os.homedir()): InstallInfo | undefined {
   // eski adla (kgflow) yapılmış kurulumun kaydı da okunur
   for (const f of [installFile(home), path.join(home, ".kgflow", "install.json")]) {
     try {
-      const j = JSON.parse(fs.readFileSync(f, "utf8")) as InstallInfo;
+      const j = JSON.parse(readText(f)) as InstallInfo;
       if (j.source) return j;
     } catch {
       /* sıradaki */
@@ -43,7 +43,7 @@ export function readInstallInfo(home = os.homedir()): InstallInfo | undefined {
 
 export function currentVersion(): string {
   try {
-    return JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8")).version;
+    return JSON.parse(readText(path.join(PACKAGE_ROOT, "package.json"))).version;
   } catch {
     return "?";
   }
@@ -99,7 +99,7 @@ export function updateNotice(home = os.homedir(), now = Date.now(), check: (i: I
   const cacheFile = path.join(home, ".flowloop", "update-check.json");
   let cache: { checkedAt?: number; latest?: string } = {};
   try {
-    cache = JSON.parse(fs.readFileSync(cacheFile, "utf8"));
+    cache = JSON.parse(readText(cacheFile));
   } catch {
     /* ilk kontrol */
   }
@@ -158,7 +158,7 @@ export function runUpdate(home = os.homedir(), log: (s: string) => void = consol
   } else {
     log(`Kaynak: ${info.source}`);
     // install.sh'ı "curl | bash" gibi stdin'den çalıştır: kurulum sırasında dosyanın kendisi değişse de etkilenmez
-    const script = fs.readFileSync(path.join(PACKAGE_ROOT, "install.sh"), "utf8");
+    const script = readText(path.join(PACKAGE_ROOT, "install.sh"));
     r = spawnSync("bash", ["-s"], { input: script, stdio: ["pipe", "inherit", "inherit"], env: { ...env, FLOWLOOP_SOURCE: info.source } });
   }
   if (r.status !== 0) return r.status ?? 1;

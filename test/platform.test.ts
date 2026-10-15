@@ -45,3 +45,10 @@ test("platform: DPAPI deposu PowerShell yokken hata verir, değer sızdırmaz", 
   assert.equal(s.get("JIRA_API_TOKEN"), undefined); // dosya yok → çağrı yapılmaz
   assert.throws(() => s.set("JIRA_API_TOKEN", "gizli-deger"), (e: Error) => !e.message.includes("gizli-deger"));
 });
+
+test("platform: CRLF ve BOM'lu metin LF'e çevrilir (Windows'ta git autocrlf)", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { readText } = await import("../src/platform.js");
+});

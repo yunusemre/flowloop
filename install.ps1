@@ -171,6 +171,17 @@ Ok "flowloop $Version kuruldu ($Mode)"
 
 Refresh-Path
 $prefix = (& $npm prefix -g).Trim()
+# npm her komut için bir de .ps1 kısayolu yazar; PowerShell onu .cmd'den önce seçer. Betik çalıştırma
+# kapalıysa (Restricted/AllSigned, Windows'un varsayılanı) "running scripts is disabled" hatası alınır.
+# O durumda .ps1 kısayolu kaldırılır, PowerShell .cmd kısayolunu kullanır; ilkeye dokunulmaz.
+$policy = "$(Get-ExecutionPolicy)"
+if ($policy -in @("Restricted", "AllSigned", "Undefined")) {
+  foreach ($n in @("flowloop", "kgflow")) {
+    $ps1 = Join-Path $prefix "$n.ps1"
+    if ((Test-Path $ps1) -and (Test-Path (Join-Path $prefix "$n.cmd"))) { Remove-Item $ps1 -Force }
+  }
+  Ok "PowerShell betik çalıştırmayı kapalı tutuyor ($policy); flowloop .cmd kısayoluyla çalışacak"
+}
 if (Has "flowloop") { Ok "flowloop komutu hazır: $((Get-Command flowloop).Source)" }
 elseif (Test-Path (Join-Path $prefix "flowloop.cmd")) {
   Warn "flowloop kuruldu ($prefix\flowloop.cmd) ama bu klasör PATH'te değil."

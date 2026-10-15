@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isWindows, which } from "./platform.js";
+import { isWindows, readText, which } from "./platform.js";
 
 /**
  * flowloop'un gizli bilgileri (Jira token'ı, Anthropic anahtarı...).
@@ -74,7 +74,7 @@ export class FileStore implements SecretStore {
   }
   private read(): Record<string, string> {
     try {
-      return JSON.parse(fs.readFileSync(this.file, "utf8"));
+      return JSON.parse(readText(this.file));
     } catch {
       return {};
     }

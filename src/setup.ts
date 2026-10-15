@@ -5,7 +5,7 @@ import path from "node:path";
 import { claudeAvailable, findCursorBin } from "./backend.js";
 import { globalJiraBase, normalizeJiraBase, writeUserConfig } from "./config.js";
 import { color } from "./log.js";
-import { clipboardCommand, isWindows, openerCommand, which as whichBin } from "./platform.js";
+import { clipboardCommand, isWindows, openerCommand, readText, which as whichBin } from "./platform.js";
 import { defaultStore, getCredential, mask, type SecretStore } from "./secrets.js";
 
 /**
@@ -73,7 +73,7 @@ function gitConfig(deps: SetupDeps, key: string): string | undefined {
 
 function claudeAccount(home: string): string | undefined {
   try {
-    const j = JSON.parse(fs.readFileSync(path.join(home, ".claude.json"), "utf8"));
+    const j = JSON.parse(readText(path.join(home, ".claude.json")));
     return j.oauthAccount?.emailAddress ?? undefined;
   } catch {
     return undefined;
@@ -323,9 +323,9 @@ async function setupSsh(io: SetupIO, deps: SetupDeps): Promise<void> {
   const pub = [key + ".pub", path.join(deps.home, ".ssh", "id_rsa.pub")].find((p) => fs.existsSync(p));
   if (!pub) return io.log(warn("Açık anahtar bulunamadı."));
   const clip = clipboardCommand();
-  const copied = clip ? deps.run(clip[0], clip[1], { input: fs.readFileSync(pub, "utf8") }).code === 0 : false;
+  const copied = clip ? deps.run(clip[0], clip[1], { input: readText(pub) }).code === 0 : false;
   io.log(`Açık anahtarını Bitbucket'a ekle: ${LINKS.bitbucketSsh}  → "Add key"`);
-  io.log(copied ? color.dim("  Anahtar panoya kopyalandı; sayfaya yapıştırman yeterli.") : color.dim(`  Eklenecek anahtar: ${fs.readFileSync(pub, "utf8").trim()}`));
+  io.log(copied ? color.dim("  Anahtar panoya kopyalandı; sayfaya yapıştırman yeterli.") : color.dim(`  Eklenecek anahtar: ${readText(pub).trim()}`));
   io.open(LINKS.bitbucketSsh);
   await io.pause("Ekledikten sonra Enter'a bas");
   r = sshBitbucket(deps);

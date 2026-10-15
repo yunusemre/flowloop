@@ -94,6 +94,14 @@ export function nativePath(p: string, platform: NodeJS.Platform = process.platfo
   return m ? `${m[1].toUpperCase()}:${m[2] ?? "/"}` : p;
 }
 
+/**
+ * Metin dosyasını okur: baştaki BOM atılır, satır sonları LF'e çevrilir. Windows'ta git (autocrlf)
+ * ve editörler CRLF yazar; şablonlar, plan ve görev dosyaları her sistemde aynı ayrıştırılsın.
+ */
+export function readText(file: string): string {
+  return fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+}
+
 /** Windows yolundaki ters bölüleri düz bölüye çevirir (kabuk komutlarında ve glob kurallarında güvenli) */
 export function slashPath(p: string): string {
   return p.replace(/\\/g, "/");

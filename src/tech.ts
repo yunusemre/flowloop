@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DEFAULT_PROJECT_DOCS } from "./config.js";
 import { git } from "./git.js";
+import { readText } from "./platform.js";
 
 /**
  * Projenin teknolojilerini algılar ve ona uygun komutları önerir.
@@ -22,7 +23,7 @@ const COMMON_DENY = [".env", ".env.*", "**/.env", "**/.env.*", "**/*.pem", "**/*
 
 function readJson(file: string): Record<string, any> | undefined {
   try {
-    return JSON.parse(fs.readFileSync(file, "utf8"));
+    return JSON.parse(readText(file));
   } catch {
     return undefined;
   }
@@ -112,10 +113,10 @@ export function pickSolution(root: string, slns: string[], classic: Set<string>)
     .map((f) => path.join(root, f))
     .concat(fs.existsSync(path.join(root, ".github", "workflows")) ? fs.readdirSync(path.join(root, ".github", "workflows")).map((f) => path.join(root, ".github", "workflows", f)) : [])
     .filter((f) => fs.existsSync(f))
-    .map((f) => fs.readFileSync(f, "utf8"))
+    .map((f) => readText(f))
     .join("\n");
   const info = slns.map((sln) => {
-    const text = fs.readFileSync(path.join(root, sln), "utf8");
+    const text = readText(path.join(root, sln));
     const projs = [...text.matchAll(/"([^"]+\.(?:cs|fs|vb)proj)"/g)].map((m) => m[1].replace(/\\/g, "/"));
     return { sln, count: projs.length, classic: projs.filter((p) => classic.has(p)).length, ci: ci.split(sln).length - 1 };
   });
@@ -156,7 +157,7 @@ function detectDotnet(root: string): Detected {
   const testFw = new Set<string>();
   const classic = new Set<string>();
   for (const p of csprojs) {
-    const x = fs.readFileSync(path.join(root, p), "utf8");
+    const x = readText(path.join(root, p));
     for (const m of x.matchAll(/<TargetFrameworks?>([^<]+)</g)) m[1].split(";").forEach((f) => frameworks.add(f.trim()));
     const fwv = /<TargetFrameworkVersion>v?([^<]+)</.exec(x);
     if (fwv) {
@@ -181,7 +182,7 @@ function detectDotnet(root: string): Detected {
   }
   const target = sln ? ` ${JSON.stringify(sln).slice(1, -1)}` : "";
   // commit hook'u CSharpier çalıştırıyorsa flowloop da aynı formatter'ı kullanmalı; yoksa commit'lenen içerik onaylanandan farklı olur
-  const read = (f: string) => (fs.existsSync(path.join(root, f)) ? fs.readFileSync(path.join(root, f), "utf8") : "");
+  const read = (f: string) => (fs.existsSync(path.join(root, f)) ? readText(path.join(root, f)) : "");
   const csharpier = /csharpier/i.test(read(".config/dotnet-tools.json") + read(".husky/task-runner.json") + read(".pre-commit-config.yaml"));
   const csharpierExts = csharpier ? csharpierExtensions(read(".husky/task-runner.json")) : [];
   if (csharpier) notes.push(`CSharpier bulundu (commit hook'u ile aynı biçim için format: dotnet csharpier format, uzantılar: ${csharpierExts.join(", ")})`);

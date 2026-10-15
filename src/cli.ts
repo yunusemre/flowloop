@@ -25,6 +25,7 @@ import { computeStats, loadRecords, parseSince, renderStats } from "./stats.js";
 import { PACKAGE_ROOT, loadRoles } from "./roles.js";
 import { JIRA_KEY, JiraError, epicChildren, fetchIssue, issueToTask } from "./jira.js";
 import { BATCH_FILE, BATCH_PREFIX, runBatch, type BatchState } from "./batch.js";
+import { readText } from "./platform.js";
 
 const HELP = `flowloop — rol bazlı AI geliştirme ekibi (analist → developer ⇄ reviewer → committer)
 
@@ -104,7 +105,7 @@ function guessJiraBase(root: string): string {
   const dir = path.join(root, FLOWLOOP_DIR, "tasks");
   if (!fs.existsSync(dir)) return "";
   for (const f of fs.readdirSync(dir)) {
-    const m = /^Kaynak:\s*(https:\/\/[^/\s]+)\/browse\//m.exec(fs.readFileSync(path.join(dir, f), "utf8"));
+    const m = /^Kaynak:\s*(https:\/\/[^/\s]+)\/browse\//m.exec(readText(path.join(dir, f)));
     if (m) return m[1];
   }
   return "";
@@ -564,7 +565,7 @@ function listBatches(root: string): BatchState[] {
   return workDirsFor(loadConfig(root), root).flatMap((base) =>
     fs.readdirSync(base).filter((id) => id.startsWith(BATCH_PREFIX) && fs.existsSync(path.join(base, id, BATCH_FILE))).sort().map((id) => {
       try {
-        return JSON.parse(fs.readFileSync(path.join(base, id, BATCH_FILE), "utf8")) as BatchState;
+        return JSON.parse(readText(path.join(base, id, BATCH_FILE))) as BatchState;
       } catch {
         return undefined;
       }
@@ -575,7 +576,7 @@ function listBatches(root: string): BatchState[] {
 function listRuns(root: string): { id: string; dir: string; status: string; branch?: string; cost?: number }[] {
   return workDirsFor(loadConfig(root), root).flatMap((base) => fs.readdirSync(base).filter((id) => !id.startsWith(BATCH_PREFIX)).sort().map((id) => {
     const f = path.join(base, id, "run.json");
-    const j = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : {};
+    const j = fs.existsSync(f) ? JSON.parse(readText(f)) : {};
     return { id, dir: path.join(base, id), status: j.status ?? "yarım", branch: j.branch, cost: j.totalCostUsd };
   }));
 }
@@ -693,7 +694,7 @@ async function main(): Promise<number> {
     case "__mutant": {
       // Cursor reviewer'ının mutasyon komutu (iç kullanım)
       const [action, ctxFile] = rest;
-      const ctx = JSON.parse(fs.readFileSync(ctxFile, "utf8")) as MutantContext;
+      const ctx = JSON.parse(readText(ctxFile)) as MutantContext;
       const sb = new MutantSandbox(ctx.repoRoot, ctx.dir, () => ctx.testCmd, ctx.linkDirs, ctx.timeoutSec, ctx.installCmd ?? "");
       if (action === "reset") {
         const r = sb.reset();

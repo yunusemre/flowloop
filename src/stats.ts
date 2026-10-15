@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { FLOWLOOP_DIR } from "./config.js";
+import { readText } from "./platform.js";
 
 /**
  * flowloop stats: çalıştırmaların ölçüm özeti.
@@ -164,7 +165,7 @@ export function loadRecords(root: string, workDirs: string[], since?: Date): Run
       const f = path.join(base, id, "run.json");
       if (!fs.existsSync(f)) continue;
       try {
-        put(JSON.parse(fs.readFileSync(f, "utf8")));
+        put(JSON.parse(readText(f)));
       } catch {
         /* bozuk kayıt atlanır */
       }
@@ -173,7 +174,7 @@ export function loadRecords(root: string, workDirs: string[], since?: Date): Run
   // geçmiş dosyası run.json'lardan sonra okunur: bitiş anındaki kayıt kesindir
   const hist = path.join(root, FLOWLOOP_DIR, "history.jsonl");
   if (fs.existsSync(hist)) {
-    for (const line of fs.readFileSync(hist, "utf8").split("\n")) {
+    for (const line of readText(hist).split("\n")) {
       if (!line.trim()) continue;
       try {
         put(JSON.parse(line));

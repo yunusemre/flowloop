@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { gitOk, runConfigured } from "./git.js";
 import { currentVersion } from "./update.js";
-import { linkDir } from "./platform.js";
+import { linkDir, readText } from "./platform.js";
 
 /** Kopyada çalıştırılacak test komutunu (ilgili testler) üretir. */
 export type TestCommandFn = () => string;
@@ -35,7 +35,7 @@ export class MutantSandbox {
   reset(): { files: number; installError?: string } {
     let previous: string[] | undefined;
     try {
-      previous = JSON.parse(fs.readFileSync(this.manifest, "utf8")).files;
+      previous = JSON.parse(readText(this.manifest)).files;
     } catch {
       previous = undefined;
     }

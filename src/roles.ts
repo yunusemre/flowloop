@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import type { FlowloopConfig } from "./config.js";
 import { FLOWLOOP_DIR } from "./config.js";
 import type { RolePermissions } from "./policy.js";
+import { readText } from "./platform.js";
 
 export type RoleName = "analist" | "developer" | "reviewer" | "committer";
 export const ROLE_NAMES: RoleName[] = ["analist", "developer", "reviewer", "committer"];
@@ -41,7 +42,7 @@ export function loadRuleset(root: string, name: RoleName): { text: string; sourc
   const builtin = path.join(BUILTIN_RULESETS_DIR, `${name}.md`);
   const file = fs.existsSync(override) ? override : fs.existsSync(builtin) ? builtin : undefined;
   if (!file) return { text: "" };
-  const text = fs.readFileSync(file, "utf8").replace(/^(\s*<!--[\s\S]*?-->)+\s*/, "").trim();
+  const text = readText(file).replace(/^(\s*<!--[\s\S]*?-->)+\s*/, "").trim();
   return { text, source: file === override ? path.relative(root, override) : "yerleşik" };
 }
 
@@ -111,7 +112,7 @@ function basePermissions(name: RoleName, cfg: FlowloopConfig): RolePermissions {
 }
 
 function parseRoleFile(file: string): { persona: string; body: string } {
-  const text = fs.readFileSync(file, "utf8");
+  const text = readText(file);
   const m = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/.exec(text);
   if (!m) throw new Error(`${file}: '---' ile başlayan frontmatter bekleniyor`);
   const fm = (parseYaml(m[1]) ?? {}) as { persona?: string };

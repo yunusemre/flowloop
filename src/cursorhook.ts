@@ -10,6 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { HookContext } from "./cursor.js";
 import { evaluate, rewriteAliasPaths } from "./policy.js";
+import { readText } from "./platform.js";
 
 type Json = Record<string, unknown>;
 
@@ -68,7 +69,7 @@ function main(): void {
   let out: { allow: boolean; reason: string; tool: string; input: string };
   let ctx: HookContext | undefined;
   try {
-    ctx = JSON.parse(fs.readFileSync(ctxFile, "utf8")) as HookContext;
+    ctx = JSON.parse(readText(ctxFile)) as HookContext;
     out = decideCursor(ctx, ev);
     if (ctx.callsFile) fs.appendFileSync(ctx.callsFile, `${out.allow ? "allow" : "deny"} ${out.tool}\n`);
   } catch (e) {

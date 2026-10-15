@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { shellCommand } from "./platform.js";
+import { readText, shellCommand } from "./platform.js";
 import { scrubEnv } from "./secrets.js";
 
 export interface ExecResult {
@@ -163,7 +163,7 @@ export function nearestProject(file: string, cwd: string, ext = [".csproj", ".fs
 /** .NET Framework (eski biçim) projesi mi: sadece Windows'ta derlenir/test edilir */
 export function isClassicDotnetProject(project: string, cwd: string): boolean {
   try {
-    return /<TargetFrameworkVersion>/.test(fs.readFileSync(path.join(cwd, project), "utf8"));
+    return /<TargetFrameworkVersion>/.test(readText(path.join(cwd, project)));
   } catch {
     return false;
   }

@@ -16,9 +16,11 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
   - `linkDirs` Windows'ta junction ile bağlanır (yönetici izni gerekmez).
   - Ajanların Git Bash biçimindeki yolları (`/c/Users/...`) yetki kontrolünde doğru tanınır.
   - Tarayıcı açma ve panoya kopyalama (`flowloop setup`) Windows komutlarıyla yapılır.
+  - PowerShell'de betik çalıştırma kapalıysa (`running scripts is disabled`) kurulum npm'in `flowloop.ps1` kısayolunu kaldırır; `flowloop` komutu `.cmd` kısayoluyla çalışır.
 
 ### Düzeltme
 - `npm run build` Windows'ta `chmod` yüzünden başarısız oluyordu; kurulum bu yüzden yarıda kalıyordu.
+- Windows'ta git şablonları CRLF satır sonuyla çıkarınca rol dosyaları okunamıyordu (`'---' ile başlayan frontmatter bekleniyor`). flowloop artık bütün metin dosyalarını (şablon, plan, görev, ayar) ve ajan çıktılarını satır sonundan bağımsız okuyor; repoya `.gitattributes` eklendi.
 
 ## 1.9.1 — 2026-10-15
 

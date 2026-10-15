@@ -629,6 +629,7 @@ Gerisi kendiliğinden olur:
 | Cursor'da her yazma işlemi "yol belirtilmemiş" diye reddediliyor | Cursor'un hook formatı değişmiş olabilir; `run.json` içindeki `denials` listesine bak ve flowloop'u güncelle |
 | Windows: `Git Bash bulunamadı` | Git for Windows'u kur (`winget install Git.Git`) ya da `bash.exe` yolunu ver: `$env:FLOWLOOP_BASH="C:\...\Git\bin\bash.exe"` |
 | Windows: `install.ps1 ... running scripts is disabled` | Betiği `powershell -ExecutionPolicy Bypass -File install.ps1` ile çalıştır |
+| Windows: `flowloop.ps1 cannot be loaded because running scripts is disabled` | `install.ps1`'i tekrar çalıştır (1.10.0+ bu kısayolu kaldırır) ya da `flowloop.cmd ...` yaz. Kalıcı çözüm: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (npm'in önerdiği ayar; sadece senin kullanıcını etkiler) |
 | Windows: `'chmod' is not recognized` (`npm run build`) | 1.10.0'dan eski bir sürüm; güncel kaynağı çekip `install.ps1`'i çalıştır |
 | Windows: `flowloop` komutu bulunamıyor | Yeni bir PowerShell penceresi aç; olmazsa `install.ps1`'in yazdığı PATH komutunu bir kez çalıştır |
 | Eski `.kgflow` / `.ekip` klasörü | İlk `flowloop` komutunda otomatik `.flowloop`'a taşınır |

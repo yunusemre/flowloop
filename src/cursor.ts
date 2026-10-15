@@ -4,7 +4,7 @@ import path from "node:path";
 import { ROLE_GUARDRAIL, systemAppend, type AgentRequest, type AgentResult, type AgentRunner, type Denial } from "./agent.js";
 import type { PolicyContext, RolePermissions } from "./policy.js";
 import { PACKAGE_ROOT, type RoleName } from "./roles.js";
-import { slashPath } from "./platform.js";
+import { readText, slashPath } from "./platform.js";
 import { loginPath, scrubEnv } from "./secrets.js";
 
 /**
@@ -150,7 +150,7 @@ export class CursorAgentRunner implements AgentRunner {
       restore();
     }
     // Güvenlik ağı: araç çağrıldı ama hook hiç çalışmadıysa yetkiler zorlanmamış demektir
-    const hookCalls = fs.existsSync(callsFile) ? fs.readFileSync(callsFile, "utf8").split("\n").filter(Boolean).length : 0;
+    const hookCalls = fs.existsSync(callsFile) ? readText(callsFile).split("\n").filter(Boolean).length : 0;
     if (toolCalls > 0 && hookCalls === 0) {
       ok = false;
       error = "Cursor hook'ları çalışmadı; rol yetkileri zorlanamadığı için sonuç kabul edilmedi (Cursor CLI'yi güncelle: cursor-agent update)";
@@ -193,7 +193,7 @@ function readDenials(file: string): Denial[] {
   if (!fs.existsSync(file)) return [];
   const seen = new Set<string>();
   const out: Denial[] = [];
-  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+  for (const line of readText(file).split("\n")) {
     if (!line.trim()) continue;
     try {
       const d = JSON.parse(line) as Denial;

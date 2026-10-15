@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { Logger } from "./log.js";
 import { parseOpenQuestions, type OpenQuestion } from "./notes.js";
+import { readText } from "./platform.js";
 
 /**
  * Açık sorular döngüsü: plan "## Açık sorular" içeriyorsa kullanıcıya sorar (ya da ayara göre
@@ -80,7 +81,7 @@ export interface QuestionLoop {
 
 export async function resolveQuestions(l: QuestionLoop): Promise<void> {
   for (let round = 1; ; round++) {
-    const qs = parseOpenQuestions(fs.readFileSync(l.planFile, "utf8"));
+    const qs = parseOpenQuestions(readText(l.planFile));
     if (!qs.length) return;
     l.log.warn(`Analist ${qs.length} açık soru yazdı; cevaplanmadan geliştirmeye geçilmez.`);
     l.log.info(questionsMarkdown(qs).split("\n").map((x) => "  " + x).join("\n"));
