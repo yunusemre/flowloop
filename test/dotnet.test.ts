@@ -57,10 +57,13 @@ test("Windows: .NET Framework testleri MSBuild + vstest ile koşturulur", () => 
   const out = fillFiles('dotnet test {{testProject}} --filter "{{testFilter}}"', ["Old.Test/GsmTests.cs", "New.Tests/NewTests.cs"], root, { platform: "win32", fx: () => tools });
   assert.equal(
     out,
-    "'C:/VS/MSBuild.exe' 'Old.Test/Old.Test.csproj' -restore -p:RestorePackagesConfig=true -p:Configuration=Debug -v:q -nologo && " +
+    "'C:/VS/MSBuild.exe' 'Old.Test/Old.Test.csproj' -restore -p:RestorePackagesConfig=true \"-p:SolutionDir=$(pwd -W)/\" -p:Configuration=Debug -v:q -nologo && " +
       "'C:/VS/vstest.console.exe' 'Old.Test/bin/Debug/YNK.BL.Test.dll' '/TestCaseFilter:FullyQualifiedName~GsmTests' && " +
       "dotnet test 'New.Tests/New.Tests.csproj' --filter \"FullyQualifiedName~NewTests\"",
   );
+  // solution alt klasördeyse SolutionDir oraya işaret eder
+  const nested = repo({ "src/App.sln": 'Project("{X}") = "Old.Test", "Old.Test\\Old.Test.csproj"', "src/Old.Test/Old.Test.csproj": OLD, "src/Old.Test/GsmTests.cs": "" });
+  assert.match(fillFiles("dotnet test {{testProject}}", ["src/Old.Test/GsmTests.cs"], nested, { platform: "win32", fx: () => tools }), /-p:SolutionDir=\$\(pwd -W\)\/src\/"/);
   // araç yoksa eski biçim proje atlanır
   assert.equal(fillFiles("dotnet test {{testProject}}", ["Old.Test/GsmTests.cs"], root, { platform: "win32", fx: () => undefined }), "");
 });

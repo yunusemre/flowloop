@@ -545,6 +545,21 @@ Her çalıştırma bittiğinde (başarılı ya da başarısız) özeti `.flowloo
 - **Yönetişim:** kapsamı plandan gelen ve birden fazla repoya dokunan çalıştırmalar, reddedilen işlemler (en sık rol ve araç).
 - **Başarısızlık nedenleri, maliyet ve süre.** Cursor maliyet bildirmediği için maliyet ortalamasına sadece Claude çalıştırmaları girer. Süre onay bekleme süresini de içerir.
 
+- **Süre dağılımı:** toplam, makine ve senin cevabın (plan onayı, sorular, inceleme maddeleri, değişiklik onayı) ayrı; ajanlar, kontroller, hazırlık ve teslim için çalıştırma başına ortalama; en uzun adımlar.
+
+Her çalıştırmanın sonunda da aynı ölçüm kısaca gösterilir:
+
+```
+Süre: toplam 18:42 · makine 14:10 · senin cevabın 4:32
+  ajanlar 7:05 · kontroller 5:40 · hazırlık 1:12 · teslim 0:13
+  En uzun adımlar:
+     3:20  mutasyon testleri (4 test koşusu)
+     2:55  reviewer #1
+     2:10  tip kontrolü #1
+```
+
+Adımların süresi `run.json` → `timings` alanında da durur. İç içe adımlar bir kez sayılır: reviewer'ın mutasyon test koşuları reviewer süresinden ayrılıp "mutasyon testleri" olarak, ajan çalışırken sana sorulan sorular "senin cevabın" olarak yazılır.
+
 `--since 30d` (ya da `2w`, `6m`) dönemi daraltır; `--json` çıktıyı başka bir araca ya da rapora aktarmak içindir. Süre ve kontrol oranları bu sürümden önceki kayıtlarda bulunmaz.
 
 ## 7. Ayarlar (`.flowloop/flowloop.yaml`)

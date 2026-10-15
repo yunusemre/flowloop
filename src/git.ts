@@ -206,12 +206,35 @@ export function classicTestDll(project: string, cwd: string): string {
 }
 
 /**
+ * Projeyi içeren solution'ın klasörü (repo-göreli, "" = kök). packages.config restore'u
+ * paketleri solution'ın packages/ klasörüne kurar ve SolutionDir ister.
+ */
+export function solutionDirFor(project: string, cwd: string): string {
+  const name = path.basename(project).toLowerCase();
+  let dir = path.dirname(project);
+  let fallback: string | undefined;
+  for (;;) {
+    const abs = path.join(cwd, dir);
+    const slns = fs.existsSync(abs) ? fs.readdirSync(abs).filter((f) => /\.slnx?$/i.test(f)) : [];
+    if (slns.some((f) => readText(path.join(abs, f)).toLowerCase().includes(name))) return dir === "." ? "" : slashPath(dir);
+    if (slns.length && fallback === undefined) fallback = dir === "." ? "" : slashPath(dir);
+    if (dir === "." || !dir || dir === path.dirname(dir)) break;
+    dir = path.dirname(dir);
+  }
+  return fallback ?? "";
+}
+
+/**
  * .NET Framework test projesi için komut: MSBuild ile derle (packages.config dahil restore), vstest ile koştur.
  * `dotnet test` bu projelerde hiçbir test koşmadan başarılı döner.
  */
 export function classicTestCommand(project: string, filter: string, cwd: string, tools: DotnetFxTools): string {
   const q = (f: string) => `'${slashPath(f).replace(/'/g, "'\\''")}'`;
-  const build = `${q(tools.msbuild)} ${q(project)} -restore -p:RestorePackagesConfig=true -p:Configuration=Debug -v:q -nologo`;
+  // SolutionDir çalışma anında kopyanın kendi yolundan hesaplanır (Git Bash: pwd -W → C:/...);
+  // böylece komut mutasyon kopyasında da o kopyanın packages/ klasörünü kullanır
+  const slnDir = solutionDirFor(project, cwd);
+  const solutionDir = `"-p:SolutionDir=$(pwd -W)/${slnDir ? `${slnDir}/` : ""}"`;
+  const build = `${q(tools.msbuild)} ${q(project)} -restore -p:RestorePackagesConfig=true ${solutionDir} -p:Configuration=Debug -v:q -nologo`;
   const run = `${q(tools.vstest)} ${q(classicTestDll(project, cwd))}${filter ? ` ${q(`/TestCaseFilter:${filter}`)}` : ""}`;
   return `${build} && ${run}`;
 }

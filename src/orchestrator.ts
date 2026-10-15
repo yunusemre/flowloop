@@ -24,6 +24,8 @@ import { createHash } from "node:crypto";
 import { DECISIONS_SECTION, attentionKey, collectAttention, extractAssumptions, parseDecisions, removeSection, type AttentionItem, type AttentionTag, type OpenQuestion } from "./notes.js";
 import { questionsMarkdown as qMarkdown, resolveQuestions as questionLoop, type AskQuestions, type QuestionDecision, type QuestionRecord, type QuestionsMode } from "./questions.js";
 import { isWindows, linkDir, readText } from "./platform.js";
+import { Stopwatch, readMutantRuns, timingReport, type TimingEntry } from "./timing.js";
+import { mutantRunsFile } from "./mutant.js";
 export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
 
 /** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
@@ -407,6 +409,47 @@ export interface RunSummary {
   taskHash?: string;
   startedAt?: string;
   finishedAt?: string;
+  /** Adım adım süreler (ajan, kontrol, hazırlık, kullanıcı bekleme, teslim) */
+  timings?: TimingEntry[];
+  /** Toplam süre (ms); sürdürmelerde eklenerek */
+  durationMs?: number;
+}
+
+/** Test, tip ve lint kontrolleri; her biri ayrı ölçülür */
+function timedChecks(sw: Stopwatch, iteration: number | undefined, checks: ScopedChecks, after: string[], base: string[]): CheckResult[] {
+  return [
+    sw.time("testler", "check", () => checks.tests(after, base), { iteration }),
+    sw.time("tip kontrolü", "check", () => checks.typecheck(after), { iteration }),
+    sw.time("lint", "check", () => checks.lint(after, base), { iteration }),
+  ];
+}
+
+/**
+ * Ajan çalışmasını ölçer. Reviewer'ın mutasyon test koşuları ajan süresinden ayrılıp "mutasyon testleri"
+ * olarak yazılır (kontrol süresidir, model süresi değil).
+ */
+async function timedAgent<T>(sw: Stopwatch, role: string, iteration: number | undefined, mutant: MutantSandbox | undefined, fn: () => Promise<T>): Promise<T> {
+  const since = Date.now();
+  const res = await sw.timeAsync(role, "agent", fn, { iteration });
+  if (role === "reviewer" && mutant) {
+    const m = readMutantRuns(mutantRunsFile(mutant.dir), since);
+    if (m.runs) sw.carve(sw.entries.length - 1, { step: "mutasyon testleri", kind: "check", ms: m.ms, iteration, note: `${m.runs} test koşusu` });
+  }
+  return res;
+}
+
+/** Kullanıcıya soru soran geri çağırmalar: bekleme süresi "senin cevabın" olarak ölçülür */
+function timedOptions<T extends RunOptions>(o: T, sw: Stopwatch): T {
+  return {
+    ...o,
+    confirm: sw.human("onay", o.confirm),
+    reviewPlan: sw.human("plan onayı", o.reviewPlan),
+    reviewChanges: sw.human("değişiklik onayı", o.reviewChanges),
+    triage: sw.human("inceleme maddeleri", o.triage),
+    extendBudget: sw.human("ek bütçe", o.extendBudget),
+    reviewScope: sw.human("kapsam talebi", o.reviewScope),
+    answerQuestions: sw.human("açık sorular", o.answerQuestions),
+  };
 }
 
 const HISTORY_FILE = path.join(FLOWLOOP_DIR, "history.jsonl");
@@ -671,6 +714,12 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   // Windows: yol uzunluğu sınırı (260) yüzünden çalışma klasörü adı kısa tutulur (başlık özeti yok)
   const id = (isWindows() && jira ? `${slugify(jira)}-${date}` : `${slugify(jira || "gorev")}-${slug}-${date}`).replace(/^gorev-/, "");
   const summary: RunSummary = { status: "failed", id, projectDocs: [], commits: [], totalCostUsd: 0, iterations: 0, phases: [], checks: [], denials: [], warnings: [], jiraKey: jira || undefined, startedAt: now().toISOString() };
+  const sw = new Stopwatch((summary.timings = []));
+  const t0 = Date.now();
+  const stampDuration = () => {
+    summary.durationMs = Date.now() - t0;
+  };
+  opts = timedOptions(opts, sw);
 
   // ───────────── base branch ─────────────
   if (git(["rev-parse", "--is-inside-work-tree"], root).code !== 0) throw new FlowloopError("Bu klasör bir git deposu değil.");
@@ -762,14 +811,14 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
   // ───────────── temiz çalışma alanı ─────────────
   fs.mkdirSync(runRoot, { recursive: true });
-  const wtAdd = git(["worktree", "add", "-q", wt, ...(continued ? [branch] : ["-b", branch, baseSha])], root);
+  const wtAdd = sw.time("çalışma kopyası", "setup", () => git(["worktree", "add", "-q", wt, ...(continued ? [branch] : ["-b", branch, baseSha])], root));
   if (wtAdd.code !== 0) {
     throw new FlowloopError(
       `Çalışma kopyası açılamadı: ${wtAdd.stderr.trim().split("\n")[0]}` +
         (continued ? `\n  ${branch} branch'i başka bir klasörde açık olabilir (ör. kendi repon). Orada başka bir branch'e geç ve tekrar çalıştır.` : ""),
     );
   }
-  gitOk(["worktree", "add", "-q", "--detach", baseWt, baseSha], root);
+  sw.time("base kopya", "setup", () => gitOk(["worktree", "add", "-q", "--detach", baseWt, baseSha], root));
   summary.worktree = wt;
   summary.runDir = runDir;
   fs.copyFileSync(taskPath, files.task);
@@ -779,10 +828,16 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   }
   log.ok(`Temiz çalışma alanı: ${wt}`);
 
-  const saveSummary = () => fs.writeFileSync(path.join(runDir, "run.json"), JSON.stringify(summary, null, 2));
+  const saveSummary = () => {
+    stampDuration();
+    fs.writeFileSync(path.join(runDir, "run.json"), JSON.stringify(summary, null, 2));
+  };
   const fail = (msg: string): never => {
     summary.status = "failed";
     summary.error = msg;
+    stampDuration();
+    const rep = timingReport(summary.timings ?? [], summary.durationMs ?? 0);
+    if (rep) log.info("\n" + rep);
     appendHistory(root, summary, now());
     saveSummary();
     throw new FlowloopError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
@@ -801,7 +856,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     log.ok(`Bağımlılıklar repodan bağlandı: ${l.join(", ")}`);
   } else if (cfg.commands.install) {
     log.info(`Bağımlılık kurulumu: ${cfg.commands.install}${lockSame ? "" : " (lock dosyası base'den farklı)"}`);
-    const s = runConfigured(cfg.commands.install, wt, undefined, { fullEnv: true }); // özel npm registry token'ı gerekebilir
+    const s = sw.time("bağımlılık kurulumu", "setup", () => runConfigured(cfg.commands.install, wt, undefined, { fullEnv: true })); // özel npm registry token'ı gerekebilir
     if (s.code !== 0) {
       // dotnet, npm gibi araçlar hatayı stdout'a da yazar
       const out = failureLines(s.stdout + "\n" + s.stderr).join("\n    ");
@@ -810,7 +865,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     linkInto(wt, baseWt, cfg.linkDirs);
     if (!cfg.linkDirs.length) {
       // base kopya da kurulmalı: "sadece yeni hatalar" karşılaştırması derlenebilir bir base ister (ör. dotnet obj/)
-      const b = runConfigured(cfg.commands.install, baseWt, undefined, { fullEnv: true });
+      const b = sw.time("bağımlılık kurulumu (base)", "setup", () => runConfigured(cfg.commands.install, baseWt, undefined, { fullEnv: true }));
       if (b.code !== 0) log.warn("Base kopyada kurulum başarısız; tip ve test karşılaştırması güvenilir olmayabilir.");
     }
   }
@@ -836,7 +891,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const related: RelatedRepo[] = [];
   for (const r of cfg.related) {
     try {
-      related.push(RelatedRepo.prepare({ ...r, mainRoot: root, runDir, wantedBranch: branch, fetch: cfg.fetch && !opts.noFetch, log, runner: opts.checkRunner, continueBranch: !!opts.batch }));
+      related.push(sw.time(`ilgili repo: ${r.name}`, "setup", () => RelatedRepo.prepare({ ...r, mainRoot: root, runDir, wantedBranch: branch, fetch: cfg.fetch && !opts.noFetch, log, runner: opts.checkRunner, continueBranch: !!opts.batch })));
     } catch (e) {
       summary.related = related.map((x) => x.s);
       fail(`İlgili repo hazırlanamadı (${r.name}): ${(e as Error).message}`);
@@ -887,7 +942,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       extraDirs: related.map((r) => r.s.wt),
       log,
     };
-    const res = await runWithBudget(agent, req, { extendBudget: opts.extendBudget, totalSpentBefore: summary.totalCostUsd, onExtend: (x) => raiseBudget(cfg, phase, x) });
+    const res = await timedAgent(sw, role.name, iteration, mutant, () => runWithBudget(agent, req, { extendBudget: opts.extendBudget, totalSpentBefore: summary.totalCostUsd, onExtend: (x) => raiseBudget(cfg, phase, x) }));
     summary.totalCostUsd += res.costUsd;
     summary.denials.push(...res.denials);
     summary.phases.push({ phase, role: role.name, iteration, costUsd: res.costUsd, sessionId: res.sessionId, models: res.models });
@@ -1113,12 +1168,12 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       }
       const results: CheckResult[] = [];
       if (files_.length) {
-        results.push(checks.format(files_));
+        results.push(sw.time("format", "check", () => checks.format(files_), { iteration: turn }));
         assertDevScope("Formatter");
         const after = changed();
-        results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
+        results.push(...timedChecks(sw, turn, checks, after, atBase(after)));
       }
-      for (const r of related) results.push(...r.runChecks());
+      for (const r of related) results.push(...sw.time(`kontroller: ${r.name}`, "check", () => r.runChecks(), { iteration: turn }));
       assertDevScope("Formatter");
       summary.checks.push(results);
       const report = renderReport(results);
@@ -1234,7 +1289,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   refreshNotes();
   saveSummary();
   vars.relatedChanges = relatedChanges(related);
-  return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira, X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText, related, runRoot });
+  return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira, X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText, related, runRoot, sw });
 }
 
 interface CommitCtx {
@@ -1259,6 +1314,7 @@ interface CommitCtx {
   taskText?: string;
   related?: RelatedRepo[];
   runRoot?: string;
+  sw?: Stopwatch;
 }
 
 /**
@@ -1294,6 +1350,7 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   const mainChanged = gitOk(["rev-parse", "HEAD^{tree}"], wt) !== approved || statusPorcelain(wt, X).length > 0;
   summary.mainChanged = mainChanged;
   const c = await call(ctx.committer, "commit", cfg.budgets.commit);
+  const tDeliver = Date.now();
   if (/COMMIT İPTAL/i.test(c.text)) fail(`Committer iptal etti: ${c.text.split("\n").find((l) => /COMMIT İPTAL/i.test(l))}`);
   if (mainChanged && headSha(wt) === baseSha) fail("Committer hiç commit atmadı.");
   if (!mainChanged && headSha(wt) !== baseSha) fail("Ana repoda değişiklik yokken commit atıldı.");
@@ -1383,6 +1440,10 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
       log.warn(w);
     }
   }
+  ctx.sw?.add({ step: "commit doğrulama, push, Jira", kind: "deliver", ms: Date.now() - tDeliver });
+  saveSummary(); // süreyi günceller
+  const rep = timingReport(summary.timings ?? [], summary.durationMs ?? 0);
+  if (rep) log.info("\n" + rep);
   appendHistory(root, summary, opts.now?.() ?? new Date());
   saveSummary();
   return summary;
@@ -1406,6 +1467,13 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   summary.warnings = summary.warnings ?? [];
   if (opts.backend) summary.backend = opts.backend;
   if (summary.status === "success") throw new FlowloopError("Bu çalıştırma zaten başarıyla bitmiş.");
+  const sw = new Stopwatch((summary.timings ??= []));
+  const t0 = Date.now();
+  const d0 = summary.durationMs ?? 0;
+  const stampDuration = () => {
+    summary.durationMs = d0 + (Date.now() - t0);
+  };
+  opts = timedOptions(opts, sw);
   // görevin kaydedilen kapsamı geçerlidir; tavan (flowloop.yaml) o arada daraldıysa dar olan kazanır
   for (const r of cfg.related) {
     const recorded = summary.related?.find((x) => x.name === r.name);
@@ -1473,10 +1541,16 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   }
   const policy: PolicyContext = { repoRoot: wt, runRoot, readDeny: [...cfg.paths.readDeny, ...X.flatMap((d) => [d, `${d}/**`])], forbiddenFlags: DEFAULT_FORBIDDEN_FLAGS, aliasRoot: root };
   attachRelated(related, policy, vars, undefined, runRoot); // kurallar dosyası zaten yazılı; tekrar eklenmez
-  const saveSummary = () => fs.writeFileSync(jsonPath, JSON.stringify(summary, null, 2));
+  const saveSummary = () => {
+    stampDuration();
+    fs.writeFileSync(jsonPath, JSON.stringify(summary, null, 2));
+  };
   const fail = (msg: string): never => {
     summary.status = "failed";
     summary.error = msg;
+    stampDuration();
+    const rep = timingReport(summary.timings ?? [], summary.durationMs ?? 0);
+    if (rep) log.info("\n" + rep);
     appendHistory(root, summary, opts.now?.() ?? new Date());
     saveSummary();
     throw new FlowloopError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
@@ -1487,14 +1561,14 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec, X.length ? "" : cfg.commands.install)
     : undefined;
   const call = async (role: RoleSpec, phase: string, budget: number, extraVars: Record<string, string> = {}): Promise<AgentResult> => {
-    const res = await runWithBudget(agent, {
+    const res = await timedAgent(sw, role.name, summary.iterations, mutant, () => runWithBudget(agent, {
       role: role.name, persona: role.persona, ruleset: role.ruleset,
       prompt: taskMessage(resumeTaskText, summary.jiraKey ?? "", render(role.promptTemplate, { ...vars, ...extraVars })), cwd: wt, runRoot, perms: role.perms, policy,
       model: role.model, budgetUsd: budget, isolation: cfg.isolation, claudeMd: false, log,
       mutant: role.name === "reviewer" ? mutant : undefined,
       extraMcpServers: cfg.mcp.roles.includes(role.name) && Object.keys(userMcp).length ? userMcp : undefined,
       extraDirs: related.map((r) => r.s.wt),
-    }, { extendBudget: opts.extendBudget, totalSpentBefore: summary.totalCostUsd, onExtend: (x) => raiseBudget(cfg, phase, x) });
+    }, { extendBudget: opts.extendBudget, totalSpentBefore: summary.totalCostUsd, onExtend: (x) => raiseBudget(cfg, phase, x) }));
     summary.totalCostUsd += res.costUsd;
     summary.denials.push(...res.denials);
     summary.phases.push({ phase, role: role.name, costUsd: res.costUsd, sessionId: res.sessionId, models: res.models });
@@ -1572,11 +1646,11 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
       if (!fs_.length && !related.some((r) => r.hasChanges())) fail("Çalışma kopyasında değişiklik yok.");
       const results: CheckResult[] = [];
       if (fs_.length) {
-        results.push(checks.format(fs_));
+        results.push(sw.time("format", "check", () => checks.format(fs_), { iteration: summary.iterations }));
         const after = changed();
-        results.push(checks.tests(after, atBase(after)), checks.typecheck(after), checks.lint(after, atBase(after)));
+        results.push(...timedChecks(sw, summary.iterations, checks, after, atBase(after)));
       }
-      for (const r of related) results.push(...r.runChecks());
+      for (const r of related) results.push(...sw.time(`kontroller: ${r.name}`, "check", () => r.runChecks(), { iteration: summary.iterations }));
       summary.checks.push(results);
       saveSummary();
       for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
@@ -1673,5 +1747,5 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   const taskFile = path.join(runRoot, "task.md");
   const taskText = fs.existsSync(taskFile) ? readText(taskFile) : "";
   vars.relatedChanges = relatedChanges(related);
-  return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira: summary.jiraKey ?? "", X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText, related, runRoot });
+  return commitAndDeliver({ cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira: summary.jiraKey ?? "", X, approved, summary, saveSummary, fail, call, committer: roles.committer, log, opts, files, taskText, related, runRoot, sw });
 }

@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { FLOWLOOP_DIR } from "./config.js";
 import { readText } from "./platform.js";
+import { fmtDuration, totals, type TimingEntry, type TimingKind } from "./timing.js";
 
 /**
  * flowloop stats: çalıştırmaların ölçüm özeti.
@@ -32,6 +33,8 @@ export interface RunRecord {
   startedAt?: string;
   finishedAt?: string;
   error?: string;
+  timings?: TimingEntry[];
+  durationMs?: number;
 }
 
 export interface Stats {
@@ -57,6 +60,17 @@ export interface Stats {
   cost: { total: number; avg: number; runsCounted: number };
   /** Dakika; sadece başlangıç/bitiş zamanı olan kayıtlar */
   duration: { median: number; runsCounted: number };
+  /** Adım adım süre (sadece süre ölçümü olan kayıtlar; ms) */
+  time: {
+    runsCounted: number;
+    medianTotal: number;
+    medianMachine: number;
+    medianHuman: number;
+    /** çalıştırma başına ortalama, türe göre */
+    byKind: Record<TimingKind, number>;
+    /** adım adı → çalıştırma başına ortalama süre; en uzunlar */
+    slowSteps: [string, number][];
+  };
 }
 
 const ratio = (a: number, b: number) => (b ? a / b : 0);
@@ -120,7 +134,22 @@ export function computeStats(records: RunRecord[]): Stats {
     .map((r) => (Date.parse(r.finishedAt!) - Date.parse(r.startedAt!)) / 60000)
     .filter((m) => Number.isFinite(m) && m >= 0);
 
+  const timed = done.filter((r) => r.timings?.length && r.durationMs);
+  const kindAvg = {} as Record<TimingKind, number>;
+  for (const k of ["agent", "check", "setup", "human", "deliver"] as TimingKind[]) kindAvg[k] = avg(timed.map((r) => totals(r.timings!)[k]));
+  const stepSum = new Map<string, number>();
+  for (const r of timed) for (const e of r.timings!) if (e.kind !== "human") stepSum.set(e.step, (stepSum.get(e.step) ?? 0) + e.ms);
+  const time = {
+    runsCounted: timed.length,
+    medianTotal: median(timed.map((r) => r.durationMs!)),
+    medianMachine: median(timed.map((r) => r.durationMs! - totals(r.timings!).human)),
+    medianHuman: median(timed.map((r) => totals(r.timings!).human)),
+    byKind: kindAvg,
+    slowSteps: [...stepSum].map(([k, v]) => [k, v / timed.length] as [string, number]).sort((a, b) => b[1] - a[1]).slice(0, 6),
+  };
+
   return {
+    time,
     runs: done.length,
     success: success.length,
     failed: failed.length,
@@ -229,5 +258,16 @@ export function renderStats(s: Stats, label: string): string {
   lines.push("", "Maliyet ve süre");
   lines.push(s.cost.runsCounted ? `  Maliyet                 : $${s.cost.total.toFixed(2)} toplam · $${s.cost.avg.toFixed(2)} ortalama (${s.cost.runsCounted} Claude çalıştırması)` : "  Maliyet                 : — (Cursor maliyet bildirmez)");
   lines.push(s.duration.runsCounted ? `  Süre (medyan)           : ${s.duration.median.toFixed(0)} dk (${s.duration.runsCounted} çalıştırma; onay bekleme dahil)` : "  Süre                    : — (eski kayıtlarda zaman bilgisi yok)");
+  if (s.time.runsCounted) {
+    const k = s.time.byKind;
+    lines.push(
+      "",
+      `Süre dağılımı (${s.time.runsCounted} ölçülen çalıştırma)`,
+      `  Medyan                  : toplam ${fmtDuration(s.time.medianTotal)} · makine ${fmtDuration(s.time.medianMachine)} · senin cevabın ${fmtDuration(s.time.medianHuman)}`,
+      `  Ortalama (çalıştırma başı): ajanlar ${fmtDuration(k.agent)} · kontroller ${fmtDuration(k.check)} · hazırlık ${fmtDuration(k.setup)} · teslim ${fmtDuration(k.deliver)}`,
+      "  En uzun adımlar (ortalama):",
+      ...s.time.slowSteps.map(([step, ms]) => `    ${fmtDuration(ms).padStart(7)}  ${step}`),
+    );
+  }
   return lines.join("\n");
 }

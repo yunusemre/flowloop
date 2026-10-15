@@ -18,8 +18,9 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
   - Tarayıcı açma ve panoya kopyalama (`flowloop setup`) Windows komutlarıyla yapılır.
   - Windows'ta çalışma klasörü adı kısa tutulur (`idt-22685-20261015-104427`, başlık özeti yok): .NET restore/derleme 260 karakterlik yol sınırına takılmasın.
   - PowerShell'de betik çalıştırma kapalıysa (`running scripts is disabled`) kurulum npm'in `flowloop.ps1` kısayolunu kaldırır; `flowloop` komutu `.cmd` kısayoluyla çalışır.
+- **Süre ölçümü.** Her adımın süresi (ajanlar, kontroller, mutasyon testleri, hazırlık, teslim, senin cevabın) `run.json`'a ve geçmişe yazılır; çalıştırma sonunda özet ve en uzun adımlar gösterilir. `flowloop stats` süre dağılımını ve ortalamada en uzun adımları gösterir.
 - **İnceleme maddeleri: sadece karar gerektirenler sorulur.** `[elle]`, `[ayrı iş]`, `[bilgi]` ve önceden var olan sorunlar sorulmadan önerilen yere yazılır ve liste olarak gösterilir (`h` ile hepsi tek tek sorulur). Her soruda seçeneklerin ne yaptığı yazıyor; `?` tuşların açıklamasını gösterir.
-- **Windows: .NET Framework testleri koşuyor.** `{{testProject}}` eski biçim projeler için MSBuild + `vstest.console.exe` komutuna dönüşür (araçlar vswhere ile bulunur; `FLOWLOOP_MSBUILD`, `FLOWLOOP_VSTEST`).
+- **Windows: .NET Framework testleri koşuyor.** `{{testProject}}` eski biçim projeler için MSBuild + `vstest.console.exe` komutuna dönüşür (araçlar vswhere ile bulunur; `FLOWLOOP_MSBUILD`, `FLOWLOOP_VSTEST`). packages.config restore'u için projeyi içeren solution'ın klasörü `SolutionDir` olarak verilir (mutasyon kopyasında o kopyanın yolu).
 
 ### Düzeltme
 - **Hiç test koşmayan test adımı geçmiş sayılıyordu.** `dotnet test` eski biçim projelerde ya da filtre hiçbir sınıfla eşleşmediğinde 0 test koşup başarılı dönüyordu. Artık bu durum "hiç test koşmadı" diye kırmızı raporlanır.

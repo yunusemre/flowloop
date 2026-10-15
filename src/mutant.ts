@@ -74,11 +74,22 @@ export class MutantSandbox {
     if (!fs.existsSync(this.dir)) return { code: -1, output: "Kopya yok; önce mutant_reset çağır." };
     const cmd = this.testCmd();
     if (!cmd.trim()) return { code: -1, output: "Bu işin testleri bu makinede çalıştırılamıyor (ör. .NET Framework projesi, sadece Windows). Bu AK için mutasyon kontrolü yapılamadı; FAIL verme, raporda 'çalıştırılamadı' yaz." };
+    const t0 = Date.now();
     const r = runConfigured(cmd, this.dir, this.timeoutSec * 1000);
+    try {
+      fs.appendFileSync(mutantRunsFile(this.dir), JSON.stringify({ at: t0, ms: Date.now() - t0, code: r.code }) + "\n");
+    } catch {
+      /* ölçüm önemsiz */
+    }
     const all = (r.stdout + "\n" + r.stderr).trim().split("\n");
     const tail = all.slice(-80).join("\n");
     return { code: r.code, output: `$ ${cmd}\n${tail}` };
   }
+}
+
+/** Mutasyon test koşularının süre kaydı (kopya klasörünün yanında; kopya silinse de kalır) */
+export function mutantRunsFile(dir: string): string {
+  return `${dir.replace(/[\\/]+$/, "")}-runs.ndjson`;
 }
 
 /** SDK'nın in-process MCP sunucusu olarak araçları üretir. */

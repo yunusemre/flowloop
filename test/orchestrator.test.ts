@@ -109,6 +109,12 @@ test("mutlu yol: 4 rol, 2 commit, main'e dokunulmaz", async () => {
   assert.equal(gitOk(["log", "--oneline"], root).split("\n").length, 1, "main değişmemeli");
   assert.ok(fs.existsSync(path.join(s!.runDir!, "run.json")));
   assert.match(agent.calls[1].prompt, /plan\.md/);
+  // süre ölçümü: her rol ve kontrol kaydedilir, geçmişe de yazılır
+  const steps = s!.timings!.map((t) => `${t.kind}:${t.step}`);
+  for (const x of ["setup:çalışma kopyası", "agent:analist", "agent:developer", "check:testler", "check:tip kontrolü", "agent:reviewer", "agent:committer", "deliver:commit doğrulama, push, Jira"]) assert.ok(steps.includes(x), x);
+  assert.ok((s!.durationMs ?? -1) >= 0);
+  const hist = fs.readFileSync(path.join(root, ".flowloop/history.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.ok(hist.at(-1).timings.length >= 8);
 });
 
 test("reviewer FAIL → geri bildirim developer'a gider, ders kaydedilir, 2. turda PASS", async () => {
