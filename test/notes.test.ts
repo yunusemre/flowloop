@@ -54,3 +54,10 @@ test("etiketli inceleme maddeleri ve tekrar birleştirme", async () => {
   );
   assert.deepEqual(all.map((a) => [a.from, a.tag]), [["reviewer", "manual"], ["reviewer", "info"], ["developer", "followup"]]);
 });
+
+test("etiket kod biçiminde (`[elle]`) ya da kalın (**[düzelt]**) yazılsa da okunur", async () => {
+  const { splitTag } = await import("../src/notes.js");
+  assert.deepEqual(splitTag("`[elle]` `YNK.csproj`: biçim"), { tag: "manual", text: "`YNK.csproj`: biçim" });
+  assert.equal(splitTag("**[düzelt]** `$` yerine `\\z`").tag, "fix");
+  assert.equal(splitTag("_[bilgi]_ not").tag, "info");
+});

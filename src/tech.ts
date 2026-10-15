@@ -128,6 +128,25 @@ export function pickSolution(root: string, slns: string[], classic: Set<string>)
   };
 }
 
+/**
+ * CSharpier'ın formatlayacağı uzantılar: commit hook'u (Husky.Net task-runner.json) hangi dosyalara
+ * uyguluyorsa sadece onlar; böylece flowloop hook'un dokunmadığı dosyaları (ör. eski biçim .csproj)
+ * baştan biçimlendirip farkı şişirmez. Hook tanımı yoksa sadece C#.
+ */
+export function csharpierExtensions(taskRunner: string): string[] {
+  const supported = ["cs", "csx", "xml", "xaml", "csproj", "props", "targets", "slnx", "config"];
+  let includes: string[] = [];
+  try {
+    // task-runner.json yorum içerebilir
+    const j = JSON.parse(taskRunner.replace(/^\s*\/\/.*$/gm, "")) as { tasks?: { args?: string[]; include?: string[] }[] };
+    for (const t of j.tasks ?? []) if ((t.args ?? []).some((a) => /csharpier/i.test(a))) includes.push(...(t.include ?? []));
+  } catch {
+    includes = [...taskRunner.matchAll(/"\*\*\/\*\.([a-z0-9]+)"/gi)].map((m) => `**/*.${m[1]}`);
+  }
+  const exts = [...new Set(includes.map((g) => /\*\.([a-z0-9]+)$/i.exec(g)?.[1]?.toLowerCase()).filter((e): e is string => !!e && supported.includes(e)))];
+  return exts.length ? exts : ["cs", "csx"];
+}
+
 function detectDotnet(root: string): Detected {
   const tech: string[] = [];
   const notes: string[] = [];
@@ -164,7 +183,8 @@ function detectDotnet(root: string): Detected {
   // commit hook'u CSharpier çalıştırıyorsa flowloop da aynı formatter'ı kullanmalı; yoksa commit'lenen içerik onaylanandan farklı olur
   const read = (f: string) => (fs.existsSync(path.join(root, f)) ? fs.readFileSync(path.join(root, f), "utf8") : "");
   const csharpier = /csharpier/i.test(read(".config/dotnet-tools.json") + read(".husky/task-runner.json") + read(".pre-commit-config.yaml"));
-  if (csharpier) notes.push("CSharpier bulundu (commit hook'u ile aynı biçim için format: dotnet csharpier format)");
+  const csharpierExts = csharpier ? csharpierExtensions(read(".husky/task-runner.json")) : [];
+  if (csharpier) notes.push(`CSharpier bulundu (commit hook'u ile aynı biçim için format: dotnet csharpier format, uzantılar: ${csharpierExts.join(", ")})`);
   return {
     stack: "dotnet",
     tech,
@@ -178,7 +198,7 @@ function detectDotnet(root: string): Detected {
         ? `dotnet format style${target} --verify-no-changes --no-restore --include {{files}}`
         : `dotnet format${target} --verify-no-changes --no-restore --include {{files}}`,
       // sadece biçim: stil düzeltmeleri (ör. file-scoped namespace) dosyanın tamamını değiştirip PR'ı şişirir
-      format: csharpier ? "dotnet csharpier format {{files:cs,csx,csproj,props,targets,xml}}" : `dotnet format whitespace${target} --include {{files}}`,
+      format: csharpier ? `dotnet csharpier format {{files:${csharpierExts.join(",")}}}` : `dotnet format whitespace${target} --include {{files}}`,
       commitCheck: "",
     },
     linkDirs: [],

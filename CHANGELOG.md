@@ -6,6 +6,13 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.9.1 — 2026-10-15
+
+### Düzeltme
+- **İnceleme maddelerinin etiketleri okunmuyordu.** Reviewer etiketi kod biçiminde (`` `[elle]` ``) ya da kalın yazınca etiket tanınmıyordu. Bu yüzden bütün maddeler "elle" önerisiyle soruluyordu: `[düzelt]` maddesi kayboluyor, `[bilgi]` maddeleri de soruluyordu.
+- **CSharpier hook'un dokunmadığı dosyaları da biçimlendiriyordu.** Format adımı artık sadece commit hook'unun (Husky.Net `task-runner.json`) CSharpier'a verdiği uzantıları biçimlendiriyor. Önceden eski biçim `.csproj` dosyaları baştan biçimlendirilip farkı şişiriyordu. Mevcut projelerde `commands.format` elle güncellenmeli.
+- **Committer onaylanan işi iptal ediyordu.** Committer kullanıcının onayladığı içeriği biçim ya da kapsam tercihi yüzünden iptal ediyordu. Artık sadece açıkça commit'lenmemesi gereken dosyalarda (gizli bilgi, derleme çıktısı, debug dosyası) iptal ediyor; diğer notlarını özete yazıyor.
+
 ## 1.9.0 — 2026-10-14
 
 ### Yeni

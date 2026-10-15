@@ -41,7 +41,7 @@ export const TAG_LABEL: Record<AttentionTag, string> = { fix: "düzelt", decisio
 
 /** "[elle] metin" → { tag: "manual", text: "metin" } */
 export function splitTag(text: string): { tag?: AttentionTag; text: string } {
-  const m = /^\s*\**\s*[\[(]\s*([^\])]{2,20}?)\s*[\])]\s*\**\s*[:—–-]?\s*/.exec(text);
+  const m = /^\s*[*_`]*\s*[\[(]\s*([^\])]{2,20}?)\s*[\])]\s*[*_`]*\s*[:—–-]?\s*/.exec(text);
   const tag = m ? TAGS.find(([re]) => re.test(m[1].trim()))?.[1] : undefined;
   return tag ? { tag, text: text.slice(m![0].length).trim() } : { text };
 }

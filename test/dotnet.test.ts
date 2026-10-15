@@ -114,3 +114,18 @@ test("kontrol komutları HUSKY=0 ile çalışır (kopyalarda git hook'u kurulmaz
   const { runConfigured } = await import("../src/git.js");
   assert.equal(runConfigured('printf %s "$HUSKY"', os.tmpdir()).stdout, "0");
 });
+
+test("CSharpier uzantıları commit hook'unun (Husky.Net) include listesinden gelir; .csproj hook'ta yoksa formatlanmaz", async () => {
+  const { csharpierExtensions } = await import("../src/tech.js");
+  const runner = `{
+    "tasks": [
+      { "name": "commit-message", "group": "commit-msg", "command": "dotnet", "args": ["husky", "exec", "x.csx"] },
+      { "name": "Run csharpier", "group": "pre-commit", "command": "dotnet", "args": [ "csharpier", "format", "\${staged}" ],
+        "include": [ "**/*.cs", "**/*.csx", "**/*.json", "**/*.slnx", "**/*.xml", "**/*.xaml" ] }
+      // .NET Core geçişi sonrası
+      //{ "name": "format code" }
+    ]
+  }`;
+  assert.deepEqual(csharpierExtensions(runner), ["cs", "csx", "slnx", "xml", "xaml"]);
+  assert.deepEqual(csharpierExtensions(""), ["cs", "csx"]);
+});

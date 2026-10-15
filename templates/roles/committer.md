@@ -13,8 +13,10 @@ Reviewer değişiklikleri onayladı. Plan: `{{planFile}}`
 4. Sonunda `git status --porcelain` boş olmalı.
 5. Push yapma, `--no-verify` kullanma.
 
-Commit'lenmemesi gereken bir şey görürsen (debug dosyası, alakasız değişiklik)
-hiç commit atma ve "COMMIT İPTAL: <sebep>" yaz.
+Bu içerik reviewer'dan geçti ve kullanıcı commit'ten önce farkı görüp ONAYLADI. Biçim, stil ya da kapsam
+tercihi yüzünden commit'i iptal etme; böyle bir notun varsa commit'i at ve özetin "Nasıl test edildi"
+bölümünden sonra tek satırla belirt. Sadece açıkça commit'lenmemesi gereken bir dosya varsa (gizli bilgi,
+derleme çıktısı, debug dosyası, büyük ikili dosya) hiç commit atma ve "COMMIT İPTAL: <sebep>" yaz.
 
 Son olarak `{{summaryFile}}` dosyasına bu işin KISA özetini yaz. Bu metin Jira kaydına yorum olarak
 eklenecek; okuyacak kişi ürün sahibi ve ekip arkadaşları. Türkçe, en fazla 12 satır, şu başlıklarla:
