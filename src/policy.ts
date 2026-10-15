@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import picomatch from "picomatch";
+import { nativePath } from "./platform.js";
 import { findForbiddenFlag, matchesPrefix, parseSimpleCommand } from "./shell.js";
 
 /**
@@ -49,7 +50,7 @@ export interface PolicyContext {
 export function isOwnToolOutput(ctx: PolicyContext, p: string): boolean {
   const base = ctx.claudeProjectsDir ?? path.join(os.homedir(), ".claude", "projects");
   const enc = (d: string) => d.replace(/[^A-Za-z0-9]/g, "-");
-  const abs = path.resolve(p);
+  const abs = path.resolve(nativePath(p));
   for (const root of new Set([ctx.repoRoot, realish(ctx.repoRoot)])) {
     const rel = within(path.join(base, enc(root)), abs);
     if (rel !== undefined && /^[^/]+\/tool-results\/[^/]+$/.test(rel.split(path.sep).join("/"))) return true;
@@ -115,6 +116,7 @@ function within(root: string, p: string): string | undefined {
 
 /** Bir yolu "repo-göreli" ya da "run:göreli" anahtara çevirir; dışarıdaysa undefined. */
 export function locate(ctx: PolicyContext, p: string): string | undefined {
+  p = nativePath(p); // Windows'ta Git Bash yolu: /c/Users/... → C:/Users/...
   const abs = realish(path.isAbsolute(p) ? p : path.join(ctx.repoRoot, p));
   const runRoot = realish(ctx.runRoot);
   const repoRoot = realish(ctx.repoRoot);

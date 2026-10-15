@@ -5,6 +5,7 @@ import path from "node:path";
 import { claudeAvailable, findCursorBin } from "./backend.js";
 import { globalJiraBase, normalizeJiraBase, writeUserConfig } from "./config.js";
 import { color } from "./log.js";
+import { clipboardCommand, isWindows, openerCommand, which as whichBin } from "./platform.js";
 import { defaultStore, getCredential, mask, type SecretStore } from "./secrets.js";
 
 /**
@@ -39,7 +40,7 @@ export interface SetupDeps {
   home: string;
   fetchFn: (url: string, init: { headers: Record<string, string> }) => Promise<{ status: number; json(): Promise<any> }>;
   /** Komutu çalıştırır; interactive=true ise terminali komuta bırakır */
-  run(cmd: string, args: string[], opts?: { interactive?: boolean; timeoutMs?: number }): CmdResult;
+  run(cmd: string, args: string[], opts?: { interactive?: boolean; timeoutMs?: number; input?: string }): CmdResult;
   which(bin: string): string | undefined;
   /** Kayıtlı Jira adresi ("" = henüz girilmedi) */
   jiraBase: string;
@@ -237,9 +238,13 @@ async function setupAi(io: SetupIO, deps: SetupDeps): Promise<void> {
     let bin = deps.which("cursor-agent") ?? findCursorBin();
     if (!bin) {
       io.log(warn("Cursor CLI kurulu değil."));
-      if (!(await io.confirm("Kurulsun mu? (curl https://cursor.com/install -fsS | bash)", true))) return;
-      const r = deps.run("bash", ["-c", "curl https://cursor.com/install -fsS | bash"], { interactive: true });
-      bin = deps.which("cursor-agent") ?? path.join(deps.home, ".local", "bin", "cursor-agent");
+      // Windows'ta Cursor'ın PowerShell kurulum betiği, diğerlerinde kabuk betiği
+      const [cmd, args, shown] = isWindows()
+        ? (["powershell.exe", ["-NoProfile", "-Command", "irm 'https://cursor.com/install?win32=true' | iex"], "irm 'https://cursor.com/install?win32=true' | iex"] as const)
+        : (["bash", ["-c", "curl https://cursor.com/install -fsS | bash"], "curl https://cursor.com/install -fsS | bash"] as const);
+      if (!(await io.confirm(`Kurulsun mu? (${shown})`, true))) return;
+      const r = deps.run(cmd, [...args], { interactive: true });
+      bin = deps.which("cursor-agent") ?? deps.which("agent") ?? path.join(deps.home, ".local", "bin", "cursor-agent");
       if (r.code !== 0 || !fs.existsSync(bin)) return io.log(warn(`Kurulamadı. Elle kur: ${LINKS.cursorInstall}`));
     }
     io.log("Cursor'a giriş yapılıyor (tarayıcı açılacak)...");
@@ -317,7 +322,8 @@ async function setupSsh(io: SetupIO, deps: SetupDeps): Promise<void> {
   }
   const pub = [key + ".pub", path.join(deps.home, ".ssh", "id_rsa.pub")].find((p) => fs.existsSync(p));
   if (!pub) return io.log(warn("Açık anahtar bulunamadı."));
-  const copied = deps.which("pbcopy") ? deps.run("bash", ["-c", `pbcopy < "${pub}"`]).code === 0 : false;
+  const clip = clipboardCommand();
+  const copied = clip ? deps.run(clip[0], clip[1], { input: fs.readFileSync(pub, "utf8") }).code === 0 : false;
   io.log(`Açık anahtarını Bitbucket'a ekle: ${LINKS.bitbucketSsh}  → "Add key"`);
   io.log(copied ? color.dim("  Anahtar panoya kopyalandı; sayfaya yapıştırman yeterli.") : color.dim(`  Eklenecek anahtar: ${fs.readFileSync(pub, "utf8").trim()}`));
   io.open(LINKS.bitbucketSsh);
@@ -336,13 +342,10 @@ export function systemDeps(jiraBase = globalJiraBase()): SetupDeps {
     saveJiraBase: (base) => writeUserConfig({ jiraBaseUrl: base }),
     fetchFn: (u, i) => fetch(u, i) as any,
     run: (cmd, args, o = {}) => {
-      const r = spawnSync(cmd, args, { encoding: "utf8", stdio: o.interactive ? "inherit" : "pipe", timeout: o.timeoutMs });
+      const r = spawnSync(cmd, args, { encoding: "utf8", stdio: o.interactive ? "inherit" : "pipe", timeout: o.timeoutMs, input: o.input, windowsHide: true });
       return { code: r.status ?? 1, out: `${r.stdout ?? ""}${r.stderr ?? ""}` };
     },
-    which: (bin) => {
-      const r = spawnSync("bash", ["-lc", `command -v ${bin}`], { encoding: "utf8" });
-      return r.status === 0 && r.stdout.trim() ? r.stdout.trim() : undefined;
-    },
+    which: (bin) => whichBin(bin),
   };
 }
 
@@ -400,8 +403,8 @@ export function terminalIO(): SetupIO {
       }
     },
     open: (url) => {
-      const opener = process.platform === "darwin" ? "open" : "xdg-open";
-      spawnSync(opener, [url], { stdio: "ignore" });
+      const [cmd, args] = openerCommand(url);
+      spawnSync(cmd, args, { stdio: "ignore", windowsHide: true });
     },
     pause: async (msg) => {
       await readLine(`${msg}… `);

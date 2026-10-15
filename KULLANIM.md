@@ -24,9 +24,9 @@ Bu kurallar prompt'la değil kodla zorlanır: bir rol yetkisi dışında bir şe
 
 | Gereksinim | Not |
 |---|---|
-| macOS ya da Linux | |
-| **Node.js 20 veya üstü** | Yoksa `install.sh` en güncel LTS sürümünü kurar |
-| git | macOS: `xcode-select --install` |
+| macOS, Linux ya da Windows 10/11 | Windows için bkz. [Windows'ta kurulum](#windowsta-kurulum) |
+| **Node.js 20 veya üstü** | Yoksa kurulum betiği en güncel LTS sürümünü kurar |
+| git | macOS: `xcode-select --install` · Windows: Git for Windows (yoksa `install.ps1` kurar) |
 | Claude **ya da** Cursor erişimi | `flowloop setup` adım adım kurar (bkz. [Hesap bilgileri](#3-hesap-bilgileri-flowloop-setup)) |
 | Jira API token | `flowloop setup` sorar ve doğrular |
 | Bitbucket/GitHub push yetkisi | Branch'ler otomatik push'lanır |
@@ -86,6 +86,30 @@ Kurulumu doğrula:
 flowloop --version     # sürüm ve kurulum kaynağı
 ```
 
+### Windows'ta kurulum
+
+PowerShell'i aç (yönetici olması gerekmez) ve çalıştır:
+
+```powershell
+git clone https://github.com/yunusemre/flowloop.git "$HOME\.flowloop\src"; powershell -ExecutionPolicy Bypass -File "$HOME\.flowloop\src\install.ps1"
+```
+
+git yoksa önce `winget install Git.Git` ile kur ve yeni bir PowerShell penceresi aç. `install.ps1`, `install.sh` ile aynı işi yapar: Node.js yoksa `winget` ile LTS sürümünü kurar, flowloop'u derleyip `flowloop` komutunu ekler, sonunda `flowloop setup`'ı başlatır. Seçenekler:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File install.ps1 -Check    # hiçbir şey kurmadan kontrol et
+$env:FLOWLOOP_NODE="latest"                                    # LTS yerine Current Node
+$env:FLOWLOOP_SKIP_SETUP="1"                                   # hesap sorularını atla
+```
+
+Windows'ta bilinmesi gerekenler:
+
+- **Git Bash zorunlu.** Claude Code Windows'ta Git for Windows'un `bash.exe`'sini kullanır; flowloop da `flowloop.yaml`'daki komutları (test, derleme, lint) aynı kabukla çalıştırır. Böylece ayar dosyası her sistemde aynı yazılır. `bash.exe` standart yerde değilse yolunu `FLOWLOOP_BASH` (ya da Claude Code'un `CLAUDE_CODE_GIT_BASH_PATH`) değişkeniyle ver.
+- `node_modules` gibi bağlantılı klasörler (`linkDirs`) Windows'ta *junction* olarak oluşturulur; yönetici izni ya da Geliştirici Modu gerekmez.
+- Gizli bilgiler `%USERPROFILE%\.flowloop\credentials.dpapi.json` dosyasında Windows DPAPI ile şifreli durur; sadece aynı Windows kullanıcısı çözebilir.
+- .NET Framework (4.x) test projeleri Windows'ta atlanmaz, diğer projelerle birlikte çalıştırılır.
+- Cursor ile kullanım Windows'ta henüz denenmedi; Claude önerilir.
+
 ### Güncelleme
 
 ```bash
@@ -134,11 +158,12 @@ Bilgisayarında Claude Code'a zaten giriş yaptıysan (`claude` → `/login`) bu
 |---|---|
 | macOS | Anahtar Zinciri (Keychain Access'te "flowloop" adıyla görünür) |
 | Linux | Sistem anahtarlığı (`secret-tool`), yoksa `~/.flowloop/credentials.json` (sadece senin okuyabileceğin izinle) |
+| Windows | `%USERPROFILE%\.flowloop\credentials.dpapi.json`: değerler DPAPI ile şifreli, sadece senin Windows kullanıcın çözebilir |
 
 - Gizli bilgiler ekrana yazılmaz (yazarken `•` görünür), komut geçmişine ve hiçbir proje dosyasına girmez.
 - **Ajanlara asla verilmez.** Ajanlar ve onların çalıştırdığı testler, gizli görünen hiçbir ortam değişkenini (`*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `*_API_KEY`, `JIRA_*`, `AWS_*`…) görmez. Sadece Claude'un kendi girişi için gereken bilgi Claude sürecine verilir.
 - Ortam değişkeni tanımlıysa (ör. eskiden `~/.zshrc`'ye yazılmış `JIRA_API_TOKEN`) önce o kullanılır. `flowloop setup` ile kaydettikten sonra `~/.zshrc`'deki satırları silebilirsin.
-- Bir bilgiyi silmek için: macOS'ta Keychain Access → "flowloop" kayıtlarını sil; Linux'ta `~/.flowloop/credentials.json`.
+- Bir bilgiyi silmek için: macOS'ta Keychain Access → "flowloop" kayıtlarını sil; Linux'ta `~/.flowloop/credentials.json`; Windows'ta `%USERPROFILE%\.flowloop\credentials.dpapi.json`.
 
 ### Jira adresi
 
@@ -602,6 +627,10 @@ Gerisi kendiliğinden olur:
 | `Ne Claude ne Cursor erişimi bulundu` | `flowloop setup` |
 | `Cursor hook'ları çalışmadı` | Cursor CLI eski olabilir: `cursor-agent update` |
 | Cursor'da her yazma işlemi "yol belirtilmemiş" diye reddediliyor | Cursor'un hook formatı değişmiş olabilir; `run.json` içindeki `denials` listesine bak ve flowloop'u güncelle |
+| Windows: `Git Bash bulunamadı` | Git for Windows'u kur (`winget install Git.Git`) ya da `bash.exe` yolunu ver: `$env:FLOWLOOP_BASH="C:\...\Git\bin\bash.exe"` |
+| Windows: `install.ps1 ... running scripts is disabled` | Betiği `powershell -ExecutionPolicy Bypass -File install.ps1` ile çalıştır |
+| Windows: `'chmod' is not recognized` (`npm run build`) | 1.10.0'dan eski bir sürüm; güncel kaynağı çekip `install.ps1`'i çalıştır |
+| Windows: `flowloop` komutu bulunamıyor | Yeni bir PowerShell penceresi aç; olmazsa `install.ps1`'in yazdığı PATH komutunu bir kez çalıştır |
 | Eski `.kgflow` / `.ekip` klasörü | İlk `flowloop` komutunda otomatik `.flowloop`'a taşınır |
 
 ## 9. Güvenlik

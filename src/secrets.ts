@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isWindows, which } from "./platform.js";
 
 /**
  * flowloop'un gizli bilgileri (Jira token'ı, Anthropic anahtarı...).
@@ -9,6 +10,8 @@ import path from "node:path";
  * Saklama yeri:
  *   macOS  → Anahtar Zinciri (Keychain), servis adı "flowloop"
  *   Linux  → secret-tool (GNOME Keyring / KWallet) varsa o, yoksa ~/.flowloop/credentials.json (izin 600)
+ *   Windows → %USERPROFILE%\.flowloop\credentials.dpapi.json: değerler Windows DPAPI ile şifrelenir
+ *             (sadece aynı Windows kullanıcısı çözebilir); PowerShell yoksa düz dosya
  *
  * Okuma sırası: ortam değişkeni → saklama yeri. Böylece eskiden ~/.zshrc'ye
  * yazılmış değişkenler çalışmaya devam eder.
@@ -94,8 +97,45 @@ export class FileStore implements SecretStore {
   }
 }
 
+/**
+ * Windows: değerler DPAPI ile (ConvertFrom-SecureString, anahtarsız) şifrelenip dosyada saklanır.
+ * Şifreli metin sadece aynı Windows kullanıcısı tarafından aynı makinede çözülebilir.
+ * Değerler PowerShell'e komut satırından değil stdin'den verilir.
+ */
+export class DpapiStore implements SecretStore {
+  readonly kind = "Windows DPAPI ile şifreli dosya";
+  private file: FileStore;
+  constructor(file: string, private ps = "powershell.exe") {
+    this.file = new FileStore(file);
+  }
+  private run(script: string, input: string): string {
+    const r = spawnSync(this.ps, ["-NoProfile", "-NonInteractive", "-Command", script], { input, encoding: "utf8", windowsHide: true, timeout: 20_000 });
+    if (r.status !== 0) throw new Error(`PowerShell (DPAPI) hatası: ${(r.stderr || String(r.error ?? "")).trim()}`);
+    return (r.stdout ?? "").trim();
+  }
+  get(name: string) {
+    const enc = this.file.get(name);
+    if (!enc) return undefined;
+    const v = this.run(
+      "$e=[Console]::In.ReadToEnd().Trim(); $s=ConvertTo-SecureString $e; " +
+        "$b=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s); " +
+        "[Console]::Out.Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($b))",
+      enc,
+    );
+    return v || undefined;
+  }
+  set(name: string, value: string) {
+    const enc = this.run("$v=[Console]::In.ReadToEnd(); ConvertTo-SecureString $v -AsPlainText -Force | ConvertFrom-SecureString", value);
+    if (!enc) throw new Error("DPAPI ile şifrelenemedi");
+    this.file.set(name, enc);
+  }
+  delete(name: string) {
+    this.file.delete(name);
+  }
+}
+
 function has(bin: string): boolean {
-  return spawnSync("bash", ["-lc", `command -v ${bin}`], { encoding: "utf8" }).status === 0;
+  return which(bin) !== undefined;
 }
 
 let cached: SecretStore | undefined;
@@ -104,6 +144,7 @@ export function defaultStore(home = os.homedir()): SecretStore {
   if (cached) return cached;
   if (process.platform === "darwin" && has("security")) cached = new KeychainStore();
   else if (process.platform === "linux" && has("secret-tool") && process.env.DBUS_SESSION_BUS_ADDRESS) cached = new SecretToolStore();
+  else if (isWindows() && has("powershell")) cached = new DpapiStore(path.join(home, ".flowloop", "credentials.dpapi.json"));
   else cached = new FileStore(path.join(home, ".flowloop", "credentials.json"));
   return cached;
 }
@@ -158,6 +199,8 @@ let cachedLoginPath: string | undefined;
  */
 export function loginPath(): string | undefined {
   if (cachedLoginPath !== undefined) return cachedLoginPath || undefined;
+  // Windows: PATH zaten Windows ortamından gelir; Git Bash'in giriş PATH'i (/c/... biçimi) Windows programlarını bozar
+  if (isWindows()) return (cachedLoginPath = "") || undefined;
   const r = spawnSync("bash", ["-lc", 'printf %s "$PATH"'], { encoding: "utf8", timeout: 10_000 });
   cachedLoginPath = r.status === 0 ? r.stdout.trim() : "";
   return cachedLoginPath || undefined;

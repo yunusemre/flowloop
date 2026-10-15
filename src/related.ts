@@ -6,6 +6,7 @@ import { changedExisting, changedPaths, diffAgainst, git, gitOk, headSha, sh, st
 import type { Logger } from "./log.js";
 import { remoteLinks } from "./remote.js";
 import { detectBaseBranch, detectProject } from "./tech.js";
+import { linkDir } from "./platform.js";
 import picomatch from "picomatch";
 
 /** Çalıştırma kaydında (run.json) ilgili repo bilgisi */
@@ -135,7 +136,7 @@ export class RelatedRepo {
     for (const d of st.linkDirs) {
       const src = path.join(root, d);
       if (!fs.existsSync(src)) continue;
-      for (const dst of [wt, baseWt]) if (!fs.existsSync(path.join(dst, d))) fs.symlinkSync(fs.realpathSync(src), path.join(dst, d), "dir");
+      for (const dst of [wt, baseWt]) if (!fs.existsSync(path.join(dst, d))) linkDir(fs.realpathSync(src), path.join(dst, d));
       linked.push(d);
     }
     if (linked.length) ensureExcludedIn(root, linked);

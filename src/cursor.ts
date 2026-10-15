@@ -4,6 +4,7 @@ import path from "node:path";
 import { ROLE_GUARDRAIL, systemAppend, type AgentRequest, type AgentResult, type AgentRunner, type Denial } from "./agent.js";
 import type { PolicyContext, RolePermissions } from "./policy.js";
 import { PACKAGE_ROOT, type RoleName } from "./roles.js";
+import { slashPath } from "./platform.js";
 import { loginPath, scrubEnv } from "./secrets.js";
 
 /**
@@ -67,8 +68,9 @@ export class CursorAgentRunner implements AgentRunner {
       const ctxFile = path.join(ctlDir, "mutant.json");
       const ctx: MutantContext = { repoRoot: m.repoRoot, dir: m.dir, testCmd: m.testCmd(), linkDirs: m.linkDirs, timeoutSec: m.timeoutSec, installCmd: m.installCmd };
       fs.writeFileSync(ctxFile, JSON.stringify(ctx));
-      const script = path.join(ctlDir, "mutant");
-      fs.writeFileSync(script, `#!/bin/sh\nexec "${process.execPath}" "${path.join(PACKAGE_ROOT, "dist", "src", "cli.js")}" __mutant "$1" "${ctxFile}"\n`, { mode: 0o755 });
+      // Windows'ta da Git Bash ile çalışır; yollar düz bölüyle yazılır
+      const script = slashPath(path.join(ctlDir, "mutant"));
+      fs.writeFileSync(script, `#!/bin/sh\nexec "${slashPath(process.execPath)}" "${slashPath(path.join(PACKAGE_ROOT, "dist", "src", "cli.js"))}" __mutant "$1" "${slashPath(ctxFile)}"\n`, { mode: 0o755 });
       perms = { ...perms, bash: [...perms.bash, `${script} reset`, `${script} test`] };
       prompt +=
         `\n\nNOT (bu ortam): \`mutant_reset\` ve \`mutant_test\` araçları kabuk komutu olarak verilmiştir:\n` +
@@ -176,7 +178,7 @@ export function installHookFiles(wt: string, hookCtxFile: string, extraRoots: st
   // Cursor'un kendi izin katmanı: web erişimi kapalı, run klasörü (plan, mutant) erişilebilir; asıl karar hook'ta
   fs.writeFileSync(
     path.join(wt, ".cursor/cli.json"),
-    JSON.stringify({ permissions: { allow: roots.flatMap((r) => [`Read(${r}/**)`, `Write(${r}/**)`]), deny: ["WebFetch(*)"] } }, null, 2),
+    JSON.stringify({ permissions: { allow: roots.map(slashPath).flatMap((r) => [`Read(${r}/**)`, `Write(${r}/**)`]), deny: ["WebFetch(*)"] } }, null, 2),
   );
   return () => {
     for (const s of saved) {

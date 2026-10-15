@@ -32,6 +32,12 @@ flowloop init && flowloop check
 flowloop run PROJ-1234 --approve-plan -v
 ```
 
+Windows'ta (PowerShell) 1. adım:
+
+```powershell
+git clone https://github.com/yunusemre/flowloop.git "$HOME\.flowloop\src"; powershell -ExecutionPolicy Bypass -File "$HOME\.flowloop\src\install.ps1"
+```
+
 | Komut | Ne yapar |
 |---|---|
 | `flowloop setup` | Hesapları adım adım kurar: git kimliği, Claude/Cursor, Jira, Bitbucket. Kurulum sonunda kendiliğinden açılır |
@@ -41,7 +47,7 @@ flowloop run PROJ-1234 --approve-plan -v
 | `flowloop stats [--since 30d]` | Ölçüm özeti: başarı, ilk incelemede PASS, tur, insan müdahalesi, kapsam talepleri, reddedilen işlemler, maliyet |
 | `flowloop --version` | Sürümü ve kurulum kaynağını gösterir |
 
-Gereksinimler: macOS ya da Linux ve git. Node.js 20+ yoksa kurulum betiği kurar. Push için projenin kendi reposuna (ör. Bitbucket) erişimin olmalı.
+Gereksinimler: macOS, Linux ya da Windows ve git (Windows'ta Git for Windows; komutlar Git Bash ile çalışır). Node.js 20+ yoksa kurulum betiği kurar. Push için projenin kendi reposuna (ör. Bitbucket) erişimin olmalı.
 
 ## Roller
 
@@ -68,7 +74,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
   - Yollar gerçek konumlarına çözülür; symlink ya da `..` ile çalışma alanının dışına çıkılamaz.
   - Bash komutları tek ve basit olmak zorundadır (`&&`, `|`, `;`, `>`, `$()` yasak) ve rolün izinli komut önekiyle başlamalıdır.
   - `readDeny` listesindeki dosyalar (`.env` gibi) hiçbir rol tarafından okunamaz.
-- **Gizli bilgiler ajana geçmez.** Token'lar macOS Anahtar Zinciri'nde (Linux'ta sistem anahtarlığında) saklanır. Ajanlar ve onların çalıştırdığı testler `*_TOKEN`, `*_SECRET`, `JIRA_*` gibi değişkenleri görmez.
+- **Gizli bilgiler ajana geçmez.** Token'lar macOS Anahtar Zinciri'nde (Linux'ta sistem anahtarlığında, Windows'ta DPAPI ile şifreli dosyada) saklanır. Ajanlar ve onların çalıştırdığı testler `*_TOKEN`, `*_SECRET`, `JIRA_*` gibi değişkenleri görmez.
 - **Git kontrolleri** (`src/orchestrator.ts`), her aşamadan sonra:
   - Analist ve reviewer gerçek dosyalara dokunmamış olmalı; developer commit atmamış ve izinli yolların dışına yazmamış olmalı.
   - Commit'lenen içerik, reviewer'ın onayladığı içeriğin tree hash'iyle birebir aynı olmalı. Commit hook'ları dosya değiştirirse bu kontrol yakalar.

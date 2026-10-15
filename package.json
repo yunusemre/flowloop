@@ -11,13 +11,14 @@
     "dist/src",
     "templates",
     "install.sh",
+    "install.ps1",
     "KULLANIM.md",
     "README.md",
     "CHANGELOG.md",
     "THIRD_PARTY_NOTICES.md"
   ],
   "scripts": {
-    "build": "tsc -p . && chmod +x dist/src/cli.js",
+    "build": "tsc -p . && node -e \"try{require('fs').chmodSync('dist/src/cli.js',0o755)}catch{}\"",
     "test": "npm run build && node --test dist/test/*.test.js",
     "prepare": "npm run build",
     "release": "npm test && npm version"

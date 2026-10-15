@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { shellCommand } from "./platform.js";
 import { scrubEnv } from "./secrets.js";
 
 export interface ExecResult {
@@ -32,7 +33,13 @@ export function runConfigured(command: string, cwd: string, timeoutMs = 15 * 60_
   delete env.NODE_TEST_CONTEXT; // node --test içinden çağrıldığında iç içe test raporlamasını kapat
   // kontroller ve kurulum git hook'u kurmasın/çalıştırmasın (husky, Husky.Net): kopyalar git reposu olmayabilir
   env.HUSKY = "0";
-  return sh("bash", ["-lc", command], cwd, { timeoutMs, env });
+  let shell: [string, string[]];
+  try {
+    shell = shellCommand(command);
+  } catch (e) {
+    return { code: 127, stdout: "", stderr: (e as Error).message };
+  }
+  return sh(shell[0], shell[1], cwd, { timeoutMs, env });
 }
 
 export function git(args: string[], cwd: string): ExecResult {

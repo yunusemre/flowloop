@@ -6,6 +6,20 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.10.0 — 2026-10-15
+
+### Yeni
+- **Windows desteği.** flowloop Windows 10/11'de doğrudan (WSL'siz) çalışır.
+  - Kurulum: `install.ps1` (PowerShell). Git ve Node.js yoksa `winget` ile kurar. `flowloop update` Windows'ta bu betiği kullanır.
+  - `flowloop.yaml`'daki komutlar Windows'ta Git Bash ile çalışır (Claude Code da onu kullanır); ayar dosyası her sistemde aynıdır. Yeri farklıysa: `FLOWLOOP_BASH`.
+  - Gizli bilgiler Windows'ta DPAPI ile şifreli dosyada saklanır.
+  - `linkDirs` Windows'ta junction ile bağlanır (yönetici izni gerekmez).
+  - Ajanların Git Bash biçimindeki yolları (`/c/Users/...`) yetki kontrolünde doğru tanınır.
+  - Tarayıcı açma ve panoya kopyalama (`flowloop setup`) Windows komutlarıyla yapılır.
+
+### Düzeltme
+- `npm run build` Windows'ta `chmod` yüzünden başarısız oluyordu; kurulum bu yüzden yarıda kalıyordu.
+
 ## 1.9.1 — 2026-10-15
 
 ### Düzeltme

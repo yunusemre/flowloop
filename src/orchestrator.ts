@@ -23,6 +23,7 @@ import { CURSOR_CO_AUTHOR } from "./cursor.js";
 import { createHash } from "node:crypto";
 import { DECISIONS_SECTION, attentionKey, collectAttention, extractAssumptions, parseDecisions, removeSection, type AttentionItem, type AttentionTag, type OpenQuestion } from "./notes.js";
 import { questionsMarkdown as qMarkdown, resolveQuestions as questionLoop, type AskQuestions, type QuestionDecision, type QuestionRecord, type QuestionsMode } from "./questions.js";
+import { linkDir } from "./platform.js";
 export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
 
 /** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
@@ -516,7 +517,7 @@ function linkInto(srcRoot: string, dstRoot: string, dirs: string[]): string[] {
     const src = path.join(srcRoot, d);
     const dst = path.join(dstRoot, d);
     if (!fs.existsSync(src) || fs.existsSync(dst)) continue;
-    fs.symlinkSync(fs.realpathSync.native(src), dst, "dir");
+    linkDir(fs.realpathSync.native(src), dst);
     linked.push(d);
   }
   return linked;

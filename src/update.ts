@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isWindows } from "./platform.js";
 import { PACKAGE_ROOT } from "./roles.js";
 
 /**
@@ -118,13 +119,18 @@ export function updateNotice(home = os.homedir(), now = Date.now(), check: (i: I
   return `flowloop'un yeni bir sürümü var (${latest.slice(0, 7)}). Güncellemek için: flowloop update`;
 }
 
+function runPs1(file: string, env: NodeJS.ProcessEnv) {
+  return spawnSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", file], { stdio: "inherit", env });
+}
+
 /** Güncellemeyi yapar; kullanıcıya akışı doğrudan gösterir. Dönüş: çıkış kodu. */
 export function runUpdate(home = os.homedir(), log: (s: string) => void = console.log): number {
   const info = readInstallInfo(home);
   const before = currentVersion();
   if (!info) {
     log("Kurulum kaydı bulunamadı (~/.flowloop/install.json). flowloop'u install.sh ile bir kez yeniden kur:");
-    log("  git clone https://github.com/yunusemre/flowloop.git ~/.flowloop/src && ~/.flowloop/src/install.sh");
+    if (isWindows()) log('  git clone https://github.com/yunusemre/flowloop.git "$HOME\\.flowloop\\src"; powershell -ExecutionPolicy Bypass -File "$HOME\\.flowloop\\src\\install.ps1"');
+    else log("  git clone https://github.com/yunusemre/flowloop.git ~/.flowloop/src && ~/.flowloop/src/install.sh");
     log("  (flowloop'u kendi klasörüne clone'ladıysan, o klasörde: ./install.sh)");
     return 1;
   }
@@ -138,7 +144,17 @@ export function runUpdate(home = os.homedir(), log: (s: string) => void = consol
       log("git pull başarısız (yerelde commit'lenmemiş değişiklik ya da ayrışmış branch olabilir).");
       return 1;
     }
-    r = spawnSync("bash", [path.join(info.source, "install.sh")], { stdio: "inherit", env });
+    r = isWindows() ? runPs1(path.join(info.source, "install.ps1"), env) : spawnSync("bash", [path.join(info.source, "install.sh")], { stdio: "inherit", env });
+  } else if (isWindows()) {
+    log(`Kaynak: ${info.source}`);
+    // kurulum sırasında paket klasörü değişebilir: betik geçici bir kopyadan çalıştırılır
+    const tmp = path.join(os.tmpdir(), `flowloop-install-${process.pid}.ps1`);
+    fs.copyFileSync(path.join(PACKAGE_ROOT, "install.ps1"), tmp);
+    try {
+      r = runPs1(tmp, { ...env, FLOWLOOP_SOURCE: info.source });
+    } finally {
+      fs.rmSync(tmp, { force: true });
+    }
   } else {
     log(`Kaynak: ${info.source}`);
     // install.sh'ı "curl | bash" gibi stdin'den çalıştır: kurulum sırasında dosyanın kendisi değişse de etkilenmez

@@ -5,14 +5,13 @@ import path from "node:path";
 import { SdkAgentRunner, type AgentRunner } from "./agent.js";
 import type { FlowloopConfig } from "./config.js";
 import { CursorAgentRunner } from "./cursor.js";
+import { which } from "./platform.js";
 import { getCredential } from "./secrets.js";
 
 export type Backend = "claude" | "cursor";
 
 function onPath(bin: string): string | undefined {
-  const r = spawnSync("bash", ["-lc", `command -v ${bin}`], { encoding: "utf8" });
-  const p = r.stdout.trim();
-  return r.status === 0 && p ? p : undefined;
+  return which(bin);
 }
 
 /** Claude Agent SDK'nın kullanabileceği bir kimlik var mı (API anahtarı ya da Claude Code girişi)? */

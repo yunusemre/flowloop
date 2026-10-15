@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { gitOk, runConfigured } from "./git.js";
 import { currentVersion } from "./update.js";
+import { linkDir } from "./platform.js";
 
 /** Kopyada çalıştırılacak test komutunu (ilgili testler) üretir. */
 export type TestCommandFn = () => string;
@@ -58,7 +59,7 @@ export class MutantSandbox {
     for (const d of this.linkDirs) {
       const link = path.join(this.repoRoot, d);
       if (!fs.existsSync(link) || fs.existsSync(path.join(this.dir, d))) continue;
-      fs.symlinkSync(fs.realpathSync.native(link), path.join(this.dir, d), "dir");
+      linkDir(fs.realpathSync.native(link), path.join(this.dir, d));
     }
     let installError: string | undefined;
     if (!previous && this.installCmd.trim()) {
