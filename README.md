@@ -44,6 +44,7 @@ git clone https://github.com/yunusemre/flowloop.git "$HOME\.flowloop\src"; power
 | `flowloop update` | flowloop'u günceller. Yeni sürüm çıkınca flowloop ekranın başında haber verir |
 | `flowloop run IDT-1 IDT-2 …` / `--epic IDT-100` | Birbirine bağlı görevler: toplu plan, sonra sırayla tek branch'te |
 | `flowloop runs` / `flowloop resume <id>` | Çalıştırmaları (toplu çalışmalar dahil) listeler / yarım kalanı sürdürür |
+| `flowloop ui` | Tarayıcıda sohbet arayüzü: birden fazla proje, görev başlatma; plan onayı, sorular, inceleme maddeleri ve değişiklik onayı kart olarak. Sadece bu bilgisayardan erişilir |
 | `flowloop stats [--since 30d]` | Ölçüm özeti: başarı, ilk incelemede PASS, tur, insan müdahalesi, kapsam talepleri, reddedilen işlemler, maliyet |
 | `flowloop --version` | Sürümü ve kurulum kaynağını gösterir |
 

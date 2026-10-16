@@ -25,7 +25,9 @@ import { computeStats, loadRecords, parseSince, renderStats } from "./stats.js";
 import { PACKAGE_ROOT, loadRoles } from "./roles.js";
 import { JIRA_KEY, JiraError, epicChildren, fetchIssue, issueToTask } from "./jira.js";
 import { BATCH_FILE, BATCH_PREFIX, runBatch, type BatchState } from "./batch.js";
-import { readText } from "./platform.js";
+import { openerCommand, readText } from "./platform.js";
+import { addProject, startUi } from "./ui.js";
+import { ensureJiraTask as ensureJiraTaskFor, type Say } from "./tasks.js";
 
 const HELP = `flowloop — rol bazlı AI geliştirme ekibi (analist → developer ⇄ reviewer → committer)
 
@@ -52,6 +54,9 @@ Kullanım:
       -v, --verbose              Ajanların çıktısını canlı gösterir
   flowloop resume <id> [-v] [--agent claude|cursor] [--skip-review]
                                    Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
+  flowloop ui [--port 4317] [--no-open]
+                                   Yerel sohbet arayüzü (tarayıcıda): projeler, görev başlatma, plan onayı, sorular,
+                                   inceleme maddeleri ve değişiklik onayı kart olarak; sadece bu bilgisayardan erişilir
   flowloop runs                      Bu repo için yapılan çalıştırmaları listeler
   flowloop stats [--since 30d] [--json]
                                    Çalıştırmaların ölçüm özeti: başarı, ilk incelemede PASS, tur, insan
@@ -62,6 +67,31 @@ Kullanım:
   flowloop --version                 Sürümü ve kurulum kaynağını gösterir
   flowloop clean [--all]             Merge edilmiş (ya da --all ile tüm) çalıştırmaların worktree'lerini siler
 `;
+
+/** flowloop ui: yerel sohbet arayüzü. İçinde çalıştırılan proje kayda eklenir. */
+async function cmdUi(args: string[]): Promise<number> {
+  const { values } = parseArgs({ args, options: { port: { type: "string" }, "no-open": { type: "boolean", default: false } } });
+  const port = values.port ? Number(values.port) : undefined;
+  if (port !== undefined && !(Number.isInteger(port) && port > 0 && port < 65536)) throw new FlowloopError("--port 1-65535 arasında olmalı.");
+  const top = git(["rev-parse", "--show-toplevel"], process.cwd());
+  if (top.code === 0 && fs.existsSync(path.join(top.stdout.trim(), CONFIG_FILE))) {
+    const p = addProject(top.stdout.trim());
+    console.log(color.dim(`Proje: ${p.name} (${p.root})`));
+  }
+  const ui = await startUi({ port });
+  console.log(color.bold("flowloop arayüzü hazır:") + "\n  " + ui.url);
+  console.log(color.dim("Bu adres sadece bu bilgisayardan açılır; içindeki anahtarı paylaşma. Kapatmak için Ctrl+C (süren çalıştırmalar da durur)."));
+  if (!values["no-open"]) {
+    const [c, a] = openerCommand(ui.url);
+    spawnSync(c, a, { stdio: "ignore", windowsHide: true });
+  }
+  await new Promise<void>((resolve) => {
+    process.once("SIGINT", () => resolve());
+    process.once("SIGTERM", () => resolve());
+  });
+  await ui.close();
+  return 0;
+}
 
 function repoRoot(): string {
   const r = git(["rev-parse", "--show-toplevel"], process.cwd());
@@ -119,22 +149,8 @@ function guessBranchPattern(root: string): string {
 }
 
 /** .flowloop/tasks/<KEY>.md yoksa (ya da --refresh) Jira'dan üretir; varsa olduğu gibi kullanır (elle düzenlenmiş olabilir). */
-async function ensureJiraTask(root: string, key: string, refresh = false, baseOverride?: string): Promise<string> {
-  const rel = path.join(FLOWLOOP_DIR, "tasks", `${key}.md`);
-  const abs = path.join(root, rel);
-  if (fs.existsSync(abs) && !refresh) {
-    console.log(color.dim(`Görev dosyası mevcut, o kullanılıyor: ${rel} (Jira'dan yeniden çekmek için --refresh)`));
-    return rel;
-  }
-  const baseUrl = baseOverride || jiraBaseUrl(loadConfig(root));
-  console.log(`Jira'dan çekiliyor: ${key}`);
-  const issue = await fetchIssue(key, baseUrl);
-  fs.mkdirSync(path.dirname(abs), { recursive: true });
-  fs.writeFileSync(abs, issueToTask(issue, new Date()));
-  console.log(color.green(`✓ ${rel} oluşturuldu: ${issue.summary}`));
-  if (!issue.acceptance) console.log(color.yellow("  ! Jira'da kabul kriteri alanı yok; analist açıklamadan çıkaracak. --approve-plan ile kontrol etmen önerilir."));
-  return rel;
-}
+const termSay: Say = { info: (m) => console.log(color.dim(m)), ok: (m) => console.log(color.green(`✓ ${m}`)), warn: (m) => console.log(color.yellow(`  ! ${m}`)) };
+const ensureJiraTask = (root: string, key: string, refresh = false, baseOverride?: string) => ensureJiraTaskFor(root, key, termSay, refresh, baseOverride);
 
 /** Claude ya da Cursor: ayara, --agent'a ve erişime göre seçer */
 function pickRunner(root: string, override: string | undefined, dryRun = false): { runner: AgentRunner; backend: Backend } {
@@ -646,6 +662,7 @@ async function main(): Promise<number> {
     return 0;
   }
   if (cmd === "update") return runUpdate();
+  if (cmd === "ui") return cmdUi(rest);
   if (cmd === "setup") {
     const deps = systemDeps();
     if (rest.includes("--check")) return (await printStatus(deps, { log: console.log }, { network: true })) ? 0 : 1;

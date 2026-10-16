@@ -522,6 +522,35 @@ Claude ile arasındaki farklar:
 | Commit imzası | `Co-Authored-By: Claude` | `Co-Authored-By: Cursor Agent` |
 | Jira imzası | "Claude ile hazırlandı" | "Cursor ile hazırlandı" |
 
+## Sohbet arayüzü (`flowloop ui`)
+
+Terminal yerine tarayıcıda, sohbet gibi çalışmak için:
+
+```bash
+cd ~/projeler/my-app
+flowloop ui
+```
+
+Tarayıcı açılır. Soldan projeyi seç, alttaki kutuya görevi yaz (`IDT-123`, Jira bağlantısı ya da görev dosyası; birbirine bağlı görevler için boşlukla `IDT-1 IDT-2`) ve **Başlat**'a bas. Ajanların ilerlemesi mesaj mesaj akar. Karar gereken her yerde bir kart çıkar ve terminaldeki seçeneklerin aynısını sunar:
+
+| Kart | Seçenekler |
+|---|---|
+| Plan hazır | Onayla · Yorum yaz (analist planı günceller) · Baştan analiz · İptal |
+| Açık sorular / Karar gerekli | Her soruya cevap (boş = varsayılan) · Varsayılanlarla devam · Jira'ya yaz ve dur · Durdur |
+| İncelenmesi önerilenler | Kararını gerektiren maddeler için: Bu işte düzelt · Elle yapacağım · Ayrı iş · Geç; diğerleri sorulmadan kaydedilir |
+| İş tamamlandı | Onayla (commit, push, Jira) · Farkı göster · Değişiklik iste · Şimdilik onaylama |
+| Kapsam talebi | Genişlet · Genişletmeden devam · Durdur |
+| Bütçe doldu | Ek bütçeyle devam · Durdur |
+
+- **Projeler:** `flowloop ui`'yi bir projenin içinde çalıştırırsan o proje kendiliğinden eklenir. Başkalarını **+ Ekle** ile klasör yolunu yazarak eklersin (flowloop kurulu bir git reposu olmalı). Kayıt `~/.flowloop/projects.json` dosyasında durur; × ile kayıttan çıkarmak dosyalara dokunmaz.
+- **Geçmiş:** seçili projenin çalıştırmaları solda listelenir; yarım kalanlarda **Devam** `flowloop resume` ile aynı işi yapar.
+- **Aynı anda:** her projede bir çalıştırma; farklı projeler paralel çalışabilir.
+- **Ayrıntılar:** ajanların araç çağrıları "ajan ayrıntıları" altında katlı durur; üstteki kutuyla hepsi açılır.
+- **Bildirim:** cevabın beklendiğinde sekmenin başlığı değişir; tarayıcı bildirimine izin verirsen sekme arka plandayken bildirim gelir.
+- **Güvenlik:** sunucu sadece `127.0.0.1`'de dinler, ağdaki başka bir makineden açılamaz. Adresin `#t=…` kısmı oturumun anahtarıdır; onsuz hiçbir istek kabul edilmez, başka sitelerden gelen istekler de reddedilir. Adresi paylaşma.
+- **Kapatma:** terminalde Ctrl+C. Süren çalıştırmalar da durur; çalışma kopyası kalır, sonra **Devam** ya da `flowloop resume` ile sürdürülür.
+- Seçenekler: `--port 4317` (doluysa boş bir port seçilir), `--no-open` (tarayıcıyı açma).
+
 ## 6. Diğer komutlar
 
 | Komut | Ne yapar |

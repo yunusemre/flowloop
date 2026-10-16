@@ -1,0 +1,585 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flowloop</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #e3e6ec;
+    --accent: #3b5bdb; --accent-soft: #e8edff; --ok: #2b8a3e; --ok-soft: #e6f4ea; --warn: #b26a00; --warn-soft: #fff4e0;
+    --err: #c92a2a; --err-soft: #fdecec; --user: #3b5bdb; --user-text: #fff; --code: #f1f3f6;
+    --add: #e6f4ea; --del: #fdecec;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161b; --panel: #1c1f26; --text: #e4e7ee; --muted: #8e96a8; --line: #2c313b;
+      --accent: #7b93ff; --accent-soft: #252c47; --ok: #69c47f; --ok-soft: #1c3324; --warn: #f0b04f; --warn-soft: #3a2d17;
+      --err: #ff7b7b; --err-soft: #3d1f22; --user: #3b5bdb; --user-text: #fff; --code: #242832;
+      --add: #1c3324; --del: #3d1f22;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); display: flex; }
+  button { font: inherit; cursor: pointer; border: 1px solid var(--line); background: var(--panel); color: var(--text); border-radius: 8px; padding: 6px 12px; }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--err); }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: default; }
+  input[type=text], textarea { font: inherit; width: 100%; border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); color: var(--text); }
+  textarea { resize: vertical; min-height: 60px; }
+  input:focus, textarea:focus { outline: 2px solid var(--accent-soft); border-color: var(--accent); }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+  pre { background: var(--code); padding: 10px; border-radius: 8px; overflow: auto; white-space: pre-wrap; word-break: break-word; margin: 6px 0; }
+  a { color: var(--accent); }
+
+  /* kenar çubuğu */
+  aside { width: 280px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden; }
+  aside header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  aside header b { font-size: 16px; }
+  .side-scroll { overflow: auto; flex: 1; padding: 8px 0; }
+  .side-title { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 10px 16px 4px; display: flex; justify-content: space-between; align-items: center; }
+  .item { padding: 7px 16px; cursor: pointer; display: flex; gap: 8px; align-items: center; border-left: 3px solid transparent; }
+  .item:hover { background: var(--bg); }
+  .item.active { background: var(--accent-soft); border-left-color: var(--accent); }
+  .item .grow { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .sub { color: var(--muted); font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
+  .dot.running { background: var(--accent); animation: pulse 1.2s infinite; }
+  .dot.waiting { background: var(--warn); }
+  .dot.done, .dot.success { background: var(--ok); }
+  .dot.failed { background: var(--err); }
+  @keyframes pulse { 50% { opacity: .35; } }
+  .add-project { padding: 6px 16px 10px; display: none; gap: 6px; flex-direction: column; }
+  .add-project.open { display: flex; }
+
+  /* ana alan */
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .top { padding: 12px 20px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; gap: 10px; min-height: 52px; }
+  .top .title { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .badge { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--bg); color: var(--muted); }
+  .badge.running { background: var(--accent-soft); color: var(--accent); }
+  .badge.waiting { background: var(--warn-soft); color: var(--warn); }
+  .badge.done { background: var(--ok-soft); color: var(--ok); }
+  .badge.failed { background: var(--err-soft); color: var(--err); }
+  .chat { flex: 1; overflow: auto; padding: 20px; }
+  .chat-inner { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+  .msg { max-width: 85%; padding: 8px 12px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); white-space: pre-wrap; word-break: break-word; }
+  .msg.ok { border-color: transparent; background: var(--ok-soft); }
+  .msg.warn { border-color: transparent; background: var(--warn-soft); }
+  .msg.error { border-color: transparent; background: var(--err-soft); color: var(--err); }
+  .msg.user { align-self: flex-end; background: var(--user); color: var(--user-text); border-color: transparent; }
+  .msg.done { background: var(--ok-soft); border-color: var(--ok); max-width: 100%; }
+  .step { align-self: stretch; text-align: center; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; margin: 12px 0 4px; display: flex; align-items: center; gap: 10px; }
+  .step::before, .step::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  details.detail { font-size: 12px; color: var(--muted); max-width: 100%; }
+  details.detail summary { cursor: pointer; user-select: none; }
+  details.detail pre { max-height: 360px; }
+
+  .card { align-self: stretch; background: var(--panel); border: 2px solid var(--warn); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .card h3 { margin: 0; font-size: 15px; }
+  .card .hint { color: var(--muted); font-size: 12.5px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .md { max-height: 480px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 4px 14px; }
+  .md h1, .md h2, .md h3, .md h4 { margin: 12px 0 4px; font-size: 14.5px; }
+  .md h1 { font-size: 16px; }
+  .md table { border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+  .md td, .md th { border: 1px solid var(--line); padding: 3px 8px; vertical-align: top; }
+  .md ul, .md ol { padding-left: 22px; margin: 4px 0; }
+  .md p { margin: 6px 0; }
+  .md code { background: var(--code); padding: 0 4px; border-radius: 4px; }
+  .q { border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+  .q .qid { font-weight: 600; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; flex-wrap: wrap; }
+  .seg button { border: 0; border-radius: 0; border-right: 1px solid var(--line); padding: 4px 10px; font-size: 12.5px; }
+  .seg button:last-child { border-right: 0; }
+  .seg button.on { background: var(--accent); color: #fff; }
+  .tag { font-size: 11.5px; padding: 1px 7px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); margin-right: 6px; white-space: nowrap; }
+  .auto-list { font-size: 13px; color: var(--muted); }
+  .auto-list li { margin: 2px 0; }
+  .diff .a { background: var(--add); display: block; }
+  .diff .d { background: var(--del); display: block; }
+  .diff .h { color: var(--accent); display: block; }
+
+  .composer { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 20px; }
+  .composer-inner { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
+  .composer .row { display: flex; gap: 8px; }
+  .composer .opts { display: flex; gap: 16px; flex-wrap: wrap; color: var(--muted); font-size: 13px; }
+  .composer label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
+  .empty { color: var(--muted); text-align: center; margin-top: 15vh; }
+  .empty h2 { color: var(--text); font-weight: 600; }
+  .err-bar { background: var(--err-soft); color: var(--err); padding: 8px 20px; display: none; }
+  .err-bar.show { display: block; }
+  .conn { font-size: 12px; color: var(--muted); }
+  .conn.off { color: var(--err); }
+</style>
+</head>
+<body>
+<aside>
+  <header><b>flowloop</b><span class="conn" id="conn">●</span></header>
+  <div class="side-scroll">
+    <div class="side-title"><span>Projeler</span><button class="small" id="addProjectBtn" title="Proje ekle">+ Ekle</button></div>
+    <div class="add-project" id="addProject">
+      <input type="text" id="projectPath" placeholder="Proje klasörü, ör. ~/Desktop/WORK/cure-backend">
+      <div class="actions"><button class="small primary" id="addProjectSave">Ekle</button><button class="small" id="addProjectCancel">Vazgeç</button></div>
+    </div>
+    <div id="projects"></div>
+    <div class="side-title"><span>Sohbetler</span></div>
+    <div id="sessions"></div>
+    <div class="side-title"><span>Geçmiş çalıştırmalar</span></div>
+    <div id="runs"></div>
+  </div>
+</aside>
+<main>
+  <div class="err-bar" id="errBar"></div>
+  <div class="top">
+    <span class="title" id="title">Yeni görev</span>
+    <span class="badge" id="badge" style="display:none"></span>
+    <label class="conn" style="cursor:pointer"><input type="checkbox" id="showDetail"> ajan ayrıntıları</label>
+    <button class="small" id="newBtn">+ Yeni görev</button>
+  </div>
+  <div class="chat" id="chat"><div class="chat-inner" id="chatInner"></div></div>
+  <div class="composer" id="composer">
+    <div class="composer-inner">
+      <div class="row">
+        <input type="text" id="taskInput" placeholder="Görev: IDT-123, Jira bağlantısı ya da .flowloop/tasks/x.md — birbirine bağlı görevler için boşlukla: IDT-1 IDT-2">
+        <button class="primary" id="startBtn">Başlat</button>
+      </div>
+      <div class="opts">
+        <span id="projectLabel"></span>
+        <label><input type="checkbox" id="optPlan" checked> Planı onayıma sun</label>
+        <label><input type="checkbox" id="optRefresh"> Jira'dan yeniden çek</label>
+        <label><input type="checkbox" id="optNoPush"> Push yapma</label>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+"use strict";
+(() => {
+  // ───── durum ─────
+  const token = new URLSearchParams(location.hash.slice(1)).get("t") || sessionStorage.getItem("flowloop-t") || "";
+  if (token) { try { sessionStorage.setItem("flowloop-t", token); } catch {} history.replaceState(null, "", location.pathname); }
+  const S = { projects: [], sessions: new Map(), selectedProject: null, selectedSession: null, runs: [], composing: true };
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (k === "class") n.className = v;
+      else if (k.startsWith("on")) n.addEventListener(k.slice(2), v);
+      else if (k === "html") n.innerHTML = v;
+      else if (v !== false && v != null) n.setAttribute(k, v === true ? "" : v);
+    }
+    for (const c of kids.flat()) if (c != null && c !== false) n.append(c.nodeType ? c : document.createTextNode(String(c)));
+    return n;
+  };
+  const add = (node, ...kids) => { node.append(...kids.flat().filter((k) => k != null && k !== false)); return node; };
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+  // ───── API ─────
+  async function api(method, url, body) {
+    const r = await fetch(url, { method, headers: { "x-flowloop-token": token, ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
+    return j;
+  }
+  function showError(e) {
+    const b = $("errBar");
+    b.textContent = e instanceof Error ? e.message : String(e);
+    b.classList.add("show");
+    clearTimeout(showError.t);
+    showError.t = setTimeout(() => b.classList.remove("show"), 8000);
+  }
+
+  // ───── küçük markdown ─────
+  function inline(s) {
+    return esc(s)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+      .replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g, '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+  }
+  function md(src) {
+    const lines = String(src ?? "").replace(/\r\n?/g, "\n").split("\n");
+    const out = [];
+    let i = 0;
+    while (i < lines.length) {
+      const l = lines[i];
+      if (/^```/.test(l)) {
+        const buf = [];
+        for (i++; i < lines.length && !/^```/.test(lines[i]); i++) buf.push(lines[i]);
+        i++;
+        out.push(`<pre>${esc(buf.join("\n"))}</pre>`);
+        continue;
+      }
+      const h = /^(#{1,4})\s+(.*)$/.exec(l);
+      if (h) { out.push(`<h${h[1].length}>${inline(h[2])}</h${h[1].length}>`); i++; continue; }
+      if (/^\s*\|.*\|\s*$/.test(l)) {
+        const rows = [];
+        for (; i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i]); i++) rows.push(lines[i]);
+        const cells = (r) => r.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
+        const body = rows.filter((r) => !/^\s*\|[\s:|-]+\|\s*$/.test(r));
+        out.push("<table>" + body.map((r, k) => "<tr>" + cells(r).map((c) => (k === 0 ? `<th>${inline(c)}</th>` : `<td>${inline(c)}</td>`)).join("") + "</tr>").join("") + "</table>");
+        continue;
+      }
+      if (/^\s*([-*]|\d+[.)])\s+/.test(l)) {
+        const ordered = /^\s*\d/.test(l);
+        const items = [];
+        for (; i < lines.length && (/^\s*([-*]|\d+[.)])\s+/.test(lines[i]) || (/^\s{2,}\S/.test(lines[i]) && items.length)); i++) {
+          if (/^\s*([-*]|\d+[.)])\s+/.test(lines[i])) items.push(lines[i].replace(/^\s*([-*]|\d+[.)])\s+/, ""));
+          else items[items.length - 1] += " " + lines[i].trim();
+        }
+        out.push(`<${ordered ? "ol" : "ul"}>${items.map((x) => `<li>${inline(x.replace(/^\[( |x)\]\s*/i, (m) => (/x/i.test(m) ? "☑ " : "☐ ")))}</li>`).join("")}</${ordered ? "ol" : "ul"}>`);
+        continue;
+      }
+      if (!l.trim()) { i++; continue; }
+      const para = [];
+      for (; i < lines.length && lines[i].trim() && !/^(#{1,4}\s|```|\s*\||\s*([-*]|\d+[.)])\s)/.test(lines[i]); i++) para.push(lines[i]);
+      out.push(`<p>${para.map(inline).join("<br>")}</p>`);
+    }
+    return out.join("");
+  }
+
+  // ───── kenar çubuğu ─────
+  function renderSide() {
+    const P = $("projects");
+    P.replaceChildren(...S.projects.map((p) =>
+      el("div", { class: "item" + (p.name === S.selectedProject ? " active" : ""), title: p.root, onclick: () => selectProject(p.name) },
+        el("span", { class: "dot" + (p.busy ? " running" : "") }),
+        el("span", { class: "grow" }, p.name),
+        el("button", { class: "small", title: "Kayıttan çıkar (dosyalara dokunmaz)", onclick: (e) => { e.stopPropagation(); removeProject(p.name); } }, "×"))));
+    if (!S.projects.length) P.append(el("div", { class: "item sub" }, "Proje yok. + Ekle ile flowloop kurulu bir klasör ekle."));
+    const list = [...S.sessions.values()].sort((a, b) => (b.messages.at(-1)?.at ?? 0) - (a.messages.at(-1)?.at ?? 0));
+    $("sessions").replaceChildren(...list.map((s) =>
+      el("div", { class: "item" + (s.id === S.selectedSession ? " active" : ""), onclick: () => selectSession(s.id) },
+        el("span", { class: "dot " + s.status }),
+        el("span", { class: "grow" }, s.title, el("div", { class: "sub" }, `${s.project} · ${statusText(s.status)}`)))));
+    if (!list.length) $("sessions").append(el("div", { class: "item sub" }, "Henüz yok."));
+    const runs = S.runs.slice(0, 40);
+    $("runs").replaceChildren(...runs.map((r) =>
+      el("div", { class: "item", title: r.error || r.branch || r.id },
+        el("span", { class: "dot " + (r.status === "success" ? "success" : r.status === "failed" ? "failed" : "") }),
+        el("span", { class: "grow" }, r.jiraKey || r.id, el("div", { class: "sub" }, [r.status === "success" ? "bitti" : r.status === "failed" ? "durdu" : r.status === "yarım" ? "yarım / sürüyor" : r.status, r.cost != null ? `$${Number(r.cost).toFixed(2)}` : "", r.startedAt ? new Date(r.startedAt).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }) : ""].filter(Boolean).join(" · "))),
+        r.status !== "success" && !r.batch && !busyProject() ? el("button", { class: "small", title: "Kaldığı yerden devam et", onclick: (e) => { e.stopPropagation(); resume(r.id); } }, "Devam") : null)));
+    if (S.selectedProject && !runs.length) $("runs").append(el("div", { class: "item sub" }, "Kayıt yok."));
+    $("projectLabel").textContent = S.selectedProject ? `Proje: ${S.selectedProject}` : "Önce bir proje seç";
+    $("startBtn").disabled = !S.selectedProject;
+  }
+  const busyProject = () => S.projects.find((p) => p.name === S.selectedProject)?.busy;
+  const statusText = (s) => ({ running: "çalışıyor", waiting: "cevabını bekliyor", done: "bitti", failed: "durdu" })[s] || s;
+
+  async function selectProject(name) {
+    S.selectedProject = name;
+    renderSide();
+    try { S.runs = await api("GET", `/api/projects/${encodeURIComponent(name)}/runs`); } catch (e) { S.runs = []; showError(e); }
+    renderSide();
+  }
+  function selectSession(id) {
+    S.selectedSession = id;
+    S.composing = false;
+    const s = S.sessions.get(id);
+    if (s && s.project !== S.selectedProject) selectProject(s.project);
+    renderSide();
+    renderMain(true);
+  }
+  async function removeProject(name) {
+    if (!confirm(`${name} kayıttan çıkarılsın mı? (Dosyalara dokunulmaz.)`)) return;
+    try { await api("POST", "/api/projects/remove", { name }); await refresh(); } catch (e) { showError(e); }
+  }
+  async function resume(id) {
+    try {
+      const r = await api("POST", "/api/resume", { project: S.selectedProject, id });
+      await refresh();
+      selectSession(r.session);
+    } catch (e) { showError(e); }
+  }
+
+  // ───── sohbet ─────
+  function renderMain(scroll) {
+    const inner = $("chatInner");
+    const s = S.sessions.get(S.selectedSession);
+    const showDetail = $("showDetail").checked;
+    if (!s || S.composing) {
+      $("title").textContent = "Yeni görev";
+      $("badge").style.display = "none";
+      inner.replaceChildren(el("div", { class: "empty" },
+        el("h2", {}, "Bir görev başlat"),
+        el("p", {}, "Jira anahtarını yaz; analist planlar, developer yazar, reviewer inceler."),
+        el("p", {}, "Karar gereken her yerde burada bir kart çıkar: plan onayı, açık sorular, inceleme maddeleri, değişiklik onayı.")));
+      $("composer").style.display = "";
+      return;
+    }
+    $("composer").style.display = s.status === "running" || s.status === "waiting" ? "none" : "";
+    $("title").textContent = `${s.project} · ${s.title}`;
+    const b = $("badge");
+    b.style.display = "";
+    b.className = "badge " + s.status;
+    b.textContent = statusText(s.status);
+    const atBottom = $("chat").scrollTop + $("chat").clientHeight >= $("chat").scrollHeight - 40;
+    const nodes = [];
+    let detail = [];
+    const flush = () => {
+      if (!detail.length) return;
+      const d = el("details", { class: "detail" }, el("summary", {}, `ajan ayrıntıları (${detail.length} satır)`), el("pre", {}, detail.join("\n")));
+      if (showDetail) d.open = true;
+      nodes.push(d);
+      detail = [];
+    };
+    for (const m of s.messages) {
+      if (m.level === "detail") { detail.push(m.text); continue; }
+      flush();
+      if (m.level === "step") nodes.push(el("div", { class: "step" }, m.text));
+      else if (m.level === "done") nodes.push(el("div", { class: "msg done", html: linkify(m.text) }));
+      else if (m.text.split("\n").length > 12) {
+        // uzun bloklar (plan metni, süre tablosu) katlanır; ilk satır başlık olur
+        const [first, ...rest] = m.text.replace(/^\n+/, "").split("\n");
+        nodes.push(el("details", { class: "msg " + m.level, style: "max-width:100%" }, el("summary", { style: "cursor:pointer" }, first.replace(/^[─\s]+|[─\s]+$/g, "") || "ayrıntı"), el("pre", {}, rest.join("\n"))));
+      }
+      else nodes.push(el("div", { class: "msg " + m.level }, m.text));
+    }
+    flush();
+    if (s.prompt) nodes.push(renderPrompt(s, s.prompt));
+    inner.replaceChildren(...nodes);
+    if (scroll || atBottom) $("chat").scrollTop = $("chat").scrollHeight;
+  }
+  const linkify = (t) => esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+
+  async function answer(s, prompt, value, btns) {
+    btns?.forEach((b) => (b.disabled = true));
+    try { await api("POST", `/api/sessions/${s.id}/answer`, { prompt: prompt.id, value }); }
+    catch (e) { btns?.forEach((b) => (b.disabled = false)); showError(e); }
+  }
+  /** Yorum alanı: düğmeye basınca açılır, gönderince cevap olur */
+  function commentBox(label, placeholder, onSend) {
+    const box = el("div", { style: "display:none;flex-direction:column;gap:6px" });
+    const ta = el("textarea", { placeholder });
+    const send = el("button", { class: "primary" }, "Gönder");
+    send.onclick = () => { if (ta.value.trim()) onSend(ta.value, [send]); else ta.focus(); };
+    box.append(ta, el("div", { class: "actions" }, send));
+    const open = el("button", { onclick: () => { box.style.display = box.style.display === "none" ? "flex" : "none"; ta.focus(); } }, label);
+    return { open, box };
+  }
+
+  function renderPrompt(s, p) {
+    const c = p.payload || {};
+    const card = el("div", { class: "card" });
+    const go = (value, btns) => answer(s, p, value, btns ?? [...card.querySelectorAll("button")]);
+    if (p.kind === "plan") {
+      const cm = commentBox("Yorum yaz", "Analiste notun: neyi değiştirsin, neyi eklesin?", (comment) => go({ action: "revise", comment }));
+      add(card, 
+        el("h3", {}, c.round > 1 ? `Güncellenen plan (${c.round}. tur) — onaylıyor musun?` : "Plan hazır — onaylıyor musun?"),
+        c.reused ? el("div", { class: "hint" }, "Bu plan önceki bir çalıştırmadan geliyor.") : null,
+        el("div", { class: "md", html: md(c.plan) }),
+        el("div", { class: "actions" },
+          el("button", { class: "primary", onclick: () => go({ action: "approve" }) }, "Onayla, geliştirmeye geç"),
+          cm.open,
+          c.reused ? el("button", { onclick: () => go({ action: "restart" }) }, "Baştan analiz et") : null,
+          el("button", { class: "danger", onclick: () => go({ action: "cancel" }) }, "İptal (plan saklanır)")),
+        cm.box);
+    } else if (p.kind === "questions") {
+      const dec = c.kind === "decisions";
+      const inputs = {};
+      add(card, 
+        el("h3", {}, dec ? "Karar gerekli — reviewer bir çelişki buldu, seçimi sen yap" : `Açık sorular${c.round > 1 ? ` (${c.round}. tur)` : ""} — geliştirmeye geçmeden cevabın gerekiyor`),
+        ...(c.questions || []).map((q) => {
+          const ta = el("textarea", { placeholder: q.fallback ? `Boş bırakırsan: ${q.fallback}` : "Cevabın" });
+          inputs[q.id] = ta;
+          return el("div", { class: "q" }, el("div", {}, el("span", { class: "qid" }, q.id + " "), el("span", { html: inline(q.text) })), ta);
+        }),
+        el("div", { class: "actions" },
+          el("button", { class: "primary", onclick: () => go({ action: "answer", answers: Object.fromEntries(Object.entries(inputs).map(([k, t]) => [k, t.value])) }) }, dec ? "Kararları gönder" : "Cevapları gönder"),
+          el("button", { onclick: () => go({ action: "assume" }) }, dec ? "Reviewer'ın önerileriyle devam" : "Varsayılanlarla devam"),
+          c.canPostToJira ? el("button", { onclick: () => go({ action: "jira" }) }, "Jira'ya yaz ve dur") : null,
+          el("button", { class: "danger", onclick: () => go({ action: "cancel" }) }, "Durdur")),
+        el("div", { class: "hint" }, dec ? "Boş bıraktığın konuda reviewer'ın önerisi kabul edilir." : "Boş bıraktığın soruda analistin önerdiği varsayılan kullanılır; Jira yorumunda \"Varsayımlar\" olarak listelenir."));
+    } else if (p.kind === "triage") {
+      const items = c.items || [];
+      const choices = items.map((it) => ({ choice: it.suggest, note: "" }));
+      const LABEL = { fix: "Bu işte düzelt", manual: "Elle yapacağım", followup: "Ayrı iş", skip: "Geç" };
+      const askIdx = items.map((it, i) => (it.ask ? i : -1)).filter((i) => i >= 0);
+      const autoIdx = items.map((it, i) => (!it.ask ? i : -1)).filter((i) => i >= 0);
+      let expandAll = false;
+      const listBox = el("div", { style: "display:flex;flex-direction:column;gap:8px" });
+      const row = (i) => {
+        const it = items[i];
+        const note = el("textarea", { placeholder: it.decision ? "Kararın / notun (boş = reviewer'ın önerisi)" : "Developer'a not (isteğe bağlı)", style: "display:none;min-height:44px" });
+        note.oninput = () => (choices[i].note = note.value);
+        const seg = el("div", { class: "seg" });
+        const paint = () => {
+          for (const b of seg.children) b.classList.toggle("on", b.dataset.v === choices[i].choice);
+          note.style.display = choices[i].choice === "fix" || it.decision ? "" : "none";
+        };
+        for (const v of ["fix", "manual", "followup", "skip"]) seg.append(el("button", { "data-v": v, onclick: () => { choices[i].choice = v; paint(); } }, LABEL[v] + (v === it.suggest ? " ★" : "")));
+        paint();
+        return el("div", { class: "q" }, el("div", {}, el("span", { class: "tag" }, it.label), el("span", { html: inline(it.text) })), seg, note);
+      };
+      const paintList = () => {
+        const show = expandAll ? items.map((_, i) => i) : askIdx;
+        listBox.replaceChildren(...show.map(row));
+      };
+      paintList();
+      add(card, 
+        el("h3", {}, `İncelenmesi önerilenler — commit'ten önce (${items.length} madde)`),
+        el("div", { class: "hint" }, "Bu bir onay değil, dağıtım: her madde ya bu işte düzeltilir, ya Jira'ya yazılır, ya da geçilir. Commit her durumda devam eder. ★ = öneri."),
+        autoIdx.length && !expandAll ? el("div", {},
+          el("div", { class: "hint" }, `Sorulmadan kaydedilenler (${autoIdx.length}) — Jira yorumuna yazılır:`),
+          el("ul", { class: "auto-list" }, ...autoIdx.map((i) => el("li", {}, el("span", { class: "tag" }, items[i].label), `→ ${LABEL[items[i].suggest]}: `, items[i].text))),
+          el("button", { class: "small", onclick: (e) => { expandAll = true; e.target.parentElement.remove(); paintList(); } }, "Bunları da tek tek seç")) : null,
+        askIdx.length ? el("div", { class: "hint", style: "font-weight:600" }, `Kararını gerektiren ${askIdx.length} madde:`) : null,
+        listBox,
+        el("div", { class: "actions" }, el("button", { class: "primary", onclick: () => go({ choices }) }, "Kaydet ve devam et")));
+    } else if (p.kind === "changes") {
+      const cm = commentBox("Değişiklik iste", "Developer'a notun: neyi değiştirsin? (testler ve reviewer tekrar çalışır)", (comment) => go({ action: "revise", comment }));
+      const diffBox = el("div");
+      const showDiff = el("button", {}, "Farkın tamamını göster");
+      showDiff.onclick = async () => {
+        if (diffBox.childNodes.length) { diffBox.replaceChildren(); showDiff.textContent = "Farkın tamamını göster"; return; }
+        try {
+          const { diff } = await api("GET", `/api/sessions/${s.id}/diff`);
+          const pre = el("pre", { class: "diff", style: "max-height:520px" });
+          for (const line of diff.split("\n")) pre.append(el("span", { class: /^\+(?!\+\+)/.test(line) ? "a" : /^-(?!--)/.test(line) ? "d" : /^@@|^diff /.test(line) ? "h" : "" }, line + "\n"));
+          diffBox.replaceChildren(pre);
+          showDiff.textContent = "Farkı gizle";
+        } catch (e) { showError(e); }
+      };
+      const tri = c.triage || [];
+      const pick = (x) => tri.filter((t) => t.choice === x);
+      add(card, 
+        el("h3", {}, "İş tamamlandı — commit'ten önce onayın gerekiyor"),
+        c.reviewerNote ? el("div", { class: "md", html: md(c.reviewerNote), style: "max-height:260px" }) : null,
+        c.assumptions?.length ? el("div", {}, el("b", {}, "Varsayımlar"), el("ul", {}, ...c.assumptions.map((a) => el("li", {}, a)))) : null,
+        tri.length ? el("div", {},
+          pick("manual").length ? el("div", {}, el("b", {}, "Elle yapılacaklar (Jira'ya kontrol listesi)"), el("ul", {}, ...pick("manual").map((t) => el("li", {}, t.text)))) : null,
+          pick("followup").length ? el("div", {}, el("b", {}, "Önerilen ayrı işler"), el("ul", {}, ...pick("followup").map((t) => el("li", {}, t.text)))) : null,
+          pick("fix").length ? el("div", {}, el("b", {}, "Bu işte düzeltilenler"), el("ul", {}, ...pick("fix").map((t) => el("li", {}, t.text)))) : null)
+          : c.attention?.length ? el("div", {}, el("b", {}, "İncelenmesi önerilenler"), el("ul", {}, ...c.attention.map((a) => el("li", {}, el("span", { class: "tag" }, a.label), a.text)))) : null,
+        el("div", {}, el("b", {}, "Değişen dosyalar"), el("pre", {}, c.diffStat || "(fark yok)")),
+        el("div", { class: "hint" }, `Kodu editöründe de açabilirsin: ${c.worktree || ""}`),
+        el("div", { class: "actions" },
+          el("button", { class: "primary", onclick: () => go({ action: "approve" }) }, "Onayla: commit, push, Jira"),
+          showDiff,
+          c.canRevise ? cm.open : null,
+          el("button", { class: "danger", onclick: () => go({ action: "cancel" }) }, "Şimdilik onaylama")),
+        diffBox,
+        c.canRevise ? cm.box : null);
+    } else if (p.kind === "scope") {
+      const repos = new Set(c.expandable || []);
+      add(card, 
+        el("h3", {}, `Kapsam talebi (tur ${c.turn}) — kararın gerekiyor`),
+        el("div", { class: "md", html: md(c.request) }),
+        (c.expandable || []).length
+          ? el("div", { class: "actions" }, el("span", { class: "hint" }, "Yazılabilir yapılacak repolar:"), ...(c.expandable || []).map((r) => {
+              const cb = el("input", { type: "checkbox", checked: true, onchange: () => (cb.checked ? repos.add(r) : repos.delete(r)) });
+              return el("label", {}, cb, r);
+            }))
+          : el("div", { class: "hint" }, "flowloop.yaml'ın izin verdiği kapalı repo yok; kapsam genişletilemez (tavan: flowloop.yaml → related[].edit)."),
+        el("div", { class: "actions" },
+          (c.expandable || []).length ? el("button", { class: "primary", onclick: () => go({ action: "expand", repos: [...repos] }) }, "Kapsamı genişlet") : null,
+          el("button", { onclick: () => go({ action: "continue" }) }, "Genişletmeden devam et"),
+          el("button", { class: "danger", onclick: () => go({ action: "cancel" }) }, "Durdur")));
+    } else if (p.kind === "budget") {
+      const amt = el("input", { type: "text", value: String(c.step ?? 1), style: "width:90px" });
+      add(card, 
+        el("h3", {}, `${c.role} için ayrılan bütçe doldu`),
+        el("div", { class: "hint" }, `Bu rolde $${Number(c.spentUsd || 0).toFixed(2)}, çalıştırmada toplam $${Number(c.totalSpentUsd || 0).toFixed(2)} (SDK'nın tahmini). Ek bütçeyle ajan kaldığı yerden devam eder.`),
+        el("div", { class: "actions" },
+          el("button", { class: "primary", onclick: () => go({ amount: c.step }) }, `+$${Number(c.step).toFixed(2)} ile devam`),
+          el("span", {}, "ya da $"), amt, el("button", { onclick: () => go({ amount: Number(amt.value.replace(",", ".")) }) }, "Bu tutarla devam"),
+          el("button", { class: "danger", onclick: () => go({ amount: 0 }) }, "Durdur")));
+    } else if (p.kind === "confirm") {
+      add(card, el("h3", {}, c.question), el("div", { class: "actions" },
+        el("button", { class: "primary", onclick: () => go({ yes: true }) }, "Evet"),
+        el("button", { onclick: () => go({ yes: false }) }, "Hayır")));
+    }
+    return card;
+  }
+
+  // ───── başlatma ─────
+  async function startTask() {
+    const task = $("taskInput").value.trim();
+    if (!task) return $("taskInput").focus();
+    if (!S.selectedProject) return showError("Önce soldan bir proje seç.");
+    $("startBtn").disabled = true;
+    try {
+      const r = await api("POST", "/api/run", { project: S.selectedProject, task, approvePlan: $("optPlan").checked, refresh: $("optRefresh").checked, noPush: $("optNoPush").checked });
+      $("taskInput").value = "";
+      await refresh();
+      selectSession(r.session);
+    } catch (e) { showError(e); }
+    finally { $("startBtn").disabled = !S.selectedProject; }
+  }
+
+  // ───── canlı akış ─────
+  let attention = 0;
+  function flagTitle() {
+    const waiting = [...S.sessions.values()].filter((s) => s.status === "waiting").length;
+    document.title = waiting ? `(${waiting}) flowloop — cevabın bekleniyor` : "flowloop";
+  }
+  function connect() {
+    const es = new EventSource(`/api/events?t=${encodeURIComponent(token)}`);
+    es.onopen = () => { $("conn").className = "conn"; $("conn").title = "bağlı"; refresh(); };
+    es.onerror = () => { $("conn").className = "conn off"; $("conn").title = "bağlantı yok — flowloop ui çalışıyor mu?"; };
+    es.onmessage = (ev) => {
+      const e = JSON.parse(ev.data);
+      let s = S.sessions.get(e.session);
+      if (e.type === "session") {
+        if (!s) { s = { messages: [], prompt: null, ...e.data }; S.sessions.set(e.session, s); }
+        else Object.assign(s, e.data);
+        refreshProjectsSoon();
+      } else if (s && e.type === "message") {
+        s.messages.push(e.data);
+      } else if (s && e.type === "prompt") {
+        s.prompt = e.data;
+        s.status = e.data ? "waiting" : "running";
+        if (e.data && document.hidden && "Notification" in window && Notification.permission === "granted") {
+          new Notification("flowloop: cevabın bekleniyor", { body: `${s.project} · ${s.title}` });
+        }
+      }
+      flagTitle();
+      renderSide();
+      if (e.session === S.selectedSession) renderMain(e.type === "prompt");
+    };
+  }
+  let rp;
+  const refreshProjectsSoon = () => { clearTimeout(rp); rp = setTimeout(async () => { await refresh(false); if (S.selectedProject) selectProject(S.selectedProject); }, 500); };
+
+  async function refresh(full = true) {
+    try {
+      const st = await api("GET", "/api/state");
+      S.projects = st.projects;
+      if (full) for (const s of st.sessions) S.sessions.set(s.id, s);
+      if (!S.selectedProject && S.projects.length) await selectProject(S.projects[0].name);
+      flagTitle();
+      renderSide();
+      renderMain(false);
+    } catch (e) { showError(e); }
+  }
+
+  // ───── olaylar ─────
+  $("startBtn").onclick = startTask;
+  $("taskInput").addEventListener("keydown", (e) => { if (e.key === "Enter") startTask(); });
+  $("newBtn").onclick = () => { S.composing = true; S.selectedSession = null; renderSide(); renderMain(); $("taskInput").focus(); };
+  $("showDetail").onchange = () => renderMain(false);
+  $("addProjectBtn").onclick = () => { $("addProject").classList.toggle("open"); $("projectPath").focus(); };
+  $("addProjectCancel").onclick = () => $("addProject").classList.remove("open");
+  $("addProjectSave").onclick = async () => {
+    try {
+      const p = await api("POST", "/api/projects", { path: $("projectPath").value.trim() });
+      $("projectPath").value = "";
+      $("addProject").classList.remove("open");
+      await refresh(false);
+      selectProject(p.name);
+    } catch (e) { showError(e); }
+  };
+  document.addEventListener("click", () => { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }, { once: true });
+
+  if (!token) {
+    document.body.innerHTML = '<div class="empty" style="margin:20vh auto"><h2>Anahtar yok</h2><p>Bu sayfayı flowloop ui komutunun yazdığı adresle aç.</p></div>';
+    return;
+  }
+  connect();
+})();
+</script>
+</body>
+</html>

@@ -6,6 +6,11 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.14.0 — 2026-10-16
+
+### Yeni
+- **Sohbet arayüzü: `flowloop ui`.** Tarayıcıda açılan küçük, yerel bir arayüz: birden fazla proje, görev başlatma, canlı ilerleme ve terminaldeki bütün soruların (plan onayı, açık sorular, karar gerekli, inceleme maddeleri, değişiklik onayı ve fark, kapsam talebi, ek bütçe) kart olarak sunulması. Geçmiş çalıştırmalar listelenir, yarım kalanlar oradan sürdürülür. Sadece `127.0.0.1`'de dinler; her istek oturum anahtarı ister. Bağımlılık eklenmedi (Node'un http sunucusu, tek dosyalık sayfa).
+
 ## 1.13.0 — 2026-10-16
 
 ### Yeni
