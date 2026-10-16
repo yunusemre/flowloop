@@ -1,6 +1,6 @@
 {
   "name": "flowloop",
-  "version": "1.12.1",
+  "version": "1.13.0",
   "description": "Rol bazlı AI geliştirme ekibi: analist → developer ⇄ reviewer → committer. Claude Agent SDK üzerinde, yetkileri kodla zorlanan iş akışı.",
   "type": "module",
   "bin": {
