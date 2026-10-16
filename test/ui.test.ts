@@ -144,3 +144,20 @@ test("ui: görev sohbetten başlar; plan ve değişiklik onayı kart olarak geli
     await ui.close();
   }
 });
+
+test("ui: projelerin olduğu üst klasör verilirse flowloop kurulu repoların hepsi eklenir", async () => {
+  const { addProjectsFrom } = await import("../src/ui.js");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-uih-"));
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-work-"));
+  const a = makeRepo();
+  fs.renameSync(a, path.join(parent, "a-repo"));
+  fs.mkdirSync(path.join(parent, "grup"));
+  const b = makeRepo();
+  fs.renameSync(b, path.join(parent, "grup", "b-repo"));
+  fs.mkdirSync(path.join(parent, "kurulu-degil", ".git"), { recursive: true });
+  const r = addProjectsFrom(parent, home);
+  assert.deepEqual(r.added.map((p) => p.name).sort(), ["a-repo", "b-repo"]);
+  assert.deepEqual(r.notReady, ["kurulu-degil"]);
+  assert.equal(addProjectsFrom(parent, home).added.length, 2, "tekrar eklemek çoğaltmaz");
+  assert.equal(readProjects(home).length, 2);
+});

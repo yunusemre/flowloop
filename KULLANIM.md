@@ -542,10 +542,11 @@ Tarayıcı açılır. Soldan projeyi seç, alttaki kutuya görevi yaz (`IDT-123`
 | Kapsam talebi | Genişlet · Genişletmeden devam · Durdur |
 | Bütçe doldu | Ek bütçeyle devam · Durdur |
 
-- **Projeler:** `flowloop ui`'yi bir projenin içinde çalıştırırsan o proje kendiliğinden eklenir. Başkalarını **+ Ekle** ile klasör yolunu yazarak eklersin (flowloop kurulu bir git reposu olmalı). Kayıt `~/.flowloop/projects.json` dosyasında durur; × ile kayıttan çıkarmak dosyalara dokunmaz.
+- **Projeler:** `flowloop ui`'yi bir projenin içinde çalıştırırsan o proje kendiliğinden eklenir. Başkalarını **+ Ekle** ile eklersin: bir projenin klasörünü ya da projelerin hepsinin durduğu klasörü (ör. `~/Desktop/WORK`) yazabilirsin; üst klasör verilirse altındaki (iki seviyeye kadar) flowloop kurulu repoların hepsi eklenir, kurulu olmayanlar `flowloop init` gerektiği notuyla listelenir. Kayıt `~/.flowloop/projects.json` dosyasında durur; × ile kayıttan çıkarmak dosyalara dokunmaz.
 - **Geçmiş:** seçili projenin çalıştırmaları solda listelenir; yarım kalanlarda **Devam** `flowloop resume` ile aynı işi yapar.
 - **Aynı anda:** her projede bir çalıştırma; farklı projeler paralel çalışabilir.
-- **Ayrıntılar:** ajanların araç çağrıları "ajan ayrıntıları" altında katlı durur; üstteki kutuyla hepsi açılır.
+- **Görünüm:** üstte aşamalar (Plan → Geliştirme → İnceleme → Senin onayın → Teslim), geçen süre ve maliyet. Ajanların yazdıkları ve araç çağrıları rol rozetiyle sohbette akar; "Ajan adımları" kutusuyla gizlenir. Kontroller ✓/✗ satırı, reviewer kararı rozet olarak görünür.
+- **Hızlı başlatma:** boş ekranda projenin son görevleri listelenir; tıklayınca kutuya yazılır. Yorum kutularında <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> gönderir. Yukarı kaydırdıysan ve cevabın bekleniyorsa altta "Cevabın bekleniyor ↓" düğmesi çıkar.
 - **Bildirim:** cevabın beklendiğinde sekmenin başlığı değişir; tarayıcı bildirimine izin verirsen sekme arka plandayken bildirim gelir.
 - **Güvenlik:** sunucu sadece `127.0.0.1`'de dinler, ağdaki başka bir makineden açılamaz. Adresin `#t=…` kısmı oturumun anahtarıdır; onsuz hiçbir istek kabul edilmez, başka sitelerden gelen istekler de reddedilir. Adresi paylaşma.
 - **Kapatma:** terminalde Ctrl+C. Süren çalıştırmalar da durur; çalışma kopyası kalır, sonra **Devam** ya da `flowloop resume` ile sürdürülür.

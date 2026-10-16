@@ -234,6 +234,8 @@ export async function runWithBudget(
   req: AgentRequest,
   o: { extendBudget?: (b: BudgetRequest) => Promise<number>; totalSpentBefore: number; onExtend?: (extra: number) => void },
 ): Promise<AgentResult> {
+  // ayrıntı akışında hangi rolün konuştuğu (sohbet arayüzü rol rozetini buradan alır)
+  req.log.detail(`  ▸ ${req.role}`);
   let res = await safeRun(agent, req);
   let total = res.costUsd;
   let sessionCost = res.costUsd;

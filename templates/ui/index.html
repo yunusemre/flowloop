@@ -74,9 +74,14 @@
   .msg.done { background: var(--ok-soft); border-color: var(--ok); max-width: 100%; }
   .step { align-self: stretch; text-align: center; color: var(--muted); font-size: 12px; font-weight: 600; letter-spacing: .04em; margin: 12px 0 4px; display: flex; align-items: center; gap: 10px; }
   .step::before, .step::after { content: ""; flex: 1; height: 1px; background: var(--line); }
-  details.detail { font-size: 12px; color: var(--muted); max-width: 100%; }
-  details.detail summary { cursor: pointer; user-select: none; }
-  details.detail pre { max-height: 360px; }
+  .msg.agent { background: transparent; border-color: transparent; border-left: 3px solid var(--accent-soft); border-radius: 0; padding: 2px 12px; white-space: normal; max-width: 100%; }
+  .msg.agent p { margin: 4px 0; }
+  .tool { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--muted); padding: 0 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+  .tool-name { color: var(--accent); margin-right: 8px; }
+  .typing { display: flex; gap: 4px; padding: 6px 15px; }
+  .typing span { width: 6px; height: 6px; border-radius: 50%; background: var(--muted); animation: pulse 1.2s infinite; }
+  .typing span:nth-child(2) { animation-delay: .2s; }
+  .typing span:nth-child(3) { animation-delay: .4s; }
 
   .card { align-self: stretch; background: var(--panel); border: 2px solid var(--warn); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
   .card h3 { margin: 0; font-size: 15px; }
@@ -103,6 +108,42 @@
   .diff .d { background: var(--del); display: block; }
   .diff .h { color: var(--accent); display: block; }
 
+  .top-main { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .meta { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+  .toggle { font-size: 12.5px; color: var(--muted); cursor: pointer; display: inline-flex; gap: 5px; align-items: center; white-space: nowrap; }
+  .stepper { display: none; gap: 0; padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--line); justify-content: center; }
+  .stepper.show { display: flex; }
+  .stage { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12.5px; }
+  .stage .n { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line); display: grid; place-items: center; font-size: 11px; font-weight: 600; background: var(--panel); }
+  .stage.done .n { background: var(--ok); border-color: var(--ok); color: #fff; }
+  .stage.now { color: var(--text); font-weight: 600; }
+  .stage.now .n { border-color: var(--accent); color: var(--accent); animation: pulse 1.6s infinite; }
+  .stage.wait .n { border-color: var(--warn); color: var(--warn); animation: none; }
+  .stage.fail .n { border-color: var(--err); color: var(--err); animation: none; }
+  .stage + .stage::before { content: ""; width: 36px; height: 2px; background: var(--line); margin: 0 10px 0 2px; }
+  .stage.done + .stage::before { background: var(--ok); }
+  .sys { color: var(--muted); font-size: 12.5px; padding: 0 4px; }
+  .sys a { color: inherit; }
+  .chk { font-size: 13px; display: flex; gap: 8px; align-items: baseline; padding: 1px 4px; }
+  .chk .i { width: 16px; text-align: center; font-weight: 700; }
+  .chk.ok .i { color: var(--ok); } .chk.fail .i { color: var(--err); } .chk.skip .i { color: var(--muted); }
+  .chk .k { font-weight: 600; min-width: 70px; } .chk.skip { color: var(--muted); }
+  .who { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 12.5px; font-weight: 600; }
+  .av { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-size: 11px; font-weight: 700; flex-shrink: 0; }
+  .av.analist { background: #7048e8; } .av.developer { background: #1c7ed6; } .av.reviewer { background: #e8590c; } .av.committer { background: #2b8a3e; } .av.flowloop { background: #868e96; }
+  .verdict { align-self: flex-start; font-weight: 600; padding: 4px 12px; border-radius: 12px; font-size: 13px; }
+  .verdict.pass { background: var(--ok-soft); color: var(--ok); } .verdict.fail { background: var(--err-soft); color: var(--err); }
+  .round { align-self: center; font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 1px 10px; margin-top: 6px; }
+  .jump { position: fixed; bottom: 24px; left: calc(50% + 140px); transform: translateX(-50%); background: var(--warn); color: #fff; border: 0; box-shadow: 0 4px 14px rgba(0,0,0,.18); border-radius: 18px; padding: 7px 16px; z-index: 5; }
+  .tasks { display: flex; flex-direction: column; gap: 6px; max-width: 560px; margin: 18px auto 0; text-align: left; }
+  .tasks .t { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); cursor: pointer; }
+  .tasks .t:hover { border-color: var(--accent); }
+  .tasks .t .key { font-weight: 600; color: var(--accent); white-space: nowrap; }
+  .tasks .t .tt { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .how { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-width: 760px; margin: 22px auto 0; text-align: left; }
+  .how div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; }
+  .how b { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; font-size: 13px; }
+  kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
   .composer { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 20px; }
   .composer-inner { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
   .composer .row { display: flex; gap: 8px; }
@@ -111,7 +152,8 @@
   .empty { color: var(--muted); text-align: center; margin-top: 15vh; }
   .empty h2 { color: var(--text); font-weight: 600; }
   .err-bar { background: var(--err-soft); color: var(--err); padding: 8px 20px; display: none; }
-  .err-bar.show { display: block; }
+  .err-bar.show { display: block; white-space: pre-wrap; }
+  .err-bar.info { background: var(--accent-soft); color: var(--accent); }
   .conn { font-size: 12px; color: var(--muted); }
   .conn.off { color: var(--err); }
 </style>
@@ -122,7 +164,7 @@
   <div class="side-scroll">
     <div class="side-title"><span>Projeler</span><button class="small" id="addProjectBtn" title="Proje ekle">+ Ekle</button></div>
     <div class="add-project" id="addProject">
-      <input type="text" id="projectPath" placeholder="Proje klasörü, ör. ~/Desktop/WORK/cure-backend">
+      <input type="text" id="projectPath" placeholder="Proje ya da projelerin olduğu klasör, ör. ~/Desktop/WORK">
       <div class="actions"><button class="small primary" id="addProjectSave">Ekle</button><button class="small" id="addProjectCancel">Vazgeç</button></div>
     </div>
     <div id="projects"></div>
@@ -135,12 +177,17 @@
 <main>
   <div class="err-bar" id="errBar"></div>
   <div class="top">
-    <span class="title" id="title">Yeni görev</span>
-    <span class="badge" id="badge" style="display:none"></span>
-    <label class="conn" style="cursor:pointer"><input type="checkbox" id="showDetail"> ajan ayrıntıları</label>
+    <div class="top-main">
+      <span class="title" id="title">Yeni görev</span>
+      <span class="badge" id="badge" style="display:none"></span>
+      <span class="meta" id="meta"></span>
+    </div>
+    <label class="toggle" title="Ajanların ne okuduğunu ve ne yazdığını sohbette göster"><input type="checkbox" id="showDetail" checked> Ajan adımları</label>
     <button class="small" id="newBtn">+ Yeni görev</button>
   </div>
+  <div class="stepper" id="stepper"></div>
   <div class="chat" id="chat"><div class="chat-inner" id="chatInner"></div></div>
+  <button class="jump" id="jumpBtn" style="display:none">Cevabın bekleniyor ↓</button>
   <div class="composer" id="composer">
     <div class="composer-inner">
       <div class="row">
@@ -162,7 +209,7 @@
   // ───── durum ─────
   const token = new URLSearchParams(location.hash.slice(1)).get("t") || sessionStorage.getItem("flowloop-t") || "";
   if (token) { try { sessionStorage.setItem("flowloop-t", token); } catch {} history.replaceState(null, "", location.pathname); }
-  const S = { projects: [], sessions: new Map(), selectedProject: null, selectedSession: null, runs: [], composing: true };
+  const S = { projects: [], sessions: new Map(), selectedProject: null, selectedSession: null, runs: [], composing: true, open: new Map(), card: null };
   const $ = (id) => document.getElementById(id);
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
@@ -185,7 +232,15 @@
     if (!r.ok) throw new Error(j.error || `HTTP ${r.status}`);
     return j;
   }
+  function showInfo(t) {
+    const b = $("errBar");
+    b.textContent = t;
+    b.classList.add("show", "info");
+    clearTimeout(showError.t);
+    showError.t = setTimeout(() => b.classList.remove("show", "info"), 10000);
+  }
   function showError(e) {
+    $("errBar").classList.remove("info");
     const b = $("errBar");
     b.textContent = e instanceof Error ? e.message : String(e);
     b.classList.add("show");
@@ -272,7 +327,10 @@
   async function selectProject(name) {
     S.selectedProject = name;
     renderSide();
-    try { S.runs = await api("GET", `/api/projects/${encodeURIComponent(name)}/runs`); } catch (e) { S.runs = []; showError(e); }
+    try {
+      [S.runs, S.tasks] = await Promise.all([api("GET", `/api/projects/${encodeURIComponent(name)}/runs`), api("GET", `/api/projects/${encodeURIComponent(name)}/tasks`)]);
+    } catch (e) { S.runs = []; S.tasks = []; showError(e); }
+    if (S.composing) renderMain(false);
     renderSide();
   }
   function selectSession(id) {
@@ -296,52 +354,160 @@
   }
 
   // ───── sohbet ─────
+  const ROLE = { analist: "Analist", developer: "Developer", reviewer: "Reviewer", committer: "Committer" };
+  const STAGES = ["Plan", "Geliştirme", "İnceleme", "Senin onayın", "Teslim"];
+  const avatar = (role) => el("span", { class: "av " + role }, (ROLE[role] || "F")[0]);
+
+  /** Mesajlardan çalıştırmanın nerede olduğunu çıkarır: aşama, maliyet */
+  function progress(s) {
+    let stage = -1, cost = 0;
+    for (const m of s.messages) {
+      const t = m.text;
+      if (m.level === "step") {
+        if (/ANALİST|TOPLU PLAN/.test(t)) stage = Math.max(stage, 0);
+        else if (/DEVELOPER|SÜRDÜR|GÖREVLER/.test(t)) stage = Math.max(stage, 1);
+        else if (/COMMITTER/.test(t)) stage = 4;
+      }
+      if (/^\s*▸ reviewer$/.test(t) && stage < 2) stage = 2;
+      if (/^\s*▸ developer$/.test(t) && stage === 2) stage = 1;
+      const c = /^\s*(analist|developer|reviewer|committer): \$(\d+\.\d+)/.exec(t);
+      if (c) cost += Number(c[2]);
+    }
+    if (s.prompt?.kind === "changes" || s.prompt?.kind === "triage") stage = 3;
+    if (s.prompt?.kind === "plan" || (s.prompt?.kind === "questions" && stage <= 0)) stage = 0;
+    return { stage, cost };
+  }
+
+  function renderStepper(s) {
+    const st = $("stepper");
+    if (!s) { st.classList.remove("show"); return; }
+    const { stage } = progress(s);
+    st.classList.add("show");
+    st.replaceChildren(...STAGES.map((name, i) => {
+      const cls = s.status === "done" || i < stage ? "done" : i === stage ? (s.status === "waiting" ? "wait" : s.status === "failed" ? "fail" : "now") : "";
+      return el("div", { class: "stage " + cls }, el("span", { class: "n" }, cls === "done" ? "✓" : i + 1), name);
+    }));
+  }
+
+  const ago = (ms) => { const s = Math.floor(ms / 1000); return s < 60 ? `${s} sn` : s < 3600 ? `${Math.floor(s / 60)} dk ${s % 60} sn` : `${Math.floor(s / 3600)} sa ${Math.floor((s % 3600) / 60)} dk`; };
+  function renderMeta() {
+    const s = S.sessions.get(S.selectedSession);
+    if (!s || S.composing) { $("meta").textContent = ""; return; }
+    const { cost } = progress(s);
+    const start = s.startedAt ?? s.messages[0]?.at;
+    const end = s.status === "running" || s.status === "waiting" ? Date.now() : s.messages.at(-1)?.at;
+    $("meta").textContent = [start && end ? ago(end - start) : "", cost ? `$${cost.toFixed(2)}` : ""].filter(Boolean).join(" · ");
+  }
+  setInterval(renderMeta, 1000);
+
+  /** flowloop'un kendi mesajları: bazıları küçük sistem satırı, kontroller simgeli satır */
+  function renderInfo(m) {
+    const t = m.text.trim();
+    const chk = /^kontrol · (\w[\w\s]*?): (.*)$/.exec(t);
+    if (chk) {
+      const fail = m.level === "warn";
+      const skip = !fail && /\b(yok|tanımlı değil|değişmedi|atlan|çalıştırılamıyor)\b/.test(chk[2]);
+      const cls = fail ? "fail" : skip ? "skip" : "ok";
+      return el("div", { class: "chk " + cls }, el("span", { class: "i" }, fail ? "✗" : skip ? "–" : "✓"), el("span", { class: "k" }, chk[1]), el("span", {}, chk[2]));
+    }
+    const v = /^Reviewer (PASS|FAIL)(.*)$/.exec(t);
+    if (v) return el("div", { class: "verdict " + v[1].toLowerCase() }, v[1] === "PASS" ? `✓ Reviewer onayladı${v[2]}` : `✗ Reviewer reddetti${v[2]} — geri bildirim developer'a gidiyor`);
+    const tur = /^· (Tur \d+\/\d+.*|Sürdürme turu .*)$/.exec(t);
+    if (tur) return el("div", { class: "round" }, tur[1]);
+    if (/^(analist|developer|reviewer|committer): \$/.test(t)) return el("div", { class: "sys" }, `${ROLE[t.split(":")[0]]} bitti · ${t.split(": ")[1].split(" · ")[0]}`);
+    if (/^(Ajan:|Base:|Temiz çalışma alanı:|Proje kuralları:|Onaylanan içerik:|Görev dosyası mevcut|Bağımlılık|Bağımlılıklar|Ajanlara açılan MCP|İlgili repo|Commit'ler onaylanan|Jira'dan çekiliyor)/.test(t))
+      return el("div", { class: "sys", title: t }, t.replace(/\/[^\s]*\/(wt|base)\b/, "…/$1"));
+    return el("div", { class: "msg " + m.level }, m.text);
+  }
+
+  function emptyState() {
+    const tasks = S.tasks || [];
+    return el("div", { class: "empty" },
+      el("h2", {}, S.selectedProject ? `${S.selectedProject} için bir görev başlat` : "Önce soldan bir proje seç"),
+      el("p", {}, "Aşağıya Jira anahtarını yaz ve Başlat'a bas. Birbirine bağlı görevler için boşlukla yaz: IDT-1 IDT-2"),
+      tasks.length ? el("div", { class: "tasks" },
+        el("div", { class: "sys" }, "Son görevler — tıkla, kutuya yazılsın:"),
+        ...tasks.slice(0, 6).map((t) => el("div", { class: "t", onclick: () => { $("taskInput").value = t.key || t.file; $("taskInput").focus(); } },
+          el("span", { class: "key" }, t.key || "dosya"), el("span", { class: "tt" }, t.title.replace(new RegExp(`^${t.key} · `), ""))))) : null,
+      el("div", { class: "how" },
+        el("div", {}, el("b", {}, avatar("analist"), "Analist"), "Görevi okur, plan ve kabul kriterleri yazar. Planı sen onaylarsın."),
+        el("div", {}, el("b", {}, avatar("developer"), "Developer"), "Kodu ve testleri ayrı bir kopyada yazar; testler her turda çalışır."),
+        el("div", {}, el("b", {}, avatar("reviewer"), "Reviewer"), "Bağımsız inceler; reddederse iş developer'a döner."),
+        el("div", {}, el("b", {}, avatar("committer"), "Committer"), "Senin onayınla commit, push ve Jira yorumu.")));
+  }
+
   function renderMain(scroll) {
     const inner = $("chatInner");
     const s = S.sessions.get(S.selectedSession);
     const showDetail = $("showDetail").checked;
+    renderMeta();
     if (!s || S.composing) {
       $("title").textContent = "Yeni görev";
       $("badge").style.display = "none";
-      inner.replaceChildren(el("div", { class: "empty" },
-        el("h2", {}, "Bir görev başlat"),
-        el("p", {}, "Jira anahtarını yaz; analist planlar, developer yazar, reviewer inceler."),
-        el("p", {}, "Karar gereken her yerde burada bir kart çıkar: plan onayı, açık sorular, inceleme maddeleri, değişiklik onayı.")));
+      $("jumpBtn").style.display = "none";
+      renderStepper(null);
+      inner.replaceChildren(emptyState());
       $("composer").style.display = "";
       return;
     }
+    renderStepper(s);
     $("composer").style.display = s.status === "running" || s.status === "waiting" ? "none" : "";
-    $("title").textContent = `${s.project} · ${s.title}`;
+    $("title").textContent = s.title;
+    $("title").title = `${s.project} · ${s.title}`;
     const b = $("badge");
     b.style.display = "";
     b.className = "badge " + s.status;
     b.textContent = statusText(s.status);
     const atBottom = $("chat").scrollTop + $("chat").clientHeight >= $("chat").scrollHeight - 40;
     const nodes = [];
-    let detail = [];
-    const flush = () => {
-      if (!detail.length) return;
-      const d = el("details", { class: "detail" }, el("summary", {}, `ajan ayrıntıları (${detail.length} satır)`), el("pre", {}, detail.join("\n")));
-      if (showDetail) d.open = true;
-      nodes.push(d);
-      detail = [];
+    // katlanabilir blok (uzun plan metni, süre tablosu): kullanıcının açıp kapattığı yeniden çizimde korunur
+    const fold = (key, cls, summary, body, defOpen) => {
+      const k = `${s.id}:${key}`;
+      const d = el("details", { class: cls, style: "max-width:100%" }, el("summary", { style: "cursor:pointer" }, summary), el("pre", {}, body));
+      d.open = S.open.has(k) ? S.open.get(k) : defOpen;
+      d.addEventListener("toggle", () => S.open.set(k, d.open));
+      return d;
     };
+    let role = null;
     for (const m of s.messages) {
-      if (m.level === "detail") { detail.push(m.text); continue; }
-      flush();
-      if (m.level === "step") nodes.push(el("div", { class: "step" }, m.text));
-      else if (m.level === "done") nodes.push(el("div", { class: "msg done", html: linkify(m.text) }));
-      else if (m.text.split("\n").length > 12) {
-        // uzun bloklar (plan metni, süre tablosu) katlanır; ilk satır başlık olur
-        const [first, ...rest] = m.text.replace(/^\n+/, "").split("\n");
-        nodes.push(el("details", { class: "msg " + m.level, style: "max-width:100%" }, el("summary", { style: "cursor:pointer" }, first.replace(/^[─\s]+|[─\s]+$/g, "") || "ayrıntı"), el("pre", {}, rest.join("\n"))));
+      if (m.level === "detail") {
+        const rm = /^\s*▸ (\w+)$/.exec(m.text);
+        if (rm) { role = rm[1]; nodes.push(el("div", { class: "who" }, avatar(role), `${ROLE[role] || role} çalışıyor`)); continue; }
+        if (showDetail) nodes.push(renderDetail(m.text));
+        continue;
       }
-      else nodes.push(el("div", { class: "msg " + m.level }, m.text));
+      if (m.level === "step") nodes.push(el("div", { class: "step" }, m.text.replace(/^\d\/\d\s+/, "").replace(/\s{2,}\((.*)\)\s*$/, " · $1")));
+      else if (m.level === "done") nodes.push(el("div", { class: "msg done", html: linkify(m.text) }));
+      else if (m.level === "user") nodes.push(el("div", { class: "msg user" }, m.text));
+      else if (m.text.split("\n").length > 12) {
+        const [first, ...rest] = m.text.replace(/^\n+/, "").split("\n");
+        nodes.push(fold(`m${m.seq}`, "msg " + m.level, first.replace(/^[─\s]+|[─\s]+$/g, "") || "ayrıntı", rest.join("\n"), false));
+      }
+      else nodes.push(renderInfo(m));
     }
-    flush();
-    if (s.prompt) nodes.push(renderPrompt(s, s.prompt));
+    if (s.status === "running") nodes.push(el("div", { class: "typing" }, el("span"), el("span"), el("span")));
+    if (s.prompt) {
+      // kart yeniden çizilmez: yazmakta olduğun yorum ve seçimlerin kaybolmasın
+      if (S.card?.id !== s.prompt.id) S.card = { id: s.prompt.id, node: renderPrompt(s, s.prompt) };
+      nodes.push(S.card.node);
+    }
     inner.replaceChildren(...nodes);
     if (scroll || atBottom) $("chat").scrollTop = $("chat").scrollHeight;
+    updateJump();
+  }
+  function updateJump() {
+    const s = S.sessions.get(S.selectedSession);
+    const c = $("chat");
+    const far = c.scrollTop + c.clientHeight < c.scrollHeight - 200;
+    $("jumpBtn").style.display = s?.prompt && !S.composing && far ? "" : "none";
+  }
+  /** "  │ → Read: src/x.ts" → araç satırı; "  │ metin" → ajanın mesajı */
+  function renderDetail(text) {
+    const lines = text.split("\n").map((l) => l.replace(/^\s*│ ?/, ""));
+    const t = /^→\s*([\w.-]+):?\s*(.*)$/.exec(lines[0]);
+    if (t && lines.length === 1) return el("div", { class: "tool", title: lines[0] }, el("span", { class: "tool-name" }, t[1].replace(/^mcp__flowloop__/, "")), el("span", { class: "tool-arg" }, t[2]));
+    if (!/│/.test(text)) return el("div", { class: "tool" }, el("span", { class: "tool-arg" }, text.trim()));
+    return el("div", { class: "msg agent", html: md(lines.join("\n")) });
   }
   const linkify = (t) => esc(t).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
 
@@ -561,15 +727,27 @@
   $("taskInput").addEventListener("keydown", (e) => { if (e.key === "Enter") startTask(); });
   $("newBtn").onclick = () => { S.composing = true; S.selectedSession = null; renderSide(); renderMain(); $("taskInput").focus(); };
   $("showDetail").onchange = () => renderMain(false);
+  $("chat").addEventListener("scroll", updateJump);
+  $("jumpBtn").onclick = () => { $("chat").scrollTop = $("chat").scrollHeight; };
+  // yorum kutularında Ctrl/⌘+Enter gönderir
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey) || e.target.tagName !== "TEXTAREA") return;
+    const card = e.target.closest(".card");
+    const btn = e.target.parentElement.querySelector("button.primary") || card?.querySelector(".actions button.primary");
+    if (btn && !btn.disabled) { e.preventDefault(); btn.click(); }
+  });
   $("addProjectBtn").onclick = () => { $("addProject").classList.toggle("open"); $("projectPath").focus(); };
   $("addProjectCancel").onclick = () => $("addProject").classList.remove("open");
   $("addProjectSave").onclick = async () => {
     try {
-      const p = await api("POST", "/api/projects", { path: $("projectPath").value.trim() });
+      const r = await api("POST", "/api/projects", { path: $("projectPath").value.trim() });
       $("projectPath").value = "";
       $("addProject").classList.remove("open");
       await refresh(false);
-      selectProject(p.name);
+      if (r.added.length) selectProject(r.added[0].name);
+      const msg = [r.added.length ? `${r.added.length} proje eklendi: ${r.added.map((p) => p.name).join(", ")}` : "",
+        r.notReady.length ? `flowloop kurulu olmayan ${r.notReady.length} repo atlandı (o klasörde flowloop init çalıştır): ${r.notReady.join(", ")}` : ""].filter(Boolean).join("\n");
+      if (msg) showInfo(msg);
     } catch (e) { showError(e); }
   };
   document.addEventListener("click", () => { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }, { once: true });

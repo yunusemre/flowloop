@@ -79,6 +79,38 @@ export function addProject(dir: string, home = os.homedir()): ProjectEntry {
   return entry;
 }
 
+/**
+ * Bir klasörü ekler: kendisi flowloop kurulu bir repoysa onu, değilse altındaki (2 seviyeye kadar) flowloop kurulu
+ * repoların hepsini. flowloop kurulu olmayan git repoları ayrıca döner (flowloop init gerekir).
+ */
+export function addProjectsFrom(dir: string, home = os.homedir()): { added: ProjectEntry[]; notReady: string[] } {
+  const root = path.resolve(dir.replace(/^~(?=$|[\\/])/, os.homedir()));
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new FlowloopError(`Klasör yok: ${root}`);
+  if (fs.existsSync(path.join(root, CONFIG_FILE)) || isGitRepo(root)) return { added: [addProject(root, home)], notReady: [] };
+  const added: ProjectEntry[] = [];
+  const notReady: string[] = [];
+  const SKIP = new Set(["node_modules", ".git", "bin", "obj", "dist", "build", "vendor", ".venv", "venv"]);
+  const walk = (d: string, depth: number) => {
+    let entries: fs.Dirent[] = [];
+    try {
+      entries = fs.readdirSync(d, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (!e.isDirectory() || e.name.startsWith(".") || SKIP.has(e.name)) continue;
+      const sub = path.join(d, e.name);
+      if (fs.existsSync(path.join(sub, ".git"))) {
+        if (fs.existsSync(path.join(sub, CONFIG_FILE))) added.push(addProject(sub, home));
+        else notReady.push(path.relative(root, sub));
+      } else if (depth < 2) walk(sub, depth + 1);
+    }
+  };
+  walk(root, 1);
+  if (!added.length && !notReady.length) throw new FlowloopError(`${root} altında git reposu bulunamadı.`);
+  return { added, notReady };
+}
+
 export function removeProject(name: string, home = os.homedir()): void {
   writeProjects(
     readProjects(home).filter((p) => p.name !== name),
@@ -113,6 +145,35 @@ export function projectRuns(root: string): { id: string; status: string; jiraKey
   return out.sort((a, b) => (b.startedAt ?? b.id).localeCompare(a.startedAt ?? a.id));
 }
 
+/** Görev dosyasının başlığı: "IDT-22685 · GSM Format Validasyonu" (Jira anahtarı varsa önde) */
+export function taskTitle(root: string, rel: string): string | undefined {
+  try {
+    const text = readText(path.resolve(root, rel));
+    const head = /^#\s+(.+)$/m.exec(text)?.[1]?.replace(/^Görev:\s*/i, "").trim();
+    const key = /\b([A-Z][A-Z0-9]+-\d+)\b/.exec(text)?.[1];
+    if (!head) return key;
+    return key && !head.includes(key) ? `${key} · ${head}` : head.replace(new RegExp(`^(${key})\\s*[:—-]?\\s*`), "$1 · ");
+  } catch {
+    return undefined;
+  }
+}
+
+/** Projenin görev dosyaları (en yenisi önce): sohbet arayüzünde hızlı seçim için */
+export function projectTasks(root: string): { file: string; key?: string; title: string; mtime: number }[] {
+  const dir = path.join(root, ".flowloop", "tasks");
+  if (!fs.existsSync(dir)) return [];
+  return fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".md"))
+    .map((f) => {
+      const rel = path.posix.join(".flowloop", "tasks", f);
+      const key = /^([A-Z][A-Z0-9]+-\d+)\.md$/.exec(f)?.[1];
+      return { file: rel, key, title: taskTitle(root, rel) ?? f, mtime: fs.statSync(path.join(dir, f)).mtimeMs };
+    })
+    .sort((a, b) => b.mtime - a.mtime)
+    .slice(0, 30);
+}
+
 // ───────────── oturum: bir çalıştırmanın sohbeti ─────────────
 
 export type MessageLevel = "step" | "info" | "ok" | "warn" | "error" | "detail" | "user" | "done";
@@ -144,7 +205,7 @@ export class Session {
 
   constructor(
     readonly project: ProjectEntry,
-    readonly title: string,
+    public title: string,
     private emit: (ev: { type: string; session: string; data: unknown }) => void,
   ) {}
 
@@ -196,7 +257,15 @@ export class Session {
   }
 
   view() {
-    return { id: this.id, project: this.project.name, title: this.title, status: this.status, prompt: this.publicPrompt(), summary: this.summary, messages: this.messages };
+    return { id: this.id, project: this.project.name, title: this.title, status: this.status, startedAt: this.startedAt, prompt: this.publicPrompt(), summary: this.summary, messages: this.messages };
+  }
+
+  readonly startedAt = Date.now();
+
+  /** Başlık değişti (ör. görev dosyası çekilince "IDT-1 · başlık") */
+  rename(title: string): void {
+    this.title = title;
+    this.emit({ type: "session", session: this.id, data: { id: this.id, project: this.project.name, title, status: this.status } });
   }
 
   /** orchestrator'a verilen soru fonksiyonları: terminaldekilerin aynısı, kart olarak */
@@ -415,9 +484,10 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
       });
     }
     if (m === "GET" && parts[1] === "projects" && parts[3] === "runs") return send(res, 200, projectRuns(projectByName(decodeURIComponent(parts[2])).root));
+    if (m === "GET" && parts[1] === "projects" && parts[3] === "tasks") return send(res, 200, projectTasks(projectByName(decodeURIComponent(parts[2])).root));
     if (m === "POST" && url.pathname === "/api/projects") {
       const b = await readBody(req);
-      return send(res, 200, addProject(str(b.path, 1000), home));
+      return send(res, 200, addProjectsFrom(str(b.path, 1000), home));
     }
     if (m === "POST" && url.pathname === "/api/projects/remove") {
       const b = await readBody(req);
@@ -433,6 +503,7 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
       const s = start(p, inputs.join(" "), async (s, base) => {
         const files: string[] = [];
         for (const i of inputs) files.push(await resolveTaskInput(p.root, i, s.say(), b.refresh === true));
+        if (files.length === 1) s.rename(taskTitle(p.root, files[0]) ?? s.title);
         const common = { ...base, root: p.root, planApproval: b.approvePlan !== false, noPush: b.noPush === true };
         if (files.length > 1) {
           await runBatch({ ...common, taskFiles: files, rerun: `flowloop run ${inputs.join(" ")}`, approveEachPlan: false });
