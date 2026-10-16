@@ -6,6 +6,14 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.13.0 — 2026-10-16
+
+### Yeni
+- **Kontrol araçları: `run_tests`, `typecheck`, `lint`.** Developer ve reviewer testleri, tip kontrolünü ve lint'i flowloop'un tur sonundaki kontrolüyle AYNI komutla çalıştırır; komutu flowloop kurar (platform, .NET Framework için MSBuild + vstest, yer tutucular). `typecheck` sadece bu işle gelen yeni hataları döner. Önceden ajan sadece `testRelated` önekini Bash'te çalıştırabiliyordu ve bazı projelerde flowloop'un gördüğünden farklı sonuç alıyordu. Cursor'da araçlar yok; eski davranış sürer.
+- **Gizli bilgi maskelemesi.** Ajana dönen kontrol, araç ve mutasyon çıktılarında ve Jira'ya yazılan her yorumda parola, token, anahtar, connection string ve özel anahtar blokları `[gizli]` olarak maskelenir. E-posta ve cep telefonu maskelemesi isteğe bağlı: `redact.personal: true` (varsayılan kapalı; geliştirme işlerinde bunlar çoğunlukla test verisidir).
+- **Ajana sınırları söylenir.** Her rolün prompt'unda kalan bütçe ve tur yazar (son turda uyarı). Ajan keşfini buna göre ayarlar.
+- Reddedilen kabuk komutunda ajana ne yapması gerektiği de söylenir (kontroller için araçları kullan, aynı komutu başka biçimde deneme).
+
 ## 1.10.0 — 2026-10-15
 
 ### Yeni

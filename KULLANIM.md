@@ -579,6 +579,7 @@ En çok değiştirilenler:
 | `commands.format` | Ör. `npx prettier --write {{files}}`; her turdan sonra otomatik çalışır |
 | `paths.edit` | Developer'ın değiştirebileceği yollar. Varsayılan `**` (bütün repo); gizli dosyalara (`readDeny`), `.git`'e ve `.flowloop`'a yine yazılamaz. Daraltmak için ör. `src/**` |
 | `paths.readDeny` | Hiçbir rolün okuyamayacağı dosyalar (`.env` gibi) |
+| `redact.personal` | `true`: ajana dönen çıktılarda ve Jira yorumlarında e-posta ve cep telefonları da maskelenir. Gizli bilgiler (parola, token, anahtar) her zaman maskelenir. Varsayılan `false`: geliştirme işlerinde bunlar çoğunlukla test verisidir |
 | `budgets` | Rol başına (`analist`, `gelistir`, `commit`) ve toplam (`total`) dolar limiti; tutarlar SDK'nın tahminidir. Dolunca etkileşimli terminalde ek bütçe sorulur |
 | `maxIterations` | Developer ⇄ reviewer tur sayısı (varsayılan 3) |
 | `agent` | `auto` / `claude` / `cursor` |
@@ -664,6 +665,8 @@ Gerisi kendiliğinden olur:
 
 - Token'lar sistemin anahtar zincirinde saklanır; hiçbir proje dosyasına yazılmaz ve ajanlara geçmez.
 - `.env` gibi dosyalar hiçbir rol tarafından okunamaz (`paths.readDeny`).
+- Ajana dönen test, derleme ve mutasyon çıktılarında ve Jira'ya giden her yorumda gizli bilgi kalıpları (parola, token, anahtar, connection string) maskelenir.
+- Developer ve reviewer testleri, tip kontrolünü ve lint'i flowloop'un araçlarıyla (`run_tests`, `typecheck`, `lint`) çalıştırır: komutu flowloop kurar, ajan sadece çağırır.
 - Ajanlar senin çalışma klasörünü değiştirmez; ayrı bir kopyada çalışırlar.
 - Force push, `--no-verify` ve `--amend` engellidir. Commit hook'ları çalışır.
 - Jira metni görev tanımı olarak kullanılır; içindeki talimatlar flowloop'un kurallarını ve rol yetkilerini değiştiremez.

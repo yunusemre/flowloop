@@ -1269,3 +1269,43 @@ test("Windows: CRLF satır sonlu rol dosyaları okunur", async () => {
   assert.ok(roles.analist.persona);
   assert.ok(!/\r/.test(roles.developer.persona));
 });
+
+test("kontrol araçları: developer run_tests ile flowloop'un kontrolünü çalıştırır; sınırlar prompt'ta", async () => {
+  let seen = "";
+  let tools: string[] = [];
+  const { s, agent } = await run({
+    developer: (req, n) => {
+      good.developer!(req, n);
+      tools = req.perms.tools;
+      seen = req.checks!.tests();
+    },
+  });
+  assert.equal(s!.status, "success");
+  assert.match(seen, /testler: ilgili testler geçti/);
+  assert.ok(tools.includes("mcp__flowloop__run_tests"));
+  const dev = agent.calls.find((c) => c.role === "developer")!;
+  assert.match(dev.prompt, /run_tests/);
+  assert.match(dev.prompt, /## Sınırların[\s\S]*bütçen: \$[\d.]+[\s\S]*Tur 1\/3/);
+  assert.ok(s!.timings!.some((t) => t.step === "testler (ajan)" && t.kind === "check"), "ajanın çalıştırdığı kontrol ölçülür");
+});
+
+test("Jira'ya giden yorumda gizli bilgi maskelenir", async () => {
+  const bodies: string[] = [];
+  const root = makeRepo("jira:\n  baseUrl: https://x.atlassian.net\n");
+  fs.writeFileSync(path.join(root, ".flowloop/tasks/ekspres.md"), "# KG-42 ekspres\nKaynak: https://x.atlassian.net/browse/KG-42\n\nAK-1: ekspres +50\n");
+  const agent = new FakeAgent({
+    ...good,
+    committer: (req, n) => {
+      good.committer!(req, n);
+      fs.writeFileSync(path.join(req.runRoot, "summary.md"), "Bağlantı: Server=db;Password=Cok$Gizli1;\n");
+    },
+  });
+  const fetchFn = async (_u: string, i: any) => {
+    bodies.push(JSON.parse(i.body).body);
+    return { ok: true, json: async () => ({ id: "1" }), text: async () => "" };
+  };
+  await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, home: fs.mkdtempSync(path.join(os.tmpdir(), "fl-h-")), jira: { fetchFn, email: "a@b", token: "t" } });
+  assert.ok(bodies.length);
+  assert.match(bodies.at(-1)!, /Password=\[gizli\]/);
+  assert.doesNotMatch(bodies.at(-1)!, /Cok\$Gizli1/);
+});

@@ -315,7 +315,7 @@ export async function runBatch(opts: BatchOptions): Promise<BatchState> {
       const ask = () =>
         resolveQuestions({
           planFile, runRoot, mode: opts.questionsMode ?? cfg.questions, ask: opts.answerQuestions, jiraKeys,
-          postToJira: (key, body) => postComment(key, jiraBase, body, opts.jira ?? {}),
+          postToJira: (key, body) => postComment(key, jiraBase, body, { ...opts.jira, personal: cfg.redact.personal }),
           footer: `🤖 flowloop toplu planlama (${keys.join(", ")})`,
           records: st.questions, log,
           reanalyze: async (fb) => void (await runPlanner(fb)),

@@ -52,6 +52,11 @@ Gizli dosya listesindeki (readDeny) dosyalar kimse tarafından okunamaz ve deği
 FAIL verme, "İncelenmesi önerilenler"e "elle yapılmalı" diye yaz. Developer dosya silmek için içeriğini
 boşaltır; flowloop boşaltılan dosyaları siler (git status'ta "D" olarak görürsün).
 
+{{#checkTools}}
+Testleri, tip kontrolünü ya da lint'i yeniden görmen gerekirse `run_tests`, `typecheck`, `lint` araçlarını kullan:
+flowloop'un tur sonundaki kontrolüyle aynı komutu çalıştırır (Bash'te aynı komutu kendin kurmaya çalışma).
+{{/checkTools}}
+
 Kontroller:
 1. Plandaki her AK için: kodda nerede karşılanıyor, hangi test doğruluyor?
    Karşılanmayan ya da testi olmayan AK = FAIL.

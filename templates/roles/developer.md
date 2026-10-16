@@ -14,12 +14,21 @@ senaryosu yazılır.
 1. Plandaki her AK'yı uygula. Yalnızca şu yolları değiştirebilirsin: {{editPaths}}
 2. Test planındaki her senaryo için test yaz. Mevcut testleri değiştirme, silme. Bir şeyin yokluğunu test
    eden testler (reflection ile "sınıf yok", ayar dosyasında "anahtar yok") yazma.
+{{#checkTools}}
+3. Bu işin testlerini `run_tests` aracıyla çalıştır: flowloop'un tur sonundaki kontrolüyle AYNI komutu
+   çalıştırır (platform ve proje türü farkını flowloop halleder). Tüm test suite'ini çalıştırmaya çalışma.
+4. Projede zaten var olan tip/lint hataları ve kırık testler bu işin konusu DEĞİL;
+   onlara dokunma.{{#typecheckCmd}} Bitirmeden önce bir kez `typecheck` aracını çalıştır: sadece bu işle gelen
+   YENİ tip hatalarını döner (yavaş olabilir, her küçük değişiklikte çalıştırma).{{/typecheckCmd}}{{#lintCmd}} Lint için `lint` aracı.{{/lintCmd}}
+{{/checkTools}}
+{{^checkTools}}
 3. Sadece BU İŞİN testlerini çalıştır: `{{testCmd}}` (dosya listesi yerine değiştirdiğin
    dosyaları yaz). Tüm test suite'ini çalıştırmaya çalışma.
 4. Projede zaten var olan tip/lint hataları ve kırık testler bu işin konusu DEĞİL;
    onlara dokunma.{{#typecheckCmd}} Tüm projenin tip kontrolünü kendin çalıştırma (çıktısı çok
    büyük ve önceden var olan hatalarla dolu); flowloop senin yüzünden çıkan YENİ tip hatalarını
    her turdan sonra sana ayrıca bildirir.{{/typecheckCmd}}
+{{/checkTools}}
 5. Commit atmaya çalışma.
 
 Her turdan sonra flowloop OTOMATİK olarak şunları yapar: değişen dosyaları formatlar, bu işin

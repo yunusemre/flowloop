@@ -207,6 +207,11 @@ export const configSchema = z
       })
       .strict()
       .default({ enabled: true, testTimeoutSec: 300 }),
+    /**
+     * Ajana dönen çıktılarda ve Jira'ya yazılanlarda gizli bilgiler (parola, token, anahtar) her zaman maskelenir.
+     * personal: true → e-posta adresleri ve cep telefonları da (test verisi değil gerçek veri geçiyorsa).
+     */
+    redact: z.object({ personal: z.boolean().default(false) }).strict().default({ personal: false }),
     budgets: z
       .object({
         analist: z.number().positive().default(1),

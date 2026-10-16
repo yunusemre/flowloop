@@ -161,3 +161,18 @@ test("çalışma ağacı hash'i aynı saniyede aynı boyutta değişen dosyayı 
     assert.notEqual(after, before, `değişiklik görülmeli (tur ${i})`);
   }
 });
+
+test("şablon: ters blok ve iç içe bloklar", () => {
+  const t = "{{#a}}A{{#b}}+B{{/b}}{{/a}}{{^a}}yok-a{{/a}}|{{^c}}yok-c{{/c}}";
+  assert.equal(render(t, { a: true, b: true }), "A+B|yok-c");
+  assert.equal(render(t, { a: false, c: "x" }), "yok-a|");
+});
+
+test("sınırlar ajana söylenir: bütçe ve tur", async () => {
+  const { limitsNote } = await import("../src/orchestrator.js");
+  const d = limitsNote("developer", 2.5, 3, 3);
+  assert.match(d, /bütçen: \$2\.50/);
+  assert.match(d, /Tur 3\/3\. Son tur/);
+  assert.doesNotMatch(limitsNote("analist", 1, undefined, 3), /Tur/);
+  assert.doesNotMatch(limitsNote("developer", 1, 1, 3, "cursor"), /bütçe/, "Cursor maliyet bildirmez");
+});

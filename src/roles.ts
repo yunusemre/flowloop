@@ -12,6 +12,14 @@ export const ROLE_NAMES: RoleName[] = ["analist", "developer", "reviewer", "comm
 
 export const MCP_SERVER = "flowloop";
 export const MUTANT_TOOLS = [`mcp__${MCP_SERVER}__mutant_reset`, `mcp__${MCP_SERVER}__mutant_test`];
+/** flowloop'un kontrol araçları: komutu flowloop kurar, ajan çağırır (yapılandırılmış olanlar) */
+export function checkToolNames(cfg: FlowloopConfig): string[] {
+  return [
+    "run_tests",
+    ...(cfg.commands.typecheck ? ["typecheck"] : []),
+    ...(cfg.commands.lint ? ["lint"] : []),
+  ].map((t) => `mcp__${MCP_SERVER}__${t}`);
+}
 
 export interface RoleSpec {
   name: RoleName;
@@ -84,7 +92,7 @@ function basePermissions(name: RoleName, cfg: FlowloopConfig): RolePermissions {
       return { tools: ["Read", "Glob", "Grep", "Edit", "Write"], read: readAll, edit: ["run:plan.md"], bash: [] };
     case "developer":
       return {
-        tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "TodoWrite"],
+        tools: ["Read", "Glob", "Grep", "Edit", "Write", "Bash", "TodoWrite", ...checkToolNames(cfg)],
         read: readAll,
         // run:scope-request.md: kapsam dışı bir değişiklik gerekirse yazdığı talep (yetki vermez; insan karar verir)
         edit: [...cfg.paths.edit, ...relatedEdit, "run:scope-request.md"],
@@ -94,7 +102,7 @@ function basePermissions(name: RoleName, cfg: FlowloopConfig): RolePermissions {
     case "reviewer": {
       const mut = cfg.mutation.enabled;
       return {
-        tools: ["Read", "Glob", "Grep", "Bash", ...(mut ? ["Edit", ...MUTANT_TOOLS] : [])],
+        tools: ["Read", "Glob", "Grep", "Bash", ...checkToolNames(cfg), ...(mut ? ["Edit", ...MUTANT_TOOLS] : [])],
         read: readAll,
         edit: mut ? ["run:mutant/**"] : [],
         bash: prefixes([c.testRelated, c.typecheck, c.lint, ...gitRead, ...extra]),
@@ -145,9 +153,14 @@ export function loadRoles(root: string, cfg: FlowloopConfig): Record<RoleName, R
  * Basit şablon: {{anahtar}} ve {{#anahtar}}...{{/anahtar}} (değer boş değilse göster).
  */
 export function render(template: string, vars: Record<string, string | boolean | undefined>): string {
-  let s = template.replace(/\{\{#(\w+)\}\}([\s\S]*?)\{\{\/\1\}\}\n?/g, (_m, key: string, inner: string) =>
-    vars[key] ? inner : "",
-  );
+  // {{#x}}…{{/x}}: x doluysa; {{^x}}…{{/x}}: x boşsa. İç içe bloklar için değişmeyene kadar tekrarlanır.
+  let s = template;
+  for (let prev = ""; prev !== s; ) {
+    prev = s;
+    s = s.replace(/\{\{([#^])(\w+)\}\}([\s\S]*?)\{\{\/\2\}\}\n?/g, (_m, kind: string, key: string, inner: string) =>
+      (kind === "#") === !!vars[key] ? inner : "",
+    );
+  }
   s = s.replace(/\{\{(\w+)\}\}/g, (_m, key: string) => {
     const v = vars[key];
     return v === undefined || v === false ? "" : String(v);

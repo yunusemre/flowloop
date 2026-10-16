@@ -74,6 +74,8 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
   - Yollar gerçek konumlarına çözülür; symlink ya da `..` ile çalışma alanının dışına çıkılamaz.
   - Bash komutları tek ve basit olmak zorundadır (`&&`, `|`, `;`, `>`, `$()` yasak) ve rolün izinli komut önekiyle başlamalıdır.
   - `readDeny` listesindeki dosyalar (`.env` gibi) hiçbir rol tarafından okunamaz.
+  - Testler, tip kontrolü ve lint ajana araç olarak verilir (`run_tests`, `typecheck`, `lint`): komutu flowloop kurar, ajan çağırır.
+- **Çıktı maskelemesi** (`src/redact.ts`): ajana dönen kontrol çıktılarında ve Jira'ya giden yorumlarda parola, token ve anahtarlar maskelenir.
 - **Gizli bilgiler ajana geçmez.** Token'lar macOS Anahtar Zinciri'nde (Linux'ta sistem anahtarlığında, Windows'ta DPAPI ile şifreli dosyada) saklanır. Ajanlar ve onların çalıştırdığı testler `*_TOKEN`, `*_SECRET`, `JIRA_*` gibi değişkenleri görmez.
 - **Git kontrolleri** (`src/orchestrator.ts`), her aşamadan sonra:
   - Analist ve reviewer gerçek dosyalara dokunmamış olmalı; developer commit atmamış ve izinli yolların dışına yazmamış olmalı.

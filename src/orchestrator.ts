@@ -25,7 +25,7 @@ import { DECISIONS_SECTION, attentionKey, collectAttention, extractAssumptions, 
 import { questionsMarkdown as qMarkdown, resolveQuestions as questionLoop, type AskQuestions, type QuestionDecision, type QuestionRecord, type QuestionsMode } from "./questions.js";
 import { isWindows, linkDir, readText } from "./platform.js";
 import { Stopwatch, readMutantRuns, timingReport, type TimingEntry } from "./timing.js";
-import { mutantRunsFile } from "./mutant.js";
+import { mutantRunsFile, type CheckTools } from "./mutant.js";
 export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
 
 /** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
@@ -413,6 +413,33 @@ export interface RunSummary {
   timings?: TimingEntry[];
   /** Toplam süre (ms); sürdürmelerde eklenerek */
   durationMs?: number;
+}
+
+/**
+ * Ajanın çağırdığı kontrol araçları (run_tests, typecheck, lint): flowloop'un her turdan sonra çalıştırdığı
+ * kontrollerin aynısı, değişen dosyaların o anki hâline göre. Cursor'da yok (araçlar MCP ile verilir).
+ */
+function makeCheckTools(sw: Stopwatch, checks: ScopedChecks, changed: () => string[], atBase: (f: string[]) => string[], cfg: ReturnType<typeof loadConfig>): CheckTools {
+  const personal = cfg.redact.personal;
+  const out = (r: CheckResult) => renderReport([r], { personal }) + (r.status === "ok" ? "" : "\n(Bu sonuç flowloop'un tur sonundaki kontrolüyle aynıdır.)");
+  return {
+    tests: () => out(sw.time("testler (ajan)", "check", () => checks.tests(changed(), atBase(changed())))),
+    typecheck: cfg.commands.typecheck ? () => out(sw.time("tip kontrolü (ajan)", "check", () => checks.typecheck(changed()))) : undefined,
+    lint: cfg.commands.lint ? () => out(sw.time("lint (ajan)", "check", () => checks.lint(changed(), atBase(changed())))) : undefined,
+  };
+}
+
+/** Ajana kalan sınırlarını söyler: bütçe ve tur (ajan keşfini buna göre ayarlar) */
+export function limitsNote(role: RoleName, budgetUsd: number, iteration: number | undefined, maxIterations: number, backend?: string): string {
+  const lines = [
+    backend === "cursor"
+      ? undefined
+      : `- Bu çalışma için bütçen: $${budgetUsd.toFixed(2)}. Dolarsa durursun ve iş yarım kalır: gereksiz keşiften kaçın, ihtiyacın olanı oku.`,
+    (role === "developer" || role === "reviewer") && iteration
+      ? `- Tur ${Math.min(iteration, maxIterations)}/${maxIterations}.${iteration >= maxIterations ? " Son tur: bu turda onaylanmazsa çalıştırma durur." : ""}`
+      : undefined,
+  ].filter(Boolean);
+  return lines.length ? `\n\n## Sınırların\n${lines.join("\n")}` : "";
 }
 
 /** Test, tip ve lint kontrolleri; her biri ayrı ölçülür */
@@ -886,6 +913,8 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const checks = new ScopedChecks(cfg, wt, baseWt, opts.checkRunner);
   const changed = () => changedExisting(wt, X);
   const atBase = (fs_: string[]) => fs_.filter((f) => fs.existsSync(path.join(baseWt, f)));
+  const checkTools = opts.backend === "cursor" ? undefined : makeCheckTools(sw, checks, changed, atBase, cfg);
+  vars.checkTools = !!checkTools;
 
   // ───────────── bağımlı repolar ─────────────
   const related: RelatedRepo[] = [];
@@ -928,7 +957,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       role: role.name,
       persona: role.persona,
       ruleset: role.ruleset,
-      prompt: taskMessage(taskText, jira, render(role.promptTemplate, { ...vars, ...extraVars })),
+      prompt: taskMessage(taskText, jira, render(role.promptTemplate, { ...vars, ...extraVars })) + limitsNote(role.name, budget, iteration, cfg.maxIterations, opts.backend),
       cwd: wt,
       runRoot,
       perms: role.perms,
@@ -938,6 +967,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       isolation: cfg.isolation,
       claudeMd: false,
       mutant: role.name === "reviewer" ? mutant : undefined,
+      checks: role.name === "developer" || role.name === "reviewer" ? checkTools : undefined,
       extraMcpServers: cfg.mcp.roles.includes(role.name) ? userMcp : undefined,
       extraDirs: related.map((r) => r.s.wt),
       log,
@@ -985,7 +1015,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       mode: opts.questionsMode ?? cfg.questions,
       ask: opts.answerQuestions,
       jiraKeys: jira && jiraBase ? [jira] : [],
-      postToJira: (key, body) => postComment(key, jiraBase, body, opts.jira ?? {}),
+      postToJira: (key, body) => postComment(key, jiraBase, body, { ...opts.jira, personal: cfg.redact.personal }),
       footer: `🤖 flowloop ${toolVersions().flowloop}${summary.initiator ? ` · Başlatan: ${summary.initiator}` : ""}`,
       records: summary.questions!,
       log,
@@ -1176,7 +1206,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       for (const r of related) results.push(...sw.time(`kontroller: ${r.name}`, "check", () => r.runChecks(), { iteration: turn }));
       assertDevScope("Formatter");
       summary.checks.push(results);
-      const report = renderReport(results);
+      const report = renderReport(results, { personal: cfg.redact.personal });
       for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
       // ortam sorunu (Docker kapalı vb.) kodla çözülmez: developer'a gönderip tur harcama, dur
       const envFail = results.find((r) => r.env);
@@ -1432,7 +1462,7 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   if (jira && cfg.jira.comment && jiraBase) {
     const body = buildJiraComment(fs.existsSync(files.summary) ? readText(files.summary) : "", summary, links);
     try {
-      summary.jiraCommentUrl = await postComment(jira, jiraBase, body, opts.jira ?? {});
+      summary.jiraCommentUrl = await postComment(jira, jiraBase, body, { ...opts.jira, personal: cfg.redact.personal });
       log.ok(`Jira'ya yorum eklendi: ${jira}`);
     } catch (e) {
       const w = `Jira yorumu eklenemedi: ${(e as Error).message}`;
@@ -1557,15 +1587,19 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   };
   summary.error = undefined;
   const changed = () => changedExisting(wt, X);
+  const resumeChecks = new ScopedChecks(cfg, wt, baseWt, opts.checkRunner);
+  const checkTools = opts.backend === "cursor" || summary.backend === "cursor" ? undefined : makeCheckTools(sw, resumeChecks, changed, (l) => l.filter((f) => fs.existsSync(path.join(baseWt, f))), cfg);
+  vars.checkTools = !!checkTools;
   const mutant = cfg.mutation.enabled
     ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec, X.length ? "" : cfg.commands.install)
     : undefined;
   const call = async (role: RoleSpec, phase: string, budget: number, extraVars: Record<string, string> = {}): Promise<AgentResult> => {
     const res = await timedAgent(sw, role.name, summary.iterations, mutant, () => runWithBudget(agent, {
       role: role.name, persona: role.persona, ruleset: role.ruleset,
-      prompt: taskMessage(resumeTaskText, summary.jiraKey ?? "", render(role.promptTemplate, { ...vars, ...extraVars })), cwd: wt, runRoot, perms: role.perms, policy,
+      prompt: taskMessage(resumeTaskText, summary.jiraKey ?? "", render(role.promptTemplate, { ...vars, ...extraVars })) + limitsNote(role.name, budget, summary.iterations, cfg.maxIterations, summary.backend), cwd: wt, runRoot, perms: role.perms, policy,
       model: role.model, budgetUsd: budget, isolation: cfg.isolation, claudeMd: false, log,
       mutant: role.name === "reviewer" ? mutant : undefined,
+      checks: role.name === "developer" || role.name === "reviewer" ? checkTools : undefined,
       extraMcpServers: cfg.mcp.roles.includes(role.name) && Object.keys(userMcp).length ? userMcp : undefined,
       extraDirs: related.map((r) => r.s.wt),
     }, { extendBudget: opts.extendBudget, totalSpentBefore: summary.totalCostUsd, onExtend: (x) => raiseBudget(cfg, phase, x) }));
@@ -1598,7 +1632,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
       }
     };
     const atBase = (l: string[]) => l.filter((f) => fs.existsSync(path.join(baseWt, f)));
-    const checks = new ScopedChecks(cfg, wt, baseWt, opts.checkRunner);
+    const checks = resumeChecks;
     // önceki reviewer FAIL'i bu sürdürmede developer'ın ilk geri bildirimi olur
     const lastFail = lastReview?.verdict === "FAIL" && !(lastDev && summary.phases.lastIndexOf(lastDev) > summary.phases.lastIndexOf(lastReview));
     // son karar FAIL ise ve geri bildirimi kayıtlıysa reviewer'ı boşuna tekrar çalıştırma: developer başlar
@@ -1654,7 +1688,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
       summary.checks.push(results);
       saveSummary();
       for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
-      const report = renderReport(results);
+      const report = renderReport(results, { personal: cfg.redact.personal });
       const envFail = results.find((r) => r.env);
       if (envFail) fail(`Kontroller ortam yüzünden çalışamadı: ${envFail.env}\n  Ortamı düzeltip tekrar: flowloop resume ${summary.id}`);
       if (results.some((r) => r.status === "fail")) {

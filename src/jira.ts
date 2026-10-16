@@ -1,4 +1,5 @@
 import { getCredential } from "./secrets.js";
+import { redact } from "./redact.js";
 
 /**
  * Jira'dan görev çekme. Atlassian Cloud REST API v3 + API token.
@@ -239,8 +240,10 @@ export async function postComment(
   key: string,
   baseUrl: string,
   markdown: string,
-  opts: { email?: string; token?: string; fetchFn?: (url: string, init: any) => Promise<any> } = {},
+  opts: { email?: string; token?: string; fetchFn?: (url: string, init: any) => Promise<any>; personal?: boolean } = {},
 ): Promise<string> {
+  // Jira'ya giden her yorum tek yerden geçer: gizli bilgi kalıpları maskelenir (ajanın yazdığı özet dahil)
+  markdown = redact(markdown, { personal: opts.personal });
   const email = opts.email ?? getCredential("JIRA_EMAIL");
   const token = opts.token ?? getCredential("JIRA_API_TOKEN");
   if (!baseUrl || !email || !token) throw new JiraError("Jira yorumu için JIRA_EMAIL ve JIRA_API_TOKEN gerekli (flowloop setup).");

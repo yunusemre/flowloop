@@ -1,5 +1,5 @@
 import type { Logger } from "./log.js";
-import { createMutantServer, type MutantSandbox } from "./mutant.js";
+import { createFlowloopServer, type CheckTools, type MutantSandbox } from "./mutant.js";
 import { evaluate, rewriteAliasPaths, type PolicyContext, type RolePermissions } from "./policy.js";
 import type { RoleName } from "./roles.js";
 import { getCredential, loginPath, scrubEnv } from "./secrets.js";
@@ -21,6 +21,8 @@ export interface AgentRequest {
   isolation: boolean;
   claudeMd: boolean;
   mutant?: MutantSandbox;
+  /** flowloop'un kontrol araçları (run_tests, typecheck, lint) */
+  checks?: CheckTools;
   /** Kullanıcının MCP sunucularından bu role açılanlar (ör. kod hafızası) */
   extraMcpServers?: Record<string, unknown>;
   /** Ajanın erişebileceği ek klasörler (ilgili repoların çalışma kopyaları) */
@@ -97,6 +99,7 @@ export class SdkAgentRunner implements AgentRunner {
     const denials: Denial[] = [];
     const decide = (tool: string, input: Record<string, unknown>) => {
       const d = evaluate(req.perms, req.policy, tool, input);
+      if (!d.allow && tool === "Bash" && req.checks) d.reason += denialHint();
       if (!d.allow) {
         denials.push({ role: req.role, tool, input: summarizeInput(tool, input), reason: d.reason });
         req.log.warn(`[${req.role}] reddedildi → ${tool}: ${summarizeInput(tool, input)} (${d.reason})`);
@@ -106,7 +109,7 @@ export class SdkAgentRunner implements AgentRunner {
 
     const builtinTools = req.perms.tools.filter((t) => !t.startsWith("mcp__"));
     const mcpServers: Record<string, any> = { ...(req.extraMcpServers ?? {}) };
-    if (req.mutant) mcpServers.flowloop = await createMutantServer(req.mutant);
+    if (req.mutant || req.checks) mcpServers.flowloop = await createFlowloopServer({ mutant: req.mutant, checks: req.checks });
     const settingSources: ("user" | "project" | "local")[] = req.isolation
       ? req.claudeMd
         ? ["project"]
@@ -199,6 +202,11 @@ export class SdkAgentRunner implements AgentRunner {
 }
 
 /** System prompt'a eklenen kısım: rol kural seti + persona + yetki notu */
+/** Reddedilen kabuk komutunda ajana ne yapması gerektiği (sadece gerekçe değil) */
+export function denialHint(): string {
+  return " — Testleri, tip kontrolünü ve lint'i flowloop araçlarıyla çalıştır (run_tests, typecheck, lint); komutu flowloop kurar. Aynı komutu başka biçimde deneme.";
+}
+
 export function systemAppend(req: Pick<AgentRequest, "ruleset" | "persona">): string {
   return [req.ruleset?.trim(), req.persona, ROLE_GUARDRAIL.trim()].filter(Boolean).join("\n\n");
 }

@@ -1,4 +1,5 @@
 import type { FlowloopConfig } from "./config.js";
+import { redact } from "./redact.js";
 import { TEST_PLACEHOLDER, fillFiles, runConfigured, unrunnableTestProjects, type ExecResult } from "./git.js";
 
 /**
@@ -209,9 +210,10 @@ export class ScopedChecks {
   }
 }
 
-export function renderReport(results: CheckResult[]): string {
+/** Kontrol raporu (ajana ve Jira'ya gider): gizli bilgiler maskelenir */
+export function renderReport(results: CheckResult[], opts: { personal?: boolean } = {}): string {
   const icon = { ok: "✅", fail: "❌", skip: "➖" } as const;
-  return results
+  return redact(results
     .map((r) => `${icon[r.status]} ${r.repo ? `[${r.repo}] ` : ""}${r.name}: ${r.summary}${r.details ? "\n```\n" + r.details + "\n```" : ""}`)
-    .join("\n");
+    .join("\n"), opts);
 }

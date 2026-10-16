@@ -3,6 +3,7 @@ import path from "node:path";
 import { failureLines, gitOk, runConfigured } from "./git.js";
 import { currentVersion } from "./update.js";
 import { linkDir, readText } from "./platform.js";
+import { redact } from "./redact.js";
 
 /** Kopyada çalıştırılacak test komutunu (ilgili testler) üretir. */
 export type TestCommandFn = () => string;
@@ -83,7 +84,8 @@ export class MutantSandbox {
     }
     const all = (r.stdout + "\n" + r.stderr).trim().split("\n");
     const tail = all.slice(-80).join("\n");
-    return { code: r.code, output: `$ ${cmd}\n${tail}` };
+    // testler connection string ya da token basabilir: modele gitmeden maskelenir
+    return { code: r.code, output: redact(`$ ${cmd}\n${tail}`) };
   }
 }
 
@@ -92,20 +94,43 @@ export function mutantRunsFile(dir: string): string {
   return `${dir.replace(/[\\/]+$/, "")}-runs.ndjson`;
 }
 
-/** SDK'nın in-process MCP sunucusu olarak araçları üretir. */
-export async function createMutantServer(sandbox: MutantSandbox) {
+/**
+ * Ajanın flowloop'tan çalıştırabildiği kontroller. Komutu flowloop kurar (platform, .NET Framework,
+ * yer tutucular); ajan sadece çağırır ve flowloop'un kendi kontrolüyle aynı sonucu görür.
+ */
+export interface CheckTools {
+  tests(): string;
+  typecheck?: () => string;
+  lint?: () => string;
+}
+
+/** SDK'nın in-process MCP sunucusu: mutasyon araçları ve kontrol araçları (hangisi verildiyse) */
+export async function createFlowloopServer(opts: { mutant?: MutantSandbox; checks?: CheckTools }) {
   const { createSdkMcpServer, tool } = await import("@anthropic-ai/claude-agent-sdk");
-  return createSdkMcpServer({
-    name: "flowloop",
-    version: currentVersion(),
-    tools: [
+  const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] });
+  const tools: any[] = [];
+  const c = opts.checks;
+  if (c) {
+    tools.push(
+      tool("run_tests", "Bu işin testlerini flowloop'un otomatik kontrolüyle AYNI komutla çalıştırır (değişen dosyalara göre). Sonucu ve kırılan testleri döner.", {}, async () => text(c.tests())),
+    );
+    if (c.typecheck) tools.push(tool("typecheck", "Tip kontrolü/derleme: sadece BU İŞLE GELEN yeni hataları döner (projede önceden var olanlar sayılmaz). Yavaş olabilir; bitirmeden önce bir kez çalıştır.", {}, async () => text(c.typecheck!())));
+    if (c.lint) tools.push(tool("lint", "Değişen dosyalarda lint: sadece bu işle gelen yeni hataları döner.", {}, async () => text(c.lint!())));
+  }
+  const sandbox = opts.mutant;
+  if (sandbox) tools.push(...mutantTools(sandbox, tool, text));
+  return createSdkMcpServer({ name: "flowloop", version: currentVersion(), tools });
+}
+
+function mutantTools(sandbox: MutantSandbox, tool: any, text: (t: string) => unknown): unknown[] {
+  return [
       tool(
         "mutant_reset",
         `Mutasyon kopyasını developer'ın güncel koduyla sıfırdan oluşturur (${sandbox.dir}). Her mutasyondan önce çağır.`,
         {},
         async () => {
           const r = sandbox.reset();
-          return { content: [{ type: "text", text: `Kopya hazır: ${sandbox.dir} (${r.files} dosya)${r.installError ? `\n${r.installError}` : ""}` }] };
+          return text(`Kopya hazır: ${sandbox.dir} (${r.files} dosya)${r.installError ? `\n${r.installError}` : ""}`);
         },
       ),
       tool(
@@ -114,9 +139,8 @@ export async function createMutantServer(sandbox: MutantSandbox) {
         {},
         async () => {
           const r = sandbox.test();
-          return { content: [{ type: "text", text: `exit=${r.code}\n${r.output}` }] };
+          return text(`exit=${r.code}\n${r.output}`);
         },
       ),
-    ],
-  });
+  ];
 }
