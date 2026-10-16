@@ -311,3 +311,30 @@ export function failureLines(output: string, max = 12): string[] {
   const warns = lines.length - errs.length - tail.length;
   return [...errs.slice(0, max), ...(errs.length > max ? [`… ${errs.length - max} hata satırı daha`] : []), ...(warns > 0 ? [`(${warns} uyarı/bilgi satırı gizlendi)`] : []), ...tail];
 }
+
+/**
+ * Commit hook'larının yardımcı dosyaları (husky / Husky.Net: .husky/_/husky.sh) git'te izlenmez; kurulum
+ * komutuyla sadece asıl repo klasöründe oluşur. Worktree'de olmadıkları için hook "husky.sh: No such file"
+ * diye düşer ve hiç commit atılamaz. Asıl repoda varsa kopyalanır, yoksa boş bir yardımcı yazılır (hook'un
+ * kendi komutları yine çalışır). Dönen: hazırlanan klasörler.
+ */
+export function ensureHookHelpers(mainRoot: string, wt: string): string[] {
+  const hooksDir = path.join(wt, ".husky");
+  if (!fs.existsSync(hooksDir) || !fs.statSync(hooksDir).isDirectory()) return [];
+  const refs = fs
+    .readdirSync(hooksDir)
+    .filter((f) => fs.statSync(path.join(hooksDir, f)).isFile())
+    .some((f) => /_\/husky\.sh/.test(readText(path.join(hooksDir, f))));
+  const helperDir = path.join(hooksDir, "_");
+  if (!refs || fs.existsSync(path.join(helperDir, "husky.sh"))) return [];
+  const fromMain = path.join(mainRoot, ".husky", "_");
+  if (fs.existsSync(path.join(fromMain, "husky.sh"))) {
+    fs.cpSync(fromMain, helperDir, { recursive: true });
+  } else {
+    fs.mkdirSync(helperDir, { recursive: true });
+    fs.writeFileSync(path.join(helperDir, "husky.sh"), "#!/usr/bin/env sh\n# flowloop: husky kurulu değildi; hook'un kendi komutları çalışır\n", { mode: 0o755 });
+  }
+  // husky'nin kendi yaptığı gibi: klasör git'te görünmesin
+  if (!fs.existsSync(path.join(helperDir, ".gitignore"))) fs.writeFileSync(path.join(helperDir, ".gitignore"), "*\n");
+  return [path.relative(wt, helperDir) || helperDir];
+}

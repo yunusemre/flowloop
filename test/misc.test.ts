@@ -176,3 +176,40 @@ test("sınırlar ajana söylenir: bütçe ve tur", async () => {
   assert.doesNotMatch(limitsNote("analist", 1, undefined, 3), /Tur/);
   assert.doesNotMatch(limitsNote("developer", 1, 1, 3, "cursor"), /bütçe/, "Cursor maliyet bildirmez");
 });
+
+test("commit hook yardımcıları (.husky/_) worktree'ye kopyalanır, asıl repoda yoksa boş yardımcı yazılır", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const { ensureHookHelpers } = await import("../src/git.js");
+  const mk = () => fs.mkdtempSync(path.join(os.tmpdir(), "fl-husky-"));
+  const main = mk();
+  const wt = mk();
+  for (const d of [main, wt]) {
+    fs.mkdirSync(path.join(d, ".husky"), { recursive: true });
+    fs.writeFileSync(path.join(d, ".husky", "pre-commit"), '#!/bin/sh\n. "$(dirname "$0")/_/husky.sh"\ndotnet husky run\n');
+  }
+  fs.mkdirSync(path.join(main, ".husky", "_"));
+  fs.writeFileSync(path.join(main, ".husky", "_", "husky.sh"), "# asıl\n");
+  assert.deepEqual(ensureHookHelpers(main, wt), [path.join(".husky", "_")]);
+  assert.equal(fs.readFileSync(path.join(wt, ".husky", "_", "husky.sh"), "utf8"), "# asıl\n");
+  assert.equal(fs.readFileSync(path.join(wt, ".husky", "_", ".gitignore"), "utf8"), "*\n");
+  assert.deepEqual(ensureHookHelpers(main, wt), [], "varsa dokunulmaz");
+  const wt2 = mk();
+  fs.mkdirSync(path.join(wt2, ".husky"));
+  fs.writeFileSync(path.join(wt2, ".husky", "pre-commit"), '. "$(dirname -- "$0")/_/husky.sh"\n');
+  assert.equal(ensureHookHelpers(mk(), wt2).length, 1);
+  assert.match(fs.readFileSync(path.join(wt2, ".husky", "_", "husky.sh"), "utf8"), /flowloop/);
+  assert.deepEqual(ensureHookHelpers(main, mk()), [], ".husky yoksa bir şey yapılmaz");
+});
+
+test("ayar: lint/typecheck/format false ile kapatılır; init --force geri açmaz", async () => {
+  const { configSchema } = await import("../src/config.js");
+  const { mergeConfig } = await import("../src/configmerge.js");
+  const c = configSchema.parse({ version: 2, commands: { testRelated: "x {{files}}", lint: false, typecheck: null }, paths: { edit: ["src/**"] } });
+  assert.equal(c.commands.lint, "");
+  assert.equal(c.commands.typecheck, "");
+  assert.equal(c.commands.format, "");
+  const merged = mergeConfig('version: 2\ncommands:\n  testRelated: "x {{files}}"\n  lint: "dotnet format style"\n', "version: 2\ncommands:\n  lint: false\n").text;
+  assert.match(merged, /lint: false/);
+});

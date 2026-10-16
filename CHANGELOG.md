@@ -6,6 +6,12 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.14.1 — 2026-10-16
+
+### Düzeltme
+- **Commit hook'u worktree'de düşüyordu (`.husky/_/husky.sh: No such file or directory`).** husky ve Husky.Net'in yardımcı dosyaları git'te izlenmez, sadece asıl repo klasöründe kurulur; worktree'de olmadıkları için hiç commit atılamıyordu. flowloop artık commit'ten önce bunları asıl repodan kopyalıyor (yoksa boş bir yardımcı yazıyor); hook'un kendi komutları yine çalışır. Ana repo ve ilgili repolar için geçerli; yarım kalan çalıştırma `flowloop resume` ile tamamlanır.
+- **Lint (ve tip kontrolü, format) kapatılabilir:** `commands.lint: false`. Boş bırakmak `flowloop init --force` ile yeniden algılanıp açılıyordu.
+
 ## 1.14.0 — 2026-10-16
 
 ### Yeni

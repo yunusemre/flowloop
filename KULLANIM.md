@@ -611,7 +611,7 @@ En çok değiştirilenler:
 | `questions` | Analistin açık soruları: `ask` (terminalde sor, etkileşimsizse dur), `jira` (etkileşimsizse Jira'ya yaz ve dur), `assume` (varsayılanla devam). Bkz. [Açık sorular](#açık-sorular) |
 | `commands.testRelated` | Bu işin testleri, ör. `npx jest --findRelatedTests {{files}} --passWithNoTests` |
 | `commands.typecheck` | Ör. `npx tsc --noEmit -p .`; sadece yeni hatalar sayılır |
-| `commands.lint` | Ör. `npx eslint --quiet {{files}}`; sadece yeni **hatalar** sayılır, uyarılar bloklamaz |
+| `commands.lint` | Ör. `npx eslint --quiet {{files}}`; sadece yeni **hatalar** sayılır, uyarılar bloklamaz. Kapatmak için `lint: false` (boş bırakırsan `flowloop init --force` yeniden algılayıp açar). `typecheck` ve `format` da aynı şekilde kapatılır |
 | `commands.format` | Ör. `npx prettier --write {{files}}`; her turdan sonra otomatik çalışır |
 | `paths.edit` | Developer'ın değiştirebileceği yollar. Varsayılan `**` (bütün repo); gizli dosyalara (`readDeny`), `.git`'e ve `.flowloop`'a yine yazılamaz. Daraltmak için ör. `src/**` |
 | `paths.readDeny` | Hiçbir rolün okuyamayacağı dosyalar (`.env` gibi) |
@@ -689,6 +689,8 @@ Gerisi kendiliğinden olur:
 | `Ne Claude ne Cursor erişimi bulundu` | `flowloop setup` |
 | `Cursor hook'ları çalışmadı` | Cursor CLI eski olabilir: `cursor-agent update` |
 | Cursor'da her yazma işlemi "yol belirtilmemiş" diye reddediliyor | Cursor'un hook formatı değişmiş olabilir; `run.json` içindeki `denials` listesine bak ve flowloop'u güncelle |
+| Committer: `.husky/_/husky.sh: No such file or directory`, hiç commit atılamadı | Hook'un yardımcı dosyaları git'te izlenmez, worktree'de yoktu. 1.14.1'den itibaren flowloop commit'ten önce bunları asıl repodan kopyalar (yoksa boş yardımcı yazar). Güncelleyip `flowloop resume <id>` ile devam et |
+| Lint sürekli hata veriyor (önceden var olan stil kuralları, `--verify-no-changes`) | `.flowloop/flowloop.yaml` → `commands.lint: false` |
 | Windows: `Git Bash bulunamadı` | Git for Windows'u kur (`winget install Git.Git`) ya da `bash.exe` yolunu ver: `$env:FLOWLOOP_BASH="C:\...\Git\bin\bash.exe"` |
 | Windows: `install.ps1 ... running scripts is disabled` | Betiği `powershell -ExecutionPolicy Bypass -File install.ps1` ile çalıştır |
 | Windows: `flowloop.ps1 cannot be loaded because running scripts is disabled` | `install.ps1`'i tekrar çalıştır (1.10.0+ bu kısayolu kaldırır) ya da `flowloop.cmd ...` yaz. Kalıcı çözüm: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` (npm'in önerdiği ayar; sadece senin kullanıcını etkiler) |

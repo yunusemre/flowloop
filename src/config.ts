@@ -131,15 +131,15 @@ export const configSchema = z
     commands: z
       .object({
         /** Worktree'de bağımlılık kurulumu. Boşsa linkDirs ile repodaki klasörler bağlanır. */
-        install: z.string().default(""),
+        install: z.preprocess((v) => (v === false || v === null ? "" : v), z.string().default("")),
         /** Bu işin testleri. {{files}} ya da {{testFiles}} içermeli. */
         testRelated: z.string().min(1, "commands.testRelated zorunlu"),
         /** Tüm projenin tip kontrolü; sadece yeni hatalar sayılır. */
-        typecheck: z.string().default(""),
-        /** {{files}} ile; sadece yeni hatalar sayılır. */
-        lint: z.string().default(""),
+        typecheck: z.preprocess((v) => (v === false || v === null ? "" : v), z.string().default("")),
+        /** {{files}} ile; sadece yeni hatalar sayılır. false = kapalı (flowloop init --force da geri açmaz) */
+        lint: z.preprocess((v) => (v === false || v === null ? "" : v), z.string().default("")),
         /** {{files}} ile; her developer turundan sonra otomatik çalışır. */
-        format: z.string().default(""),
+        format: z.preprocess((v) => (v === false || v === null ? "" : v), z.string().default("")),
         /** Boşsa yerleşik Conventional Commits kontrolü. {{base}} desteklenir. */
         commitCheck: z.string().default(""),
       })

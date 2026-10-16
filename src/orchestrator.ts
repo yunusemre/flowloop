@@ -4,7 +4,7 @@ import picomatch from "picomatch";
 import { runWithBudget, type AgentRequest, type AgentResult, type AgentRunner, type BudgetRequest, type Denial } from "./agent.js";
 import { ScopedChecks, renderReport, type CheckResult, type CheckRunner } from "./checks.js";
 import { FLOWLOOP_DIR, jiraBaseUrl, loadConfig, mergeRelated, workDirFor, workDirsFor, type ExtraRelated } from "./config.js";
-import { changedExisting, changedPaths, diffAgainst, failureLines, fillFiles, git, gitOk, headSha, runConfigured, statusPorcelain, workingTreeHash } from "./git.js";
+import { changedExisting, changedPaths, diffAgainst, ensureHookHelpers, failureLines, fillFiles, git, gitOk, headSha, runConfigured, statusPorcelain, workingTreeHash } from "./git.js";
 import type { Logger } from "./log.js";
 import { MutantSandbox } from "./mutant.js";
 import { DEFAULT_FORBIDDEN_FLAGS, type PolicyContext } from "./policy.js";
@@ -1380,6 +1380,10 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   // ───────────── 3) COMMITTER ─────────────
   log.step("3/3 COMMITTER  (sadece git add/commit — kod değiştiremez)");
   const related = ctx.related ?? [];
+  // commit hook'unun yardımcı dosyaları worktree'de yoksa hook düşer ve hiç commit atılamaz
+  for (const [main, w] of [[root, wt], ...related.filter((r) => r.s.git !== false).map((r) => [r.s.root, r.s.wt])]) {
+    if (ensureHookHelpers(main, w).length) log.info(`  Commit hook'u için yardımcı dosyalar hazırlandı: ${path.basename(main)}/.husky/_`);
+  }
   const mainChanged = gitOk(["rev-parse", "HEAD^{tree}"], wt) !== approved || statusPorcelain(wt, X).length > 0;
   summary.mainChanged = mainChanged;
   const c = await call(ctx.committer, "commit", cfg.budgets.commit);
