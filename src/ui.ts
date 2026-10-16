@@ -6,7 +6,7 @@ import path from "node:path";
 import type { AgentRunner, BudgetRequest } from "./agent.js";
 import { createRunner, type Backend } from "./backend.js";
 import { BATCH_FILE, BATCH_PREFIX, runBatch } from "./batch.js";
-import { CONFIG_FILE, isGitRepo, loadConfig, workDirsFor } from "./config.js";
+import { CONFIG_FILE, isGitRepo, loadConfig, workDirsFor, type ExtraRelated } from "./config.js";
 import type { Logger } from "./log.js";
 import { attentionLabel, needsDecision, suggestTriage, type AttentionItem, type OpenQuestion } from "./notes.js";
 import {
@@ -43,6 +43,8 @@ import { fmtDuration } from "./timing.js";
 export interface ProjectEntry {
   name: string;
   root: string;
+  /** Bu projede son görevle birlikte seçilen diğer projeler (sonraki görevde hazır gelir) */
+  companions?: { name: string; edit: boolean }[];
 }
 
 export function projectsFile(home = os.homedir()): string {
@@ -111,6 +113,13 @@ export function addProjectsFrom(dir: string, home = os.homedir()): { added: Proj
   return { added, notReady };
 }
 
+function setCompanions(name: string, companions: { name: string; edit: boolean }[], home = os.homedir()): void {
+  writeProjects(
+    readProjects(home).map((p) => (p.name === name ? { ...p, companions } : p)),
+    home,
+  );
+}
+
 export function removeProject(name: string, home = os.homedir()): void {
   writeProjects(
     readProjects(home).filter((p) => p.name !== name),
@@ -172,6 +181,21 @@ export function projectTasks(root: string): { file: string; key?: string; title:
     })
     .sort((a, b) => b.mtime - a.mtime)
     .slice(0, 30);
+}
+
+/** Sürdürülecek çalıştırmanın değiştirilebilir ilgili repoları (run.json → related) */
+function recordedEditRoots(root: string, id: string): string[] {
+  try {
+    for (const base of workDirsFor(loadConfig(root), root)) {
+      const f = path.join(base, id, "run.json");
+      if (!fs.existsSync(f)) continue;
+      const j = JSON.parse(readText(f)) as RunSummary;
+      return (j.related ?? []).filter((r) => r.edit?.length && r.git !== false).map((r) => path.resolve(r.root));
+    }
+  } catch {
+    /* kayıt okunamadı */
+  }
+  return [];
 }
 
 // ───────────── oturum: bir çalıştırmanın sohbeti ─────────────
@@ -257,10 +281,13 @@ export class Session {
   }
 
   view() {
-    return { id: this.id, project: this.project.name, title: this.title, status: this.status, startedAt: this.startedAt, prompt: this.publicPrompt(), summary: this.summary, messages: this.messages };
+    return { id: this.id, project: this.project.name, title: this.title, status: this.status, startedAt: this.startedAt, companions: this.companions, prompt: this.publicPrompt(), summary: this.summary, messages: this.messages };
   }
 
   readonly startedAt = Date.now();
+  /** Bu çalıştırmada değiştirilebilen ilgili repoların kökleri (aynı anda başka çalıştırma onları değiştiremez) */
+  editRoots: string[] = [];
+  companions: { name: string; edit: boolean }[] = [];
 
   /** Başlık değişti (ör. görev dosyası çekilince "IDT-1 · başlık") */
   rename(title: string): void {
@@ -447,11 +474,24 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     if (!p) throw new FlowloopError("Proje kayıtlı değil.");
     return p;
   };
-  const busy = (p: ProjectEntry) => [...sessions.values()].some((s) => s.project.root === p.root && (s.status === "running" || s.status === "waiting"));
+  const active = () => [...sessions.values()].filter((s) => s.status === "running" || s.status === "waiting");
+  // bir repo aynı anda iki çalıştırmada değiştirilmesin: ana proje ya da "değiştirilebilir" seçilen ilgili proje
+  const busy = (p: ProjectEntry) => active().some((s) => s.project.root === p.root || s.editRoots.includes(p.root));
 
-  const start = (p: ProjectEntry, title: string, work: (s: Session, base: Partial<RunOptions> & { agent: AgentRunner; backend: Backend; log: Logger }) => Promise<RunSummary | void>) => {
+  const start = (
+    p: ProjectEntry,
+    title: string,
+    work: (s: Session, base: Partial<RunOptions> & { agent: AgentRunner; backend: Backend; log: Logger }) => Promise<RunSummary | void>,
+    editRoots: string[] = [],
+  ) => {
     if (busy(p)) throw new FlowloopError(`${p.name} projesinde süren bir çalıştırma var; bitince yenisini başlat.`);
+    for (const r of editRoots) {
+      const other = active().find((s) => s.project.root === r || s.editRoots.includes(r));
+      if (other) throw new FlowloopError(`${path.basename(r)} şu an başka bir çalıştırmada (${other.title}) değiştiriliyor; bitince başlat ya da o projeyi "okur" seç.`);
+    }
     const s = new Session(p, title, emit);
+    s.editRoots = editRoots;
+    s.companions = [];
     sessions.set(s.id, s);
     emit({ type: "session", session: s.id, data: { id: s.id, project: p.name, title, status: s.status } });
     void (async () => {
@@ -469,7 +509,7 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
         if (s.pending) s.pending = undefined;
         s.push("error", e instanceof FlowloopError || e instanceof Error ? e.message : String(e));
       }
-      emit({ type: "session", session: s.id, data: { id: s.id, project: p.name, title, status: s.status, summary: s.summary } });
+      emit({ type: "session", session: s.id, data: { id: s.id, project: p.name, title: s.title, status: s.status, summary: s.summary } });
     })();
     return s;
   };
@@ -500,17 +540,30 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
       const inputs = str(b.task, 2000).split(/[\s,]+/).filter(Boolean);
       if (!inputs.length) throw new FlowloopError("Görev yaz: Jira anahtarı (IDT-123), Jira bağlantısı ya da görev dosyası.");
       if (inputs.length > 20) throw new FlowloopError("En fazla 20 görev.");
+      // birlikte çalışılacak diğer kayıtlı projeler: okur ya da değiştirir (yetki sınırı o projenin kendi flowloop.yaml'ı)
+      const picked: { name: string; edit: boolean }[] = (Array.isArray(b.related) ? b.related : [])
+        .filter((x: any) => x && typeof x.name === "string" && x.name !== p.name)
+        .slice(0, 10)
+        .map((x: any) => ({ name: x.name, edit: x.edit === true }));
+      const extraRelated: ExtraRelated[] = picked.map((x) => {
+        const q = projectByName(x.name);
+        const edit = x.edit ? loadConfig(q.root).paths.edit : [];
+        return { name: q.name, path: q.root, edit };
+      });
+      setCompanions(p.name, picked, home);
       const s = start(p, inputs.join(" "), async (s, base) => {
+        if (extraRelated.length) s.push("info", `Birlikte çalışılan projeler: ${extraRelated.map((r) => `${r.name} (${r.edit.length ? `değiştirir: ${r.edit.join(", ")}` : "okur"})`).join(" · ")}`);
         const files: string[] = [];
         for (const i of inputs) files.push(await resolveTaskInput(p.root, i, s.say(), b.refresh === true));
         if (files.length === 1) s.rename(taskTitle(p.root, files[0]) ?? s.title);
-        const common = { ...base, root: p.root, planApproval: b.approvePlan !== false, noPush: b.noPush === true };
+        const common = { ...base, root: p.root, planApproval: b.approvePlan !== false, noPush: b.noPush === true, extraRelated };
         if (files.length > 1) {
           await runBatch({ ...common, taskFiles: files, rerun: `flowloop run ${inputs.join(" ")}`, approveEachPlan: false });
           return;
         }
         return runTask({ ...common, taskFile: files[0] });
-      });
+      }, extraRelated.filter((r) => r.edit.length).map((r) => r.path));
+      s.companions = picked;
       return send(res, 200, { session: s.id });
     }
     if (m === "POST" && url.pathname === "/api/resume") {
@@ -518,7 +571,7 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
       const p = projectByName(b.project);
       const id = str(b.id, 300);
       if (!/^[\w.-]+$/.test(id)) throw new FlowloopError("Geçersiz çalıştırma.");
-      const s = start(p, `devam: ${id}`, (s, base) => resumeRun({ ...base, root: p.root, resume: id, taskFile: "" } as RunOptions & { resume: string }));
+      const s = start(p, `devam: ${id}`, (s, base) => resumeRun({ ...base, root: p.root, resume: id, taskFile: "" } as RunOptions & { resume: string }), recordedEditRoots(p.root, id));
       return send(res, 200, { session: s.id });
     }
     if (parts[1] === "sessions" && parts[2]) {
@@ -604,6 +657,13 @@ function doneText(s: RunSummary): string {
   for (const c of s.commits) lines.push(`  ${c}`);
   if (s.pushed) lines.push(`Push: origin/${s.branch}`);
   if (s.prUrl) lines.push(`PR aç: ${s.prUrl}`);
+  for (const r of s.related ?? []) {
+    if (!r.commits?.length) continue;
+    lines.push("", `${r.name}: ${r.commits.length} commit · ${r.branch}`);
+    for (const c of r.commits) lines.push(`  ${c}`);
+    if (r.pushed) lines.push(`Push: origin/${r.branch}`);
+    if (r.prUrl) lines.push(`PR aç: ${r.prUrl}`);
+  }
   if (s.jiraCommentUrl) lines.push(`Jira: ${s.jiraCommentUrl}`);
   const cost = s.backend === "cursor" ? "" : ` · $${s.totalCostUsd.toFixed(2)}`;
   lines.push(`${s.iterations} tur${cost}${s.durationMs ? ` · ${fmtDuration(s.durationMs)}` : ""}`);

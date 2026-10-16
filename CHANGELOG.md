@@ -10,6 +10,7 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 
 ### Yeni
 - **Sohbet arayüzü: `flowloop ui`.** Tarayıcıda açılan küçük, yerel bir arayüz: birden fazla proje, görev başlatma, canlı ilerleme ve terminaldeki bütün soruların (plan onayı, açık sorular, karar gerekli, inceleme maddeleri, değişiklik onayı ve fark, kapsam talebi, ek bütçe) kart olarak sunulması. Geçmiş çalıştırmalar listelenir, yarım kalanlar oradan sürdürülür. Sadece `127.0.0.1`'de dinler; her istek oturum anahtarı ister. Bağımlılık eklenmedi (Node'un http sunucusu, tek dosyalık sayfa).
+  - **Birden fazla repoyu kapsayan iş:** görev başlatırken diğer kayıtlı projeler "okur" ya da "değiştirir" seçilir; seçilenler o çalıştırmanın ilgili reposu olur (yaml gerekmez). Yetki sınırı her projenin kendi `flowloop.yaml`'ıdır; plan kapsamı daraltabilir. Değişiklikler, kontroller, commit ve PR'lar sohbette repo repo görünür. Değiştirilen proje çalıştırma süresince meşgul sayılır; seçim hatırlanır.
   - Projelerin olduğu üst klasör verilince altındaki flowloop kurulu repoların hepsi eklenir.
   - Aşama göstergesi, süre ve maliyet; rol rozetli ajan mesajları; ✓/✗ kontrol satırları; son görevlerden hızlı başlatma; Ctrl/⌘+Enter; "Cevabın bekleniyor" düğmesi.
 

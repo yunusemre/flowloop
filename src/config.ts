@@ -306,6 +306,29 @@ export function isGitRepo(dir: string): boolean {
 }
 
 /** related.path'i mutlak yola çevirir (~ ve göreli yollar desteklenir) */
+/** Çalıştırma başına eklenen ilgili repo (ör. sohbet arayüzünde seçilen diğer proje) */
+export interface ExtraRelated {
+  name: string;
+  /** Mutlak yol */
+  path: string;
+  /** Developer'ın yazabileceği yollar; boş = sadece okunur */
+  edit: string[];
+}
+
+/**
+ * Çalıştırma başına seçilen ilgili repoları ayara ekler. flowloop.yaml'da aynı repo (ad ya da yol) zaten
+ * tanımlıysa yaml'daki tanım geçerlidir. Ana repo kendisi eklenmez.
+ */
+export function mergeRelated(cfg: FlowloopConfig, root: string, extra: ExtraRelated[] = []): void {
+  const self = path.resolve(root);
+  for (const e of extra) {
+    const p = path.resolve(e.path);
+    if (p === self) continue;
+    if (cfg.related.some((r) => r.name === e.name || relatedPath(root, r.path) === p)) continue;
+    cfg.related.push({ name: e.name, path: p, edit: [...e.edit], baseBranch: "" });
+  }
+}
+
 export function relatedPath(root: string, p: string): string {
   return path.resolve(root, p.replace(/^~(?=\/|$)/, os.homedir()));
 }

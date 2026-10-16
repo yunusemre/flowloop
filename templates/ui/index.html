@@ -144,6 +144,13 @@
   .how div { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font-size: 12.5px; }
   .how b { display: flex; gap: 6px; align-items: center; margin-bottom: 4px; font-size: 13px; }
   kbd { font: 11px ui-monospace, monospace; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
+  .rel-picker { display: inline-flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .rel { font-size: 12px; border: 1px dashed var(--line); border-radius: 12px; padding: 1px 9px; cursor: pointer; user-select: none; background: var(--panel); color: var(--muted); }
+  .rel.read { border-style: solid; border-color: var(--accent); color: var(--accent); }
+  .rel.edit { border-style: solid; background: var(--accent); border-color: var(--accent); color: #fff; }
+  .rel.busy { opacity: .45; cursor: not-allowed; }
+  .comp { font-size: 11.5px; padding: 1px 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+  .repo { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); margin-right: 4px; }
   .composer { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 20px; }
   .composer-inner { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
   .composer .row { display: flex; gap: 8px; }
@@ -196,6 +203,7 @@
       </div>
       <div class="opts">
         <span id="projectLabel"></span>
+        <span id="relPicker" class="rel-picker"></span>
         <label><input type="checkbox" id="optPlan" checked> Planı onayıma sun</label>
         <label><input type="checkbox" id="optRefresh"> Jira'dan yeniden çek</label>
         <label><input type="checkbox" id="optNoPush"> Push yapma</label>
@@ -209,7 +217,7 @@
   // ───── durum ─────
   const token = new URLSearchParams(location.hash.slice(1)).get("t") || sessionStorage.getItem("flowloop-t") || "";
   if (token) { try { sessionStorage.setItem("flowloop-t", token); } catch {} history.replaceState(null, "", location.pathname); }
-  const S = { projects: [], sessions: new Map(), selectedProject: null, selectedSession: null, runs: [], composing: true, open: new Map(), card: null };
+  const S = { projects: [], sessions: new Map(), selectedProject: null, selectedSession: null, runs: [], composing: true, open: new Map(), card: null, rel: new Map() };
   const $ = (id) => document.getElementById(id);
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
@@ -319,12 +327,33 @@
         r.status !== "success" && !r.batch && !busyProject() ? el("button", { class: "small", title: "Kaldığı yerden devam et", onclick: (e) => { e.stopPropagation(); resume(r.id); } }, "Devam") : null)));
     if (S.selectedProject && !runs.length) $("runs").append(el("div", { class: "item sub" }, "Kayıt yok."));
     $("projectLabel").textContent = S.selectedProject ? `Proje: ${S.selectedProject}` : "Önce bir proje seç";
+    renderRelPicker();
     $("startBtn").disabled = !S.selectedProject;
   }
   const busyProject = () => S.projects.find((p) => p.name === S.selectedProject)?.busy;
+  /** Görevle birlikte çalışılacak diğer projeler: tıkladıkça kapalı → okur → değiştirir */
+  const REL_TEXT = { off: "", read: " · okur", edit: " · değiştirir" };
+  function renderRelPicker() {
+    const box = $("relPicker");
+    const others = S.projects.filter((p) => p.name !== S.selectedProject);
+    if (!S.selectedProject || !others.length) { box.replaceChildren(); return; }
+    box.replaceChildren(el("span", {}, "Birlikte:"), ...others.map((p) => {
+      const st = S.rel.get(p.name) || "off";
+      const busyEdit = p.busy;
+      return el("span", {
+        class: "rel " + st + (busyEdit && st === "edit" ? " busy" : ""),
+        title: st === "off" ? "Bu görevde kullanılmaz. Tıkla: okur" : st === "read" ? "Ajanlar okur, değiştirmez. Tıkla: değiştirir" : "Developer bu projede de değişiklik yapar (sınır: o projenin flowloop.yaml → paths.edit). Tıkla: kapat",
+        onclick: () => { S.rel.set(p.name, st === "off" ? "read" : st === "read" ? "edit" : "off"); renderRelPicker(); },
+      }, p.name + REL_TEXT[st]);
+    }));
+  }
   const statusText = (s) => ({ running: "çalışıyor", waiting: "cevabını bekliyor", done: "bitti", failed: "durdu" })[s] || s;
 
   async function selectProject(name) {
+    if (S.selectedProject !== name) {
+      // son görevde seçilen projeler hazır gelir
+      S.rel = new Map((S.projects.find((p) => p.name === name)?.companions || []).map((c) => [c.name, c.edit ? "edit" : "read"]));
+    }
     S.selectedProject = name;
     renderSide();
     try {
@@ -403,12 +432,13 @@
   /** flowloop'un kendi mesajları: bazıları küçük sistem satırı, kontroller simgeli satır */
   function renderInfo(m) {
     const t = m.text.trim();
-    const chk = /^kontrol · (\w[\w\s]*?): (.*)$/.exec(t);
+    const chk = /^kontrol · (?:\[([^\]]+)\] )?(\w[\w\s]*?): (.*)$/.exec(t);
     if (chk) {
+      const [, repo, name, sum] = chk;
       const fail = m.level === "warn";
-      const skip = !fail && /\b(yok|tanımlı değil|değişmedi|atlan|çalıştırılamıyor)\b/.test(chk[2]);
+      const skip = !fail && /\b(yok|tanımlı değil|değişmedi|atlan|çalıştırılamıyor)\b/.test(sum);
       const cls = fail ? "fail" : skip ? "skip" : "ok";
-      return el("div", { class: "chk " + cls }, el("span", { class: "i" }, fail ? "✗" : skip ? "–" : "✓"), el("span", { class: "k" }, chk[1]), el("span", {}, chk[2]));
+      return el("div", { class: "chk " + cls }, el("span", { class: "i" }, fail ? "✗" : skip ? "–" : "✓"), el("span", { class: "k" }, repo ? el("span", { class: "repo" }, repo) : null, name), el("span", {}, sum));
     }
     const v = /^Reviewer (PASS|FAIL)(.*)$/.exec(t);
     if (v) return el("div", { class: "verdict " + v[1].toLowerCase() }, v[1] === "PASS" ? `✓ Reviewer onayladı${v[2]}` : `✗ Reviewer reddetti${v[2]} — geri bildirim developer'a gidiyor`);
@@ -417,7 +447,7 @@
     if (/^(analist|developer|reviewer|committer): \$/.test(t)) return el("div", { class: "sys" }, `${ROLE[t.split(":")[0]]} bitti · ${t.split(": ")[1].split(" · ")[0]}`);
     if (/^(Ajan:|Base:|Temiz çalışma alanı:|Proje kuralları:|Onaylanan içerik:|Görev dosyası mevcut|Bağımlılık|Bağımlılıklar|Ajanlara açılan MCP|İlgili repo|Commit'ler onaylanan|Jira'dan çekiliyor)/.test(t))
       return el("div", { class: "sys", title: t }, t.replace(/\/[^\s]*\/(wt|base)\b/, "…/$1"));
-    return el("div", { class: "msg " + m.level }, m.text);
+    return el("div", { class: "msg " + m.level }, t);
   }
 
   function emptyState() {
@@ -452,7 +482,7 @@
     }
     renderStepper(s);
     $("composer").style.display = s.status === "running" || s.status === "waiting" ? "none" : "";
-    $("title").textContent = s.title;
+    $("title").replaceChildren(s.title, ...(s.companions || []).map((c) => el("span", { class: "comp", style: "margin-left:8px" }, `+ ${c.name}${c.edit ? " (değiştirir)" : " (okur)"}`)));
     $("title").title = `${s.project} · ${s.title}`;
     const b = $("badge");
     b.style.display = "";
@@ -505,7 +535,14 @@
   function renderDetail(text) {
     const lines = text.split("\n").map((l) => l.replace(/^\s*│ ?/, ""));
     const t = /^→\s*([\w.-]+):?\s*(.*)$/.exec(lines[0]);
-    if (t && lines.length === 1) return el("div", { class: "tool", title: lines[0] }, el("span", { class: "tool-name" }, t[1].replace(/^mcp__flowloop__/, "")), el("span", { class: "tool-arg" }, t[2]));
+    if (t && lines.length === 1) {
+      // çalışma kopyası yolları kısalır; ilgili projedeki dosyalar proje adıyla işaretlenir
+      let repo = null;
+      const arg = t[2]
+        .replace(/\S*\/wt-([\w.-]+)\/(\S*)/g, (_m, name, rest) => { repo = name; return rest; })
+        .replace(/\S*\/wt\/(\S*)/g, "$1");
+      return el("div", { class: "tool", title: lines[0] }, el("span", { class: "tool-name" }, t[1].replace(/^mcp__flowloop__/, "")), repo ? el("span", { class: "repo" }, repo) : null, el("span", { class: "tool-arg" }, arg));
+    }
     if (!/│/.test(text)) return el("div", { class: "tool" }, el("span", { class: "tool-arg" }, text.trim()));
     return el("div", { class: "msg agent", html: md(lines.join("\n")) });
   }
@@ -668,7 +705,7 @@
     if (!S.selectedProject) return showError("Önce soldan bir proje seç.");
     $("startBtn").disabled = true;
     try {
-      const r = await api("POST", "/api/run", { project: S.selectedProject, task, approvePlan: $("optPlan").checked, refresh: $("optRefresh").checked, noPush: $("optNoPush").checked });
+      const r = await api("POST", "/api/run", { project: S.selectedProject, task, approvePlan: $("optPlan").checked, refresh: $("optRefresh").checked, noPush: $("optNoPush").checked, related: [...S.rel].filter(([n, v]) => v !== "off" && S.projects.some((p) => p.name === n)).map(([name, v]) => ({ name, edit: v === "edit" })) });
       $("taskInput").value = "";
       await refresh();
       selectSession(r.session);

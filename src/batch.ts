@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runWithBudget, type AgentResult } from "./agent.js";
-import { jiraBaseUrl, loadConfig, relatedPath, isGitRepo, workDirFor, workDirsFor } from "./config.js";
+import { jiraBaseUrl, loadConfig, mergeRelated, relatedPath, isGitRepo, workDirFor, workDirsFor } from "./config.js";
 import { git, gitOk, workingTreeHash } from "./git.js";
 import { postComment } from "./jira.js";
 import { listItems, sectionLines } from "./notes.js";
@@ -169,6 +169,7 @@ export async function runBatch(opts: BatchOptions): Promise<BatchState> {
   const now = opts.now ?? (() => new Date());
   const home = opts.home ?? os.homedir();
   const cfg = loadConfig(root);
+  mergeRelated(cfg, root, opts.extraRelated);
   cfg.mcp.servers = expandServerNames(cfg.mcp.servers, root, home);
   if (git(["rev-parse", "--is-inside-work-tree"], root).code !== 0) throw new FlowloopError("Bu klasör bir git deposu değil.");
 

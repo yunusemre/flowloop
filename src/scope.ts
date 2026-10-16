@@ -21,6 +21,8 @@ export interface ScopeRepo {
   name: string;
   /** flowloop.yaml'daki yazma yolları (tavan) */
   ceiling: string[];
+  /** Kullanıcı görevi başlatırken bu repoyu "değiştirilebilir" seçti: planda kapsam yoksa tavana kadar açık */
+  requested?: boolean;
 }
 
 export interface ResolvedScope {
@@ -55,7 +57,8 @@ export function parseRepoScope(plan: string): Map<string, boolean> | undefined {
 
 /**
  * Plan + tavan → bu görevin kapsamı.
- * - Bölüm yoksa: bütün ilgili repolar salt okunur (güvenli varsayılan), uyarı verilir.
+ * - Bölüm yoksa: ilgili repolar salt okunur (güvenli varsayılan), uyarı verilir; görevi başlatırken "değiştirilebilir"
+ *   seçilenler (requested) hariç: onlar tavana kadar açıktır.
  * - Bölüm varsa: sadece "yazılabilir" denen VE tavanı boş olmayan repolar yazılabilir;
  *   listede olmayan ya da okunamayan satırlar salt okunur sayılır (güvenli varsayılan).
  */
@@ -65,8 +68,8 @@ export function resolveScope(plan: string, repos: ScopeRepo[]): ResolvedScope {
   const parsed = parseRepoScope(plan);
   if (!parsed) {
     // güvenli varsayılan: kapsam belirtilmediyse hiçbir ilgili repoya yazılamaz
-    for (const r of repos) edit[r.name] = [];
-    if (repos.some((r) => r.ceiling.length)) warnings.push(`Planda "## ${SCOPE_HEADING}" bölümü yok; bütün ilgili repolar salt okunur. Yazma gerekiyorsa planı yorumla güncellet (ör. "backend yazılabilir olsun").`);
+    for (const r of repos) edit[r.name] = r.requested ? [...r.ceiling] : [];
+    if (repos.some((r) => r.ceiling.length && !r.requested)) warnings.push(`Planda "## ${SCOPE_HEADING}" bölümü yok; bütün ilgili repolar salt okunur. Yazma gerekiyorsa planı yorumla güncellet (ör. "backend yazılabilir olsun").`);
     return { fromPlan: false, edit, warnings };
   }
   const known = new Set(repos.map((r) => r.name));

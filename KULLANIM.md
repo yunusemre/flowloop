@@ -543,6 +543,12 @@ Tarayıcı açılır. Soldan projeyi seç, alttaki kutuya görevi yaz (`IDT-123`
 | Bütçe doldu | Ek bütçeyle devam · Durdur |
 
 - **Projeler:** `flowloop ui`'yi bir projenin içinde çalıştırırsan o proje kendiliğinden eklenir. Başkalarını **+ Ekle** ile eklersin: bir projenin klasörünü ya da projelerin hepsinin durduğu klasörü (ör. `~/Desktop/WORK`) yazabilirsin; üst klasör verilirse altındaki (iki seviyeye kadar) flowloop kurulu repoların hepsi eklenir, kurulu olmayanlar `flowloop init` gerektiği notuyla listelenir. Kayıt `~/.flowloop/projects.json` dosyasında durur; × ile kayıttan çıkarmak dosyalara dokunmaz.
+- **İki (ya da daha fazla) repoyu kapsayan iş:** görev kutusunun altındaki **Birlikte** satırında diğer kayıtlı projeler durur. Tıkladıkça değişir: kapalı → **okur** (ajanlar okur, değiştirmez) → **değiştirir** (developer o projede de yazar). Seçtiğin projeler o çalıştırmanın ilgili reposu olur; `flowloop.yaml`'a bir şey yazman gerekmez.
+  - Yetki sınırı her projenin kendi ayarıdır: "değiştirir" seçtiğin projede developer en fazla o projenin `paths.edit` yollarına yazabilir, `readDeny` dosyalarını kimse okuyamaz, kontroller o projenin kendi komutlarıyla çalışır.
+  - Analist planda "## Repo kapsamı" yazarsa o geçerli olur (daraltabilir); yazmazsa "değiştirir" seçtiklerin açık kalır.
+  - Sohbette ajanın dokunduğu dosyalar proje adıyla işaretlenir, kontroller proje proje gösterilir; değişiklik onayında farklar repo repo, bitişte commit ve PR bağlantıları her repo için ayrı yazar. Her değişen repoda aynı adla branch açılır.
+  - "Değiştirir" seçilen proje çalıştırma bitene kadar meşgul sayılır (aynı repo iki çalıştırmada birden değiştirilmesin); sadece okunan projelerde kısıt yok.
+  - Bir projede seçtiğin eşlikçiler, o projede sonraki görevde hazır gelir.
 - **Geçmiş:** seçili projenin çalıştırmaları solda listelenir; yarım kalanlarda **Devam** `flowloop resume` ile aynı işi yapar.
 - **Aynı anda:** her projede bir çalıştırma; farklı projeler paralel çalışabilir.
 - **Görünüm:** üstte aşamalar (Plan → Geliştirme → İnceleme → Senin onayın → Teslim), geçen süre ve maliyet. Ajanların yazdıkları ve araç çağrıları rol rozetiyle sohbette akar; "Ajan adımları" kutusuyla gizlenir. Kontroller ✓/✗ satırı, reviewer kararı rozet olarak görünür.

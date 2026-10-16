@@ -3,7 +3,7 @@ import path from "node:path";
 import picomatch from "picomatch";
 import { runWithBudget, type AgentRequest, type AgentResult, type AgentRunner, type BudgetRequest, type Denial } from "./agent.js";
 import { ScopedChecks, renderReport, type CheckResult, type CheckRunner } from "./checks.js";
-import { FLOWLOOP_DIR, jiraBaseUrl, loadConfig, workDirFor, workDirsFor } from "./config.js";
+import { FLOWLOOP_DIR, jiraBaseUrl, loadConfig, mergeRelated, workDirFor, workDirsFor, type ExtraRelated } from "./config.js";
 import { changedExisting, changedPaths, diffAgainst, failureLines, fillFiles, git, gitOk, headSha, runConfigured, statusPorcelain, workingTreeHash } from "./git.js";
 import type { Logger } from "./log.js";
 import { MutantSandbox } from "./mutant.js";
@@ -177,6 +177,8 @@ export interface RunOptions {
   batch?: BatchRef;
   /** flowloop.yaml → questions ayarını bu çalıştırma için ezer (--questions) */
   questionsMode?: QuestionsMode;
+  /** Bu çalıştırmaya eklenen ilgili repolar (sohbet arayüzünde seçilen diğer projeler) */
+  extraRelated?: ExtraRelated[];
   now?: () => Date;
   /** Testlerde kontrol komutlarını taklit etmek için */
   checkRunner?: CheckRunner;
@@ -728,6 +730,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   const { root, log, agent } = opts;
   const now = opts.now ?? (() => new Date());
   const cfg = loadConfig(root);
+  mergeRelated(cfg, root, opts.extraRelated);
   const home = opts.home ?? os.homedir();
   cfg.mcp.servers = expandServerNames(cfg.mcp.servers, root, home);
   const roles = loadRoles(root, cfg);
@@ -930,7 +933,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   summary.related = related.map((x) => x.s);
   saveSummary();
   // flowloop.yaml'daki yazma yolları tavandır; görevin kapsamı plan onayından sonra belirlenir
-  const ceilings: ScopeRepo[] = cfg.related.map((r) => ({ name: r.name, ceiling: [...r.edit] }));
+  const ceilings: ScopeRepo[] = cfg.related.map((r) => ({ name: r.name, ceiling: [...r.edit], requested: !!opts.extraRelated?.some((e) => e.name === r.name && e.edit.length) }));
   const applyScope = (edit: Record<string, string[]>) => {
     for (const r of related) r.setEdit(edit[r.name] ?? []);
     for (const r of cfg.related) r.edit = [...(edit[r.name] ?? [])];
@@ -1207,7 +1210,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       assertDevScope("Formatter");
       summary.checks.push(results);
       const report = renderReport(results, { personal: cfg.redact.personal });
-      for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
+      for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.repo ? `[${r.repo}] ` : ""}${r.name}: ${r.summary}`);
       // ortam sorunu (Docker kapalı vb.) kodla çözülmez: developer'a gönderip tur harcama, dur
       const envFail = results.find((r) => r.env);
       if (envFail) fail(`Kontroller ortam yüzünden çalışamadı: ${envFail.env}\n  Kod değişiklikleri çalışma alanında duruyor; ortamı düzeltip devam etmek için: flowloop resume ${summary.id}`);
@@ -1504,6 +1507,10 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     summary.durationMs = d0 + (Date.now() - t0);
   };
   opts = timedOptions(opts, sw);
+  // arayüzden bu çalıştırmaya eklenen repolar yaml'da yok: kayıttan geri kurulur
+  for (const r of summary.related ?? []) {
+    if (r.git !== false && !cfg.related.some((x) => x.name === r.name)) cfg.related.push({ name: r.name, path: r.root, edit: [...r.edit], baseBranch: r.baseBranch });
+  }
   // görevin kaydedilen kapsamı geçerlidir; tavan (flowloop.yaml) o arada daraldıysa dar olan kazanır
   for (const r of cfg.related) {
     const recorded = summary.related?.find((x) => x.name === r.name);
@@ -1687,7 +1694,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
       for (const r of related) results.push(...sw.time(`kontroller: ${r.name}`, "check", () => r.runChecks(), { iteration: summary.iterations }));
       summary.checks.push(results);
       saveSummary();
-      for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.name}: ${r.summary}`);
+      for (const r of results) (r.status === "fail" ? log.warn : log.info)(`  kontrol · ${r.repo ? `[${r.repo}] ` : ""}${r.name}: ${r.summary}`);
       const report = renderReport(results, { personal: cfg.redact.personal });
       const envFail = results.find((r) => r.env);
       if (envFail) fail(`Kontroller ortam yüzünden çalışamadı: ${envFail.env}\n  Ortamı düzeltip tekrar: flowloop resume ${summary.id}`);
