@@ -611,7 +611,7 @@ En çok değiştirilenler:
 | `questions` | Analistin açık soruları: `ask` (terminalde sor, etkileşimsizse dur), `jira` (etkileşimsizse Jira'ya yaz ve dur), `assume` (varsayılanla devam). Bkz. [Açık sorular](#açık-sorular) |
 | `commands.testRelated` | Bu işin testleri, ör. `npx jest --findRelatedTests {{files}} --passWithNoTests` |
 | `commands.typecheck` | Ör. `npx tsc --noEmit -p .`; sadece yeni hatalar sayılır |
-| `commands.lint` | Ör. `npx eslint --quiet {{files}}`; sadece yeni **hatalar** sayılır, uyarılar bloklamaz. Kapatmak için `lint: false` (boş bırakırsan `flowloop init --force` yeniden algılayıp açar). `typecheck` ve `format` da aynı şekilde kapatılır |
+| `commands.lint` | Ör. `npx eslint --quiet {{files}}`; sadece yeni **hatalar** sayılır, uyarılar bloklamaz. **`flowloop init` varsayılan olarak `lint: false` yazar**; algılanan komut yanındaki yorumda durur, açmak için onu yazman yeterli. Kapatmak için `lint: false` (boş bırakırsan `flowloop init --force` yeniden algılayıp açar). `typecheck` ve `format` da aynı şekilde kapatılır |
 | `commands.format` | Ör. `npx prettier --write {{files}}`; her turdan sonra otomatik çalışır |
 | `paths.edit` | Developer'ın değiştirebileceği yollar. Varsayılan `**` (bütün repo); gizli dosyalara (`readDeny`), `.git`'e ve `.flowloop`'a yine yazılamaz. Daraltmak için ör. `src/**` |
 | `paths.readDeny` | Hiçbir rolün okuyamayacağı dosyalar (`.env` gibi) |

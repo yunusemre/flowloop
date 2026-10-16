@@ -264,11 +264,12 @@ questions: ask                   # analistin açık soruları: ask (terminalde s
 
 # {{files}} = bu işte değişen dosyalar, {{testFiles}} = bunlardan test olanlar.
 # typecheck ve lint için SADECE bu işin getirdiği YENİ hatalar sayılır.
+# Bir kontrolü kapatmak için false yaz (boş bırakılırsa "flowloop init --force" yeniden algılar).
 commands:
   install: ${q(d.commands.install)}          # linkDirs yetmezse worktree'de kurulum
   testRelated: ${q(d.commands.testRelated)}
   typecheck: ${q(d.commands.typecheck)}
-  lint: ${q(d.commands.lint)}
+  lint: false                    # varsayılan kapalı${d.commands.lint ? ` · açmak için: lint: ${q(d.commands.lint)}` : ` · açmak için komutu yaz, ör. lint: "npx eslint --quiet {{files}}"`}
   format: ${q(d.commands.format)}            # her developer turundan sonra otomatik
   commitCheck: ${q(d.commands.commitCheck)}
 
