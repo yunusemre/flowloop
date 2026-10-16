@@ -531,7 +531,10 @@ cd ~/projeler/my-app
 flowloop ui
 ```
 
-Tarayıcı açılır. Soldan projeyi seç, alttaki kutuya görevi yaz (`IDT-123`, Jira bağlantısı ya da görev dosyası; birbirine bağlı görevler için boşlukla `IDT-1 IDT-2`) ve **Başlat**'a bas. Ajanların ilerlemesi mesaj mesaj akar. Karar gereken her yerde bir kart çıkar ve terminaldeki seçeneklerin aynısını sunar:
+Tarayıcı açılır. Soldan projeyi seç, alttaki kutuda **İş** ya da **Soru**'yu seç ve yaz (Enter gönderir, Shift+Enter yeni satır):
+
+- **İş:** ne yapılmasını istediğini kendi cümlelerinle yaz ("ShipmentService'te desiyi ÖT zorunlu gönderide de işle") ya da Jira anahtarı, bağlantısı veya görev dosyası gir (birbirine bağlı görevler için boşlukla `IDT-1 IDT-2`). Serbest yazılan istek `.flowloop/tasks/istek-<tarih>-<özet>.md` görev dosyası olur; metinde geçen Jira anahtarları bilgi olarak eklenir. Sonra tam akış çalışır: plan → geliştirme → inceleme → senin onayın → commit.
+- **Soru:** seçili projenin (ve "Birlikte" seçtiklerinin) kodu hakkında sor: "desi nerede hesaplanıyor?". Sadece okuyan bir ajan kodu inceleyip `dosya:satır` göstererek cevaplar; hiçbir dosyayı değiştiremez, komut çalıştıramaz, `readDeny` dosyalarını okuyamaz. Aynı sohbette takip sorusu sorabilirsin (bağlam korunur). Soru sohbetleri projeyi meşgul etmez. Cevabın altındaki **Bunu iş olarak başlat** soruyu görev kutusuna, cevabı da göreve not olarak geçirir. Ajanların ilerlemesi mesaj mesaj akar. Karar gereken her yerde bir kart çıkar ve terminaldeki seçeneklerin aynısını sunar:
 
 | Kart | Seçenekler |
 |---|---|

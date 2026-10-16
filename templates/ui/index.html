@@ -151,6 +151,14 @@
   .rel.busy { opacity: .45; cursor: not-allowed; }
   .comp { font-size: 11.5px; padding: 1px 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
   .repo { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); margin-right: 4px; }
+  #taskInput { resize: none; min-height: 40px; max-height: 220px; line-height: 1.45; padding: 9px 10px; }
+  .seg.mode { flex-shrink: 0; align-self: stretch; }
+  .seg.mode button { padding: 0 12px; font-size: 13px; }
+  .task-opts { display: inline-flex; gap: 16px; flex-wrap: wrap; }
+  .ctx { background: var(--accent-soft); color: var(--accent); padding: 4px 10px; border-radius: 8px; display: flex; gap: 8px; align-items: center; }
+  .msg.answer { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); max-width: 100%; white-space: normal; }
+  .msg.answer p { margin: 6px 0; }
+  .answer-actions { display: flex; gap: 8px; margin-top: 4px; }
   .composer { border-top: 1px solid var(--line); background: var(--panel); padding: 12px 20px; }
   .composer-inner { max-width: 900px; margin: 0 auto; display: flex; flex-direction: column; gap: 8px; }
   .composer .row { display: flex; gap: 8px; }
@@ -198,15 +206,19 @@
   <div class="composer" id="composer">
     <div class="composer-inner">
       <div class="row">
-        <input type="text" id="taskInput" placeholder="Görev: IDT-123, Jira bağlantısı ya da .flowloop/tasks/x.md — birbirine bağlı görevler için boşlukla: IDT-1 IDT-2">
+        <div class="seg mode" id="modeSeg"><button data-m="task" title="Plan → geliştirme → inceleme → senin onayın → commit">İş</button><button data-m="ask" title="Sadece okuyan bir ajan kodu inceleyip cevaplar; hiçbir şey değiştirmez">Soru</button></div>
+        <textarea id="taskInput" rows="1"></textarea>
         <button class="primary" id="startBtn">Başlat</button>
       </div>
+      <div class="hint ctx" id="ctxNote" style="display:none"></div>
       <div class="opts">
         <span id="projectLabel"></span>
         <span id="relPicker" class="rel-picker"></span>
+        <span class="task-opts" id="taskOpts">
         <label><input type="checkbox" id="optPlan" checked> Planı onayıma sun</label>
         <label><input type="checkbox" id="optRefresh"> Jira'dan yeniden çek</label>
         <label><input type="checkbox" id="optNoPush"> Push yapma</label>
+        </span>
       </div>
     </div>
   </div>
@@ -217,7 +229,12 @@
   // ───── durum ─────
   const token = new URLSearchParams(location.hash.slice(1)).get("t") || sessionStorage.getItem("flowloop-t") || "";
   if (token) { try { sessionStorage.setItem("flowloop-t", token); } catch {} history.replaceState(null, "", location.pathname); }
-  const S = { projects: [], sessions: new Map(), selectedProject: null, selectedSession: null, runs: [], composing: true, open: new Map(), card: null, rel: new Map() };
+  const S = { mode: "task", ctx: null, projects: [], sessions: new Map(), selectedProject: null, selectedSession: null, runs: [], composing: true, open: new Map(), card: null, rel: new Map() };
+  // seçimler sayfa yenilenince kaybolmasın: bu tarayıcıda saklanır (proje, sohbet, "Birlikte" seçimleri, seçenekler)
+  const PREFS_KEY = "flowloop-ui-prefs";
+  const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREFS_KEY) || "{}") || {}; } catch { return {}; } })();
+  prefs.rel = prefs.rel || {};
+  const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch {} };
   const $ = (id) => document.getElementById(id);
   const el = (tag, attrs = {}, ...kids) => {
     const n = document.createElement(tag);
@@ -317,7 +334,7 @@
     $("sessions").replaceChildren(...list.map((s) =>
       el("div", { class: "item" + (s.id === S.selectedSession ? " active" : ""), onclick: () => selectSession(s.id) },
         el("span", { class: "dot " + s.status }),
-        el("span", { class: "grow" }, s.title, el("div", { class: "sub" }, `${s.project} · ${statusText(s.status)}`)))));
+        el("span", { class: "grow" }, s.title, el("div", { class: "sub" }, `${s.kind === "ask" ? "Soru · " : ""}${s.project} · ${s.kind === "ask" && s.status === "done" ? "cevaplandı" : statusText(s.status)}`)))));
     if (!list.length) $("sessions").append(el("div", { class: "item sub" }, "Henüz yok."));
     const runs = S.runs.slice(0, 40);
     $("runs").replaceChildren(...runs.map((r) =>
@@ -329,7 +346,7 @@
     if (S.selectedProject && !runs.length) $("runs").append(el("div", { class: "item sub" }, "Kayıt yok."));
     $("projectLabel").textContent = S.selectedProject ? `Proje: ${S.selectedProject}` : "Önce bir proje seç";
     renderRelPicker();
-    $("startBtn").disabled = !S.selectedProject;
+    renderComposer();
   }
   const busyProject = () => S.projects.find((p) => p.name === S.selectedProject)?.busy;
   /** Görevle birlikte çalışılacak diğer projeler: tıkladıkça kapalı → okur → değiştirir */
@@ -344,7 +361,12 @@
       return el("span", {
         class: "rel " + st + (busyEdit && st === "edit" ? " busy" : ""),
         title: st === "off" ? "Bu görevde kullanılmaz. Tıkla: okur" : st === "read" ? "Ajanlar okur, değiştirmez. Tıkla: değiştirir" : "Developer bu projede de değişiklik yapar (sınır: o projenin flowloop.yaml → paths.edit). Tıkla: kapat",
-        onclick: () => { S.rel.set(p.name, st === "off" ? "read" : st === "read" ? "edit" : "off"); renderRelPicker(); },
+        onclick: () => {
+          S.rel.set(p.name, st === "off" ? "read" : st === "read" ? "edit" : "off");
+          prefs.rel[S.selectedProject] = Object.fromEntries(S.rel);
+          savePrefs();
+          renderRelPicker();
+        },
       }, p.name + REL_TEXT[st]);
     }));
   }
@@ -352,10 +374,13 @@
 
   async function selectProject(name) {
     if (S.selectedProject !== name) {
-      // son görevde seçilen projeler hazır gelir
-      S.rel = new Map((S.projects.find((p) => p.name === name)?.companions || []).map((c) => [c.name, c.edit ? "edit" : "read"]));
+      // bu tarayıcıdaki son seçim, yoksa o projede son görevle seçilenler
+      const saved = prefs.rel[name];
+      S.rel = saved ? new Map(Object.entries(saved)) : new Map((S.projects.find((p) => p.name === name)?.companions || []).map((c) => [c.name, c.edit ? "edit" : "read"]));
     }
     S.selectedProject = name;
+    prefs.project = name;
+    savePrefs();
     renderSide();
     try {
       [S.runs, S.tasks] = await Promise.all([api("GET", `/api/projects/${encodeURIComponent(name)}/runs`), api("GET", `/api/projects/${encodeURIComponent(name)}/tasks`)]);
@@ -366,6 +391,8 @@
   function selectSession(id) {
     S.selectedSession = id;
     S.composing = false;
+    prefs.session = id;
+    savePrefs();
     const s = S.sessions.get(id);
     if (s && s.project !== S.selectedProject) selectProject(s.project);
     renderSide();
@@ -395,6 +422,7 @@
   // ───── sohbet ─────
   const ROLE = { analist: "Analist", developer: "Developer", reviewer: "Reviewer", committer: "Committer" };
   const STAGES = ["Plan", "Geliştirme", "İnceleme", "Senin onayın", "Teslim"];
+  const avatarRow = (role, label) => el("div", { class: "who" }, el("span", { class: "av " + role }, (ROLE[role] || "F")[0]), label);
   const avatar = (role) => el("span", { class: "av " + role }, (ROLE[role] || "F")[0]);
 
   /** Mesajlardan çalıştırmanın nerede olduğunu çıkarır: aşama, maliyet */
@@ -419,7 +447,7 @@
 
   function renderStepper(s) {
     const st = $("stepper");
-    if (!s) { st.classList.remove("show"); return; }
+    if (!s || s.kind === "ask") { st.classList.remove("show"); return; }
     const { stage } = progress(s);
     st.classList.add("show");
     st.replaceChildren(...STAGES.map((name, i) => {
@@ -432,7 +460,7 @@
   function renderMeta() {
     const s = S.sessions.get(S.selectedSession);
     if (!s || S.composing) { $("meta").textContent = ""; return; }
-    const { cost } = progress(s);
+    const cost = s.kind === "ask" ? s.costUsd || 0 : progress(s).cost;
     const start = s.startedAt ?? s.messages[0]?.at;
     const end = s.status === "running" || s.status === "waiting" ? Date.now() : s.messages.at(-1)?.at;
     $("meta").textContent = [start && end ? ago(end - start) : "", cost ? `$${cost.toFixed(2)}` : ""].filter(Boolean).join(" · ");
@@ -464,7 +492,9 @@
     const tasks = S.tasks || [];
     return el("div", { class: "empty" },
       el("h2", {}, S.selectedProject ? `${S.selectedProject} için bir görev başlat` : "Önce soldan bir proje seç"),
-      el("p", {}, "Aşağıya Jira anahtarını yaz ve Başlat'a bas. Birbirine bağlı görevler için boşlukla yaz: IDT-1 IDT-2"),
+      el("p", {}, S.mode === "ask"
+        ? "Kod hakkında soru sor: ajan seçili projeleri (ve \"Birlikte\" seçtiklerini) okur, cevaplar; hiçbir şey değiştirmez. Cevabı beğenirsen tek tıkla işe çevirirsin."
+        : "Ne yapılmasını istediğini kendi cümlelerinle yaz ya da Jira anahtarını gir. Birbirine bağlı görevler için boşlukla: IDT-1 IDT-2"),
       tasks.length ? el("div", { class: "tasks" },
         el("div", { class: "sys" }, "Son görevler — tıkla, kutuya yazılsın:"),
         ...tasks.slice(0, 6).map((t) => el("div", { class: "t", onclick: () => { $("taskInput").value = t.key || t.file; $("taskInput").focus(); } },
@@ -488,16 +518,19 @@
       renderStepper(null);
       inner.replaceChildren(emptyState());
       $("composer").style.display = "";
+      renderComposer();
       return;
     }
     renderStepper(s);
-    $("composer").style.display = s.status === "running" || s.status === "waiting" ? "none" : "";
+    // soru sohbetinde kutu hep görünür (takip sorusu); görev sohbetinde iş bitince yeni görev için
+    $("composer").style.display = s.kind === "ask" || !(s.status === "running" || s.status === "waiting") ? "" : "none";
+    renderComposer();
     $("title").replaceChildren(s.title, ...(s.companions || []).map((c) => el("span", { class: "comp", style: "margin-left:8px" }, `+ ${c.name}${c.edit ? " (değiştirir)" : " (okur)"}`)));
     $("title").title = `${s.project} · ${s.title}`;
     const b = $("badge");
     b.style.display = "";
     b.className = "badge " + s.status;
-    b.textContent = statusText(s.status);
+    b.textContent = s.kind === "ask" && s.status === "done" ? "cevaplandı" : statusText(s.status);
     const atBottom = $("chat").scrollTop + $("chat").clientHeight >= $("chat").scrollHeight - 40;
     const nodes = [];
     // katlanabilir blok (uzun plan metni, süre tablosu): kullanıcının açıp kapattığı yeniden çizimde korunur
@@ -512,13 +545,20 @@
     for (const m of s.messages) {
       if (m.level === "detail") {
         const rm = /^\s*▸ (\w+)$/.exec(m.text);
-        if (rm) { role = rm[1]; nodes.push(el("div", { class: "who" }, avatar(role), `${ROLE[role] || role} çalışıyor`)); continue; }
+        if (rm) { role = rm[1]; nodes.push(el("div", { class: "who" }, avatar(role), s.kind === "ask" ? "Kodu inceliyor" : `${ROLE[role] || role} çalışıyor`)); continue; }
         if (showDetail) nodes.push(renderDetail(m.text));
         continue;
       }
       if (m.level === "step") nodes.push(el("div", { class: "step" }, m.text.replace(/^\d\/\d\s+/, "").replace(/\s{2,}\((.*)\)\s*$/, " · $1")));
       else if (m.level === "done") nodes.push(el("div", { class: "msg done", html: linkify(m.text) }));
       else if (m.level === "user") nodes.push(el("div", { class: "msg user" }, m.text));
+      else if (m.level === "answer") {
+        const q = [...s.messages].reverse().find((x) => x.level === "user" && x.seq < m.seq)?.text || "";
+        nodes.push(el("div", {}, avatarRow("analist", "Cevap"), el("div", { class: "msg answer", html: md(m.text) }),
+          el("div", { class: "answer-actions" },
+            el("button", { class: "small", title: "Bu soruyu ve cevabı not olarak alıp görev başlatma kutusuna geçer", onclick: () => toTask(q, m.text, s) }, "Bunu iş olarak başlat"),
+            el("button", { class: "small", onclick: () => navigator.clipboard?.writeText(m.text) }, "Kopyala"))));
+      }
       else if (m.text.split("\n").length > 12) {
         const [first, ...rest] = m.text.replace(/^\n+/, "").split("\n");
         nodes.push(fold(`m${m.seq}`, "msg " + m.level, first.replace(/^[─\s]+|[─\s]+$/g, "") || "ayrıntı", rest.join("\n"), false));
@@ -709,18 +749,59 @@
   }
 
   // ───── başlatma ─────
+  /** Kutunun hâli: yeni İş / yeni Soru / açık soru sohbetinde takip sorusu */
+  function followUp() {
+    const s = S.sessions.get(S.selectedSession);
+    return !S.composing && s?.kind === "ask" ? s : null;
+  }
+  function renderComposer() {
+    const f = followUp();
+    const mode = f ? "ask" : S.mode;
+    for (const b of $("modeSeg").children) b.classList.toggle("on", b.dataset.m === mode);
+    $("modeSeg").style.display = f ? "none" : "";
+    $("taskOpts").style.display = mode === "task" ? "" : "none";
+    const busy = f && (f.status === "running" || f.status === "waiting");
+    $("taskInput").placeholder = f
+      ? (busy ? "Cevap hazırlanıyor…" : "Takip sorusu — aynı konuşmada devam eder (Enter gönderir, Shift+Enter yeni satır)")
+      : mode === "ask"
+        ? "Seçili projelerin kodu hakkında sor: \"desi nerede hesaplanıyor?\" — ajan sadece okur, hiçbir şey değiştirmez"
+        : "Ne yapılsın? \"ShipmentService'te desiyi ÖT zorunlu gönderide de işle\" ya da Jira: IDT-123 (birden fazla: IDT-1 IDT-2)";
+    $("startBtn").textContent = f ? "Sor" : mode === "ask" ? "Sor" : "Başlat";
+    $("startBtn").disabled = !S.selectedProject || !!busy;
+    $("ctxNote").style.display = S.ctx && mode === "task" && !f ? "" : "none";
+    if (S.ctx) $("ctxNote").replaceChildren("Sohbetteki cevap göreve not olarak eklenecek.", el("button", { class: "small", onclick: () => { S.ctx = null; renderComposer(); } }, "Çıkar"));
+  }
+  const growInput = () => { const t = $("taskInput"); t.style.height = "auto"; t.style.height = Math.min(t.scrollHeight, 220) + "px"; };
+
+  /** Cevaptan görev: soru kutuya yazılır, cevap göreve not olarak gider */
+  function toTask(question, answer, s) {
+    S.composing = true; S.selectedSession = null; S.mode = "task"; S.ctx = answer;
+    if (s.project !== S.selectedProject) selectProject(s.project);
+    $("taskInput").value = question;
+    renderSide(); renderMain(); growInput(); $("taskInput").focus();
+  }
+
+  const relPayload = () => [...S.rel].filter(([n, v]) => v !== "off" && S.projects.some((p) => p.name === n)).map(([name, v]) => ({ name, edit: v === "edit" }));
   async function startTask() {
-    const task = $("taskInput").value.trim();
-    if (!task) return $("taskInput").focus();
+    const text = $("taskInput").value.trim();
+    if (!text) return $("taskInput").focus();
     if (!S.selectedProject) return showError("Önce soldan bir proje seç.");
     $("startBtn").disabled = true;
     try {
-      const r = await api("POST", "/api/run", { project: S.selectedProject, task, approvePlan: $("optPlan").checked, refresh: $("optRefresh").checked, noPush: $("optNoPush").checked, related: [...S.rel].filter(([n, v]) => v !== "off" && S.projects.some((p) => p.name === n)).map(([name, v]) => ({ name, edit: v === "edit" })) });
-      $("taskInput").value = "";
+      const f = followUp();
+      if (f) {
+        await api("POST", `/api/sessions/${f.id}/ask`, { question: text });
+        $("taskInput").value = ""; growInput();
+        return;
+      }
+      const r = S.mode === "ask"
+        ? await api("POST", "/api/ask", { project: S.selectedProject, question: text, related: relPayload() })
+        : await api("POST", "/api/run", { project: S.selectedProject, task: text, context: S.ctx || "", approvePlan: $("optPlan").checked, refresh: $("optRefresh").checked, noPush: $("optNoPush").checked, related: relPayload() });
+      $("taskInput").value = ""; S.ctx = null; growInput();
       await refresh();
       selectSession(r.session);
     } catch (e) { showError(e); }
-    finally { $("startBtn").disabled = !S.selectedProject; }
+    finally { renderComposer(); }
   }
 
   // ───── canlı akış ─────
@@ -762,7 +843,12 @@
       const st = await api("GET", "/api/state");
       S.projects = st.projects;
       if (full) for (const s of st.sessions) S.sessions.set(s.id, s);
-      if (!S.selectedProject && S.projects.length) await selectProject(S.projects[0].name);
+      if (!S.selectedProject && S.projects.length) {
+        const keep = S.projects.find((p) => p.name === prefs.project);
+        await selectProject((keep ?? S.projects[0]).name);
+        // yenilemeden önce açık olan sohbet (sunucu hâlâ çalışıyorsa)
+        if (full && prefs.session && S.sessions.has(prefs.session) && !S.selectedSession) selectSession(prefs.session);
+      }
       flagTitle();
       renderSide();
       renderMain(false);
@@ -771,8 +857,17 @@
 
   // ───── olaylar ─────
   $("startBtn").onclick = startTask;
-  $("taskInput").addEventListener("keydown", (e) => { if (e.key === "Enter") startTask(); });
-  $("newBtn").onclick = () => { S.composing = true; S.selectedSession = null; renderSide(); renderMain(); $("taskInput").focus(); };
+  // sohbet gibi: Enter gönderir, Shift+Enter yeni satır
+  $("taskInput").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.isComposing) { e.preventDefault(); startTask(); } });
+  $("taskInput").addEventListener("input", growInput);
+  for (const b of $("modeSeg").children) b.onclick = () => { S.mode = b.dataset.m; prefs.mode = S.mode; savePrefs(); renderComposer(); if (S.composing) renderMain(false); $("taskInput").focus(); };
+  if (prefs.mode === "ask" || prefs.mode === "task") S.mode = prefs.mode;
+  $("newBtn").onclick = () => { S.composing = true; S.selectedSession = null; prefs.session = null; savePrefs(); renderSide(); renderMain(); $("taskInput").focus(); };
+  // seçenek kutuları da hatırlanır
+  for (const id of ["showDetail", "optPlan", "optRefresh", "optNoPush"]) {
+    if (typeof prefs[id] === "boolean") $(id).checked = prefs[id];
+    $(id).addEventListener("change", () => { prefs[id] = $(id).checked; savePrefs(); });
+  }
   $("showDetail").onchange = () => renderMain(false);
   $("chat").addEventListener("scroll", updateJump);
   $("jumpBtn").onclick = () => { $("chat").scrollTop = $("chat").scrollHeight; };

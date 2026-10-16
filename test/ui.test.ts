@@ -284,3 +284,94 @@ test("ui: anahtar saklanır, yeniden başlatmada adres değişmez; --new-token y
     await ui.close();
   }
 });
+
+test("ui: tarayıcı kapanınca (canlı akış bağlantısı koparsa) sunucu ve süren çalıştırma devam eder", async () => {
+  const http = await import("node:http");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-uih-"));
+  const root = makeRepo();
+  const p = addProject(root, home);
+  const ui = await startUi({ port: 0, home, createAgent: () => ({ runner: new FakeAgent(), backend: "claude", reason: "test" }), runExtras: { noFetch: true, home } });
+  const H = { "x-flowloop-token": ui.token, "content-type": "application/json" };
+  try {
+    // birkaç sekme açılıp kapanır
+    for (let i = 0; i < 5; i++) {
+      await new Promise<void>((resolve) => {
+        const req = http.get({ host: "127.0.0.1", port: ui.port, path: `/api/events?t=${ui.token}` }, (res) => res.once("data", () => (req.destroy(), resolve())));
+        req.on("error", () => resolve());
+      });
+    }
+    const r = await fetch(`http://127.0.0.1:${ui.port}/api/run`, { method: "POST", headers: H, body: JSON.stringify({ project: p.name, task: ".flowloop/tasks/ekspres.md", approvePlan: false }) });
+    assert.equal(r.status, 200);
+    let s: any;
+    for (const t0 = Date.now(); Date.now() - t0 < 30_000; ) {
+      s = (await (await fetch(`http://127.0.0.1:${ui.port}/api/state`, { headers: H })).json()).sessions[0];
+      if (s?.prompt?.kind === "changes") break;
+      await new Promise((res) => setTimeout(res, 50));
+    }
+    assert.equal(s.prompt?.kind, "changes", "çalıştırma kopan bağlantılara rağmen ilerledi");
+  } finally {
+    await ui.close();
+  }
+});
+
+test("ui: serbest yazılan istek görev dosyası olur; anahtar/bağlantı/dosya ise olduğu gibi kullanılır", async () => {
+  const { isTaskRef, writeRequestTask, taskTitle } = await import("../src/ui.js");
+  assert.ok(isTaskRef("IDT-22685"));
+  assert.ok(isTaskRef("https://x.atlassian.net/browse/IDT-1"));
+  assert.ok(isTaskRef(".flowloop/tasks/a.md"));
+  assert.ok(!isTaskRef("düzelt"));
+  const root = makeRepo();
+  const rel = writeRequestTask(root, "ShipmentService'te desiyi ÖT zorunlu gönderide de işle\nIDT-23001 ile ilgili.", "Cevap: desi ShipmentItemManager.cs:120'de", new Date("2026-10-16T10:00:00Z"));
+  assert.match(rel, /^\.flowloop\/tasks\/istek-20261016-100000-shipmentservice-te-desiyi-ot-zorunlu-g\w*\.md$/);
+  const text = fs.readFileSync(path.join(root, rel), "utf8");
+  assert.match(text, /^# ShipmentService'te desiyi ÖT zorunlu gönderide de işle/);
+  assert.match(text, /İlgili Jira kayıtları: IDT-23001/);
+  assert.match(text, /## Sohbetten notlar\n\nCevap: desi/);
+  assert.equal(taskTitle(root, rel), "IDT-23001 · ShipmentService'te desiyi ÖT zorunlu gönderide de işle");
+});
+
+test("ui: soru modunda ajan sadece okur; takip sorusu aynı oturumla sürer; görev sayılmaz", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-uih-"));
+  const root = makeRepo();
+  const p = addProject(root, home);
+  const seen: AgentRequest[] = [];
+  const asker: AgentRunner = {
+    async run(req) {
+      seen.push(req);
+      return { ok: true, text: `Cevap ${seen.length}: \`src/fiyat.js:2\` — token: ATATT1234567890abcdefghijklmnop`, costUsd: 0.05, denials: [], models: [], sessionId: "oturum-1" };
+    },
+  };
+  const ui = await startUi({ port: 0, home, createAgent: () => ({ runner: asker, backend: "claude", reason: "test" }) });
+  const call = async (method: string, url: string, body?: unknown) => {
+    const r = await fetch(`http://127.0.0.1:${ui.port}${url}`, { method, headers: { "x-flowloop-token": ui.token, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    return j;
+  };
+  const waitDone = async (n: number) => {
+    for (const t0 = Date.now(); Date.now() - t0 < 10_000; ) {
+      const s = (await call("GET", "/api/state")).sessions[0];
+      if (s && s.status !== "running" && s.messages.filter((m: any) => m.level === "answer").length >= n) return s;
+      await new Promise((r) => setTimeout(r, 30));
+    }
+    throw new Error("cevap gelmedi");
+  };
+  try {
+    const { session } = await call("POST", "/api/ask", { project: p.name, question: "Fiyat nerede hesaplanıyor?" });
+    // soru sürerken aynı projede görev başlatılabilir (soru hiçbir şeyi değiştirmez)
+    let s = await waitDone(1);
+    assert.equal(s.kind, "ask");
+    assert.deepEqual(seen[0].perms, { tools: ["Read", "Glob", "Grep"], read: ["**"], edit: [], bash: [] });
+    assert.equal(seen[0].cwd, root);
+    const answer = s.messages.find((m: any) => m.level === "answer").text;
+    assert.match(answer, /src\/fiyat\.js:2/);
+    assert.doesNotMatch(answer, /ATATT1234/, "cevapta gizli bilgi maskelenir");
+    await call("POST", `/api/sessions/${session}/ask`, { question: "Ekspres için ne değişmeli?" });
+    s = await waitDone(2);
+    assert.equal(seen[1].resumeSessionId, "oturum-1", "takip sorusu aynı oturumdan");
+    assert.equal(s.costUsd, 0.1);
+    assert.equal((await call("GET", "/api/state")).projects[0].busy, false);
+  } finally {
+    await ui.close();
+  }
+});

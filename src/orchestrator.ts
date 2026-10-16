@@ -1469,6 +1469,7 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   if (jira && cfg.jira.comment && jiraBase) {
     const body = buildJiraComment(fs.existsSync(files.summary) ? readText(files.summary) : "", summary, links);
     try {
+      // canlı veriden kişisel veri dönen bir çalıştırmanın yorumunda e-posta ve telefon da maskelenir
       summary.jiraCommentUrl = await postComment(jira, jiraBase, body, { ...opts.jira, personal: cfg.redact.personal });
       log.ok(`Jira'ya yorum eklendi: ${jira}`);
     } catch (e) {

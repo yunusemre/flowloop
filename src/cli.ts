@@ -161,6 +161,11 @@ async function cmdUi(args: string[]): Promise<number> {
     return 0;
   }
 
+  // uzun süre açık kalan bir sunucu: beklenmedik bir hata yazılır, süreç (ve süren çalıştırmalar) düşmez
+  process.on("uncaughtException", (e) => console.error(`[${new Date().toISOString()}] beklenmedik hata (arayüz çalışmaya devam ediyor):`, e));
+  process.on("unhandledRejection", (e) => console.error(`[${new Date().toISOString()}] beklenmedik hata (arayüz çalışmaya devam ediyor):`, e));
+  // terminal kapanınca gelen SIGHUP arayüzü kapatmasın (arka planda zaten ayrı oturumda çalışır)
+  process.on("SIGHUP", () => {});
   // ön plan: son portu tercih et (yer imi çalışsın); doluysa başka port seçilir
   const ui = await startUi({ port: port ?? st?.port, token });
   writeUiState({ token, port: ui.port, pid: process.pid, startedAt: new Date().toISOString() });

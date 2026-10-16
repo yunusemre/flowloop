@@ -3,7 +3,7 @@ import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-import type { AgentRunner, BudgetRequest } from "./agent.js";
+import { runWithBudget, type AgentRequest, type AgentRunner, type BudgetRequest } from "./agent.js";
 import { createRunner, type Backend } from "./backend.js";
 import { BATCH_FILE, BATCH_PREFIX, runBatch } from "./batch.js";
 import { CONFIG_FILE, isGitRepo, loadConfig, workDirsFor, type ExtraRelated } from "./config.js";
@@ -25,6 +25,7 @@ import {
 import type { QuestionDecision } from "./questions.js";
 import { PACKAGE_ROOT } from "./roles.js";
 import { readText } from "./platform.js";
+import { redact } from "./redact.js";
 import { git } from "./git.js";
 import { resolveTaskInput, type Say } from "./tasks.js";
 import { fmtDuration } from "./timing.js";
@@ -228,6 +229,49 @@ export function deleteRun(root: string, id: string): { removed: string; keptBran
   return { removed: id, keptBranches: [...new Set(keptBranches)] };
 }
 
+/** Görev referansı mı: Jira anahtarı, Jira bağlantısı ya da görev dosyası (.md) */
+export function isTaskRef(token: string): boolean {
+  return /^[A-Z][A-Z0-9]+-\d+$/.test(token) || /^https?:\/\/\S+\/browse\/[A-Z][A-Z0-9]+-\d+/.test(token) || /\.md$/i.test(token);
+}
+
+/**
+ * Serbest yazılmış isteği görev dosyasına çevirir (.flowloop/tasks/istek-<tarih>-<özet>.md). Metinde Jira anahtarı
+ * geçiyorsa bilgi olarak eklenir (o kayıt çekilmez). Dönen: repo-göreli yol.
+ */
+export function writeRequestTask(root: string, text: string, context = "", now = new Date()): string {
+  const first = text.split("\n").find((l) => l.trim())!.trim();
+  const title = first.length > 80 ? `${first.slice(0, 77).replace(/\s+\S*$/, "")}…` : first;
+  const slug = first
+    .toLocaleLowerCase("tr")
+    .replace(/[çğıöşü]/g, (c) => ({ ç: "c", ğ: "g", ı: "i", ö: "o", ş: "s", ü: "u" })[c]!)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/, "") || "istek";
+  const stamp = now.toISOString().replace(/[-:]/g, "").replace(/\..*$/, "").replace("T", "-");
+  const rel = path.posix.join(".flowloop", "tasks", `istek-${stamp}-${slug}.md`);
+  const keys = [...new Set(text.match(/\b[A-Z][A-Z0-9]+-\d+\b/g) ?? [])];
+  const body =
+    `# ${title}\n\n` +
+    `Kaynak: flowloop ui (serbest istek, ${now.toISOString().slice(0, 16).replace("T", " ")})\n` +
+    (keys.length ? `İlgili Jira kayıtları: ${keys.join(", ")} (çekilmedi; gerekiyorsa analist açık soru olarak sorsun)\n` : "") +
+    `\n## İstek\n\n${text.trim()}\n` +
+    (context.trim() ? `\n## Sohbetten notlar\n\n${context.trim()}\n` : "") +
+    `\n## Kabul kriterleri\n\nBelirtilmedi; analist istekten çıkaracak.\n`;
+  fs.mkdirSync(path.join(root, ".flowloop", "tasks"), { recursive: true });
+  fs.writeFileSync(path.join(root, rel), body);
+  return rel;
+}
+
+/** Projenin gizli dosya listesi (ayar okunamazsa güvenli varsayılan) */
+function safeReadDeny(root: string): string[] {
+  try {
+    return loadConfig(root).paths.readDeny;
+  } catch {
+    return [".env", ".env.*", "**/appsettings*.json", "**/*.pem", "**/*.key"];
+  }
+}
+
 /** Sürdürülecek çalıştırmanın değiştirilebilir ilgili repoları (run.json → related) */
 function recordedEditRoots(root: string, id: string): string[] {
   try {
@@ -245,7 +289,7 @@ function recordedEditRoots(root: string, id: string): string[] {
 
 // ───────────── oturum: bir çalıştırmanın sohbeti ─────────────
 
-export type MessageLevel = "step" | "info" | "ok" | "warn" | "error" | "detail" | "user" | "done";
+export type MessageLevel = "step" | "info" | "ok" | "warn" | "error" | "detail" | "user" | "done" | "answer";
 export interface Message {
   seq: number;
   at: number;
@@ -265,6 +309,11 @@ const strip = (s: string) => s.replace(ANSI, "");
 export class Session {
   readonly id = randomUUID().slice(0, 8);
   status: "running" | "waiting" | "done" | "failed" = "running";
+  /** task: plan → geliştirme → inceleme → teslim · ask: sadece okuyan ajanla soru-cevap */
+  kind: "task" | "ask" = "task";
+  /** Soru-cevapta ajanın oturumu: takip soruları aynı bağlamla sürer */
+  agentSession?: string;
+  costUsd = 0;
   messages: Message[] = [];
   pending?: Prompt & { resolve: (v: unknown) => void };
   summary?: { runId?: string; branch?: string; prUrl?: string; jiraCommentUrl?: string; cost?: number; durationMs?: number };
@@ -326,7 +375,7 @@ export class Session {
   }
 
   view() {
-    return { id: this.id, project: this.project.name, title: this.title, status: this.status, startedAt: this.startedAt, companions: this.companions, prompt: this.publicPrompt(), summary: this.summary, messages: this.messages };
+    return { id: this.id, kind: this.kind, costUsd: this.costUsd, project: this.project.name, title: this.title, status: this.status, startedAt: this.startedAt, companions: this.companions, prompt: this.publicPrompt(), summary: this.summary, messages: this.messages };
   }
 
   readonly startedAt = Date.now();
@@ -545,7 +594,19 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
   const clients = new Set<http.ServerResponse>();
   const emit = (ev: { type: string; session: string; data: unknown }) => {
     const line = `data: ${JSON.stringify(ev)}\n\n`;
-    for (const c of clients) c.write(line);
+    for (const c of clients) safeWrite(c, line);
+  };
+  // kapanmış bir tarayıcı sekmesine yazmak süreci düşürmesin
+  const safeWrite = (c: http.ServerResponse, line: string) => {
+    if (c.destroyed || c.writableEnded) {
+      clients.delete(c);
+      return;
+    }
+    try {
+      c.write(line);
+    } catch {
+      clients.delete(c);
+    }
   };
   const html = () => readText(path.join(PACKAGE_ROOT, "templates", "ui", "index.html"));
   let port = 0;
@@ -580,7 +641,8 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     if (!p) throw new FlowloopError("Proje kayıtlı değil.");
     return p;
   };
-  const active = () => [...sessions.values()].filter((s) => s.status === "running" || s.status === "waiting");
+  // soru-cevap oturumları hiçbir şey değiştirmez: meşguliyete sayılmaz
+  const active = () => [...sessions.values()].filter((s) => s.kind === "task" && (s.status === "running" || s.status === "waiting"));
   // bir repo aynı anda iki çalıştırmada değiştirilmesin: ana proje ya da "değiştirilebilir" seçilen ilgili proje
   const busy = (p: ProjectEntry) => active().some((s) => s.project.root === p.root || s.editRoots.includes(p.root));
 
@@ -620,6 +682,50 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     return s;
   };
 
+  /** Soru-cevap: sadece okuyan bir ajan seçili projelerin kodunu inceleyip cevaplar; hiçbir dosyayı değiştiremez */
+  const askQuestion = async (s: Session, question: string, withProjects: ProjectEntry[]) => {
+    s.status = "running";
+    s.push("user", question);
+    emit({ type: "session", session: s.id, data: { id: s.id, kind: s.kind, project: s.project.name, title: s.title, status: s.status } });
+    try {
+      const cfg = loadConfig(s.project.root);
+      const r = (opts.createAgent ?? ((root: string) => createRunner(loadConfig(root))))(s.project.root);
+      const runRoot = path.join(home, ".flowloop", "ask", s.id);
+      fs.mkdirSync(runRoot, { recursive: true });
+      const extraRoots = withProjects.map((q) => ({ name: q.name, root: q.root, readDeny: safeReadDeny(q.root) }));
+      const req: AgentRequest = {
+        role: "analist",
+        persona:
+          "Ekibin kıdemli geliştiricisisin ve soruları kodu okuyarak cevaplarsın. Kod DEĞİŞTİRMEZSİN, komut çalıştırmazsın; " +
+          "sadece okursun. Cevabını Türkçe, kısa ve somut ver: ilgili dosya ve satırları `yol:satır` biçiminde göster, emin olmadığın yeri söyle.",
+        prompt:
+          (s.agentSession ? "" : `Proje: ${s.project.name} (${s.project.root})${withProjects.length ? `\nBirlikte bakılabilecek projeler: ${withProjects.map((q) => `${q.name} (${q.root})`).join(", ")}` : ""}\n\n`) +
+          `Soru:\n${question}`,
+        cwd: s.project.root,
+        runRoot,
+        perms: { tools: ["Read", "Glob", "Grep"], read: ["**", ...withProjects.map((q) => `@${q.name}:**`)], edit: [], bash: [] },
+        policy: { repoRoot: s.project.root, runRoot, readDeny: cfg.paths.readDeny, forbiddenFlags: {}, extraRoots },
+        model: cfg.roles.analist?.model || cfg.model || undefined,
+        budgetUsd: cfg.budgets.analist,
+        isolation: cfg.isolation,
+        claudeMd: true,
+        extraDirs: withProjects.map((q) => q.root),
+        resumeSessionId: s.agentSession,
+        log: s.logger(),
+      };
+      const res = await runWithBudget(r.runner, req, { extendBudget: s.callbacks().extendBudget, totalSpentBefore: s.costUsd });
+      s.costUsd += res.costUsd;
+      if (res.sessionId) s.agentSession = res.sessionId;
+      if (!res.ok) throw new FlowloopError(res.limitReached ? `Kullanım limiti doldu: ${res.limitReached}` : `Cevap alınamadı: ${res.error ?? "bilinmiyor"}`);
+      s.push("answer", redact(res.text.trim() || "(boş cevap)", { personal: cfg.redact.personal }));
+      s.status = "done";
+    } catch (e) {
+      s.status = "failed";
+      s.push("error", e instanceof Error ? e.message : String(e));
+    }
+    emit({ type: "session", session: s.id, data: { id: s.id, kind: s.kind, project: s.project.name, title: s.title, status: s.status, costUsd: s.costUsd } });
+  };
+
   const routes = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> => {
     const m = req.method ?? "GET";
     const parts = url.pathname.split("/").filter(Boolean);
@@ -643,8 +749,11 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     if (m === "POST" && url.pathname === "/api/run") {
       const b = await readBody(req);
       const p = projectByName(b.project);
-      const inputs = str(b.task, 2000).split(/[\s,]+/).filter(Boolean);
-      if (!inputs.length) throw new FlowloopError("Görev yaz: Jira anahtarı (IDT-123), Jira bağlantısı ya da görev dosyası.");
+      const text = str(b.task, 20000).trim();
+      if (!text) throw new FlowloopError("Görev yaz: Jira anahtarı (IDT-123), Jira bağlantısı, görev dosyası ya da ne yapılmasını istediğini.");
+      // sadece anahtar/bağlantı/dosya yolu yazıldıysa onlar; değilse yazılan metin serbest istek olarak görev dosyası olur
+      let inputs = text.split(/[\s,]+/).filter(Boolean);
+      if (!inputs.every(isTaskRef)) inputs = [writeRequestTask(p.root, text, str(b.context, 20000))];
       if (inputs.length > 20) throw new FlowloopError("En fazla 20 görev.");
       // birlikte çalışılacak diğer kayıtlı projeler: okur ya da değiştirir (yetki sınırı o projenin kendi flowloop.yaml'ı)
       const picked: { name: string; edit: boolean }[] = (Array.isArray(b.related) ? b.related : [])
@@ -672,6 +781,23 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
       s.companions = picked;
       return send(res, 200, { session: s.id });
     }
+    if (m === "POST" && url.pathname === "/api/ask") {
+      const b = await readBody(req);
+      const p = projectByName(b.project);
+      const question = str(b.question, 20000).trim();
+      if (!question) throw new FlowloopError("Sorunu yaz.");
+      const withProjects = (Array.isArray(b.related) ? b.related : [])
+        .filter((x: any) => x && typeof x.name === "string" && x.name !== p.name)
+        .slice(0, 10)
+        .map((x: any) => projectByName(x.name));
+      const s = new Session(p, question.split("\n")[0].slice(0, 80), emit);
+      s.kind = "ask";
+      s.companions = withProjects.map((q: ProjectEntry) => ({ name: q.name, edit: false }));
+      sessions.set(s.id, s);
+      emit({ type: "session", session: s.id, data: { id: s.id, kind: s.kind, project: p.name, title: s.title, status: s.status, companions: s.companions } });
+      void askQuestion(s, question, withProjects);
+      return send(res, 200, { session: s.id });
+    }
     if (m === "POST" && url.pathname === "/api/runs/delete") {
       const b = await readBody(req);
       const p = projectByName(b.project);
@@ -690,6 +816,16 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     if (parts[1] === "sessions" && parts[2]) {
       const s = sessions.get(parts[2]);
       if (!s) return send(res, 404, { error: "Oturum yok." });
+      if (m === "POST" && parts[3] === "ask") {
+        if (s.kind !== "ask") throw new FlowloopError("Bu bir görev sohbeti; soru için yeni bir soru sohbeti aç.");
+        if (s.status === "running" || s.status === "waiting") throw new FlowloopError("Önceki cevap bekleniyor.");
+        const b = await readBody(req);
+        const question = str(b.question, 20000).trim();
+        if (!question) throw new FlowloopError("Sorunu yaz.");
+        const withProjects = s.companions.map((c) => readProjects(home).find((x) => x.name === c.name)).filter((x): x is ProjectEntry => !!x);
+        void askQuestion(s, question, withProjects);
+        return send(res, 200, { ok: true });
+      }
       if (m === "POST" && parts[3] === "answer") {
         const b = await readBody(req);
         s.answer(str(b.prompt, 100), b.value);
@@ -728,11 +864,16 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-store", connection: "keep-alive" });
         res.write(": bağlandı\n\n");
         clients.add(res);
-        const ping = setInterval(() => res.write(": ping\n\n"), 25_000);
-        req.on("close", () => {
+        const ping = setInterval(() => safeWrite(res, ": ping\n\n"), 25_000);
+        const drop = () => {
           clearInterval(ping);
           clients.delete(res);
-        });
+        };
+        // tarayıcı kapanınca bağlantı koparsa: hata yutulur, istemci listeden çıkar (sunucu ve çalıştırmalar sürer)
+        req.on("close", drop);
+        res.on("close", drop);
+        res.on("error", drop);
+        req.on("error", drop);
         return;
       }
       await routes(req, res, url);
@@ -741,6 +882,8 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     }
   });
 
+  // bozuk/yarım kalan istemci bağlantıları sunucuyu düşürmesin
+  server.on("clientError", (_e, socket) => socket.destroy());
   await new Promise<void>((resolve, reject) => {
     const tryListen = (p: number) => {
       server.once("error", (e: NodeJS.ErrnoException) => {
@@ -759,7 +902,7 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     sessions,
     close: () =>
       new Promise<void>((resolve) => {
-        for (const c of clients) c.end();
+        for (const c of clients) c.destroy();
         server.close(() => resolve());
       }),
   };
