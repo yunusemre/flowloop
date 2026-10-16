@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import type { AgentRequest, AgentResult, AgentRunner } from "../src/agent.js";
-import { gitOk } from "../src/git.js";
+import { gitOk, sh } from "../src/git.js";
 import { addProject, readProjects, startUi, validateAnswer } from "../src/ui.js";
 
 function makeRepo(): string {
@@ -228,4 +228,41 @@ test("ui: iki projeyi kapsayan iş — ikincisi 'değiştirir' seçilir, ikisind
   } finally {
     await ui.close();
   }
+});
+
+test("ui: çalıştırma silinir — çalışma kopyaları ve klasör gider, commit'li branch kalır, boş branch silinir", async () => {
+  const { deleteRun, projectRuns } = await import("../src/ui.js");
+  const { runTask, FlowloopError } = await import("../src/orchestrator.js");
+  const { silentLogger } = await import("../src/log.js");
+  const root = makeRepo();
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-uih-"));
+  // 1) başarılı çalıştırma: branch'te commit var → korunur
+  const ok = await runTask({ root, taskFile: ".flowloop/tasks/ekspres.md", agent: new FakeAgent(), log: silentLogger(), noFetch: true, home });
+  // 2) reviewer hiç onaylamaz → çalışma kopyası kalır, branch boş
+  class NeverPass extends FakeAgent {
+    async run(req: AgentRequest): Promise<AgentResult> {
+      const r = await super.run(req);
+      return req.role === "reviewer" ? { ...r, text: "❌ olmadı\nVERDICT: FAIL" } : r;
+    }
+  }
+  fs.writeFileSync(path.join(root, ".flowloop/tasks/ikinci.md"), "# Görev: İkinci\n\nJira: KG-43\n\n1. x\n");
+  await assert.rejects(runTask({ root, taskFile: ".flowloop/tasks/ikinci.md", agent: new NeverPass(), log: silentLogger(), noFetch: true, home }), FlowloopError);
+  const runs = projectRuns(root);
+  const failed = runs.find((r) => r.status === "failed")!;
+  const failedDir = path.join(path.dirname(ok.runDir!), failed.id);
+  assert.ok(fs.existsSync(path.join(failedDir, "wt")));
+  const failedBranch = JSON.parse(fs.readFileSync(path.join(failedDir, "run.json"), "utf8")).branch;
+
+  const r1 = deleteRun(root, failed.id);
+  assert.ok(!fs.existsSync(failedDir));
+  assert.deepEqual(r1.keptBranches, []);
+  assert.notEqual(gitOk(["worktree", "list"], root).includes(failedDir), true, "worktree kaydı da gider");
+  assert.equal(sh("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${failedBranch}`], root).code, 1, "boş branch silinir");
+
+  const r2 = deleteRun(root, ok.id);
+  assert.ok(!fs.existsSync(ok.runDir!));
+  assert.match(r2.keptBranches.join(), new RegExp(ok.branch!));
+  assert.equal(sh("git", ["rev-parse", "--verify", "--quiet", `refs/heads/${ok.branch}`], root).code, 0, "commit'li branch kalır");
+  assert.throws(() => deleteRun(root, "../etc"), /Geçersiz/);
+  assert.ok(fs.existsSync(path.join(root, ".flowloop/history.jsonl")), "ölçüm geçmişi kalır");
 });

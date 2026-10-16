@@ -25,6 +25,7 @@ import {
 import type { QuestionDecision } from "./questions.js";
 import { PACKAGE_ROOT } from "./roles.js";
 import { readText } from "./platform.js";
+import { git } from "./git.js";
 import { resolveTaskInput, type Say } from "./tasks.js";
 import { fmtDuration } from "./timing.js";
 
@@ -181,6 +182,50 @@ export function projectTasks(root: string): { file: string; key?: string; title:
     })
     .sort((a, b) => b.mtime - a.mtime)
     .slice(0, 30);
+}
+
+/**
+ * Bir çalıştırmayı siler: çalışma kopyaları (ilgili repolarınkiler dahil) ve run klasörü.
+ * Branch'ler: commit'i olmayan (boş) branch silinir; commit'i olan korunur (push'lanmış ya da senin işin olabilir).
+ * Ölçüm geçmişi (.flowloop/history.jsonl) silinmez; flowloop stats etkilenmez.
+ */
+export function deleteRun(root: string, id: string): { removed: string; keptBranches: string[] } {
+  if (!/^[\w.-]+$/.test(id)) throw new FlowloopError("Geçersiz çalıştırma.");
+  const dir = workDirsFor(loadConfig(root), root)
+    .map((base) => path.join(base, id))
+    .find((d) => fs.existsSync(path.join(d, id.startsWith(BATCH_PREFIX) ? BATCH_FILE : "run.json")));
+  if (!dir) throw new FlowloopError(`Çalıştırma bulunamadı: ${id}`);
+  const keptBranches: string[] = [];
+  const dropBranch = (repo: string, branch: string | undefined, baseSha: string | undefined) => {
+    if (!branch || git(["rev-parse", "--verify", "--quiet", `refs/heads/${branch}`], repo).code !== 0) return;
+    const ahead = baseSha ? git(["rev-list", "--count", `${baseSha}..refs/heads/${branch}`], repo).stdout.trim() : "1";
+    if (ahead === "0") git(["branch", "-D", branch], repo);
+    else keptBranches.push(`${path.basename(repo)}: ${branch}`);
+  };
+  if (id.startsWith(BATCH_PREFIX)) {
+    git(["worktree", "remove", "--force", path.join(dir, "plan-wt")], root);
+  } else {
+    let s: RunSummary | undefined;
+    try {
+      s = JSON.parse(readText(path.join(dir, "run.json")));
+    } catch {
+      /* kayıt bozuk: sadece klasör silinir */
+    }
+    for (const w of ["wt", "base"]) git(["worktree", "remove", "--force", path.join(dir, w)], root);
+    for (const r of s?.related ?? []) {
+      if (r.git === false) continue;
+      git(["worktree", "remove", "--force", r.wt], r.root);
+      git(["worktree", "remove", "--force", r.baseWt], r.root);
+      git(["worktree", "prune"], r.root);
+      if (!s?.batch) dropBranch(r.root, r.branch, r.baseSha);
+    }
+    // toplu çalışmanın branch'i ortaktır: bir görevin kaydı silinince dokunulmaz
+    if (!s?.batch && s?.status !== "success") dropBranch(root, s?.branch, s?.baseSha);
+    else if (s?.branch) keptBranches.push(`${path.basename(root)}: ${s.branch}`);
+  }
+  fs.rmSync(dir, { recursive: true, force: true });
+  git(["worktree", "prune"], root);
+  return { removed: id, keptBranches: [...new Set(keptBranches)] };
 }
 
 /** Sürdürülecek çalıştırmanın değiştirilebilir ilgili repoları (run.json → related) */
@@ -565,6 +610,13 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
       }, extraRelated.filter((r) => r.edit.length).map((r) => r.path));
       s.companions = picked;
       return send(res, 200, { session: s.id });
+    }
+    if (m === "POST" && url.pathname === "/api/runs/delete") {
+      const b = await readBody(req);
+      const p = projectByName(b.project);
+      // süren bir çalıştırmanın klasörü silinmesin
+      if (busy(p)) throw new FlowloopError(`${p.name} projesinde süren bir çalıştırma var; bitince sil.`);
+      return send(res, 200, deleteRun(p.root, str(b.id, 300)));
     }
     if (m === "POST" && url.pathname === "/api/resume") {
       const b = await readBody(req);

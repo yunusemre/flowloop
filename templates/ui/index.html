@@ -324,7 +324,8 @@
       el("div", { class: "item", title: r.error || r.branch || r.id },
         el("span", { class: "dot " + (r.status === "success" ? "success" : r.status === "failed" ? "failed" : "") }),
         el("span", { class: "grow" }, r.jiraKey || r.id, el("div", { class: "sub" }, [r.status === "success" ? "bitti" : r.status === "failed" ? "durdu" : r.status === "yarım" ? "yarım / sürüyor" : r.status, r.cost != null ? `$${Number(r.cost).toFixed(2)}` : "", r.startedAt ? new Date(r.startedAt).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }) : ""].filter(Boolean).join(" · "))),
-        r.status !== "success" && !r.batch && !busyProject() ? el("button", { class: "small", title: "Kaldığı yerden devam et", onclick: (e) => { e.stopPropagation(); resume(r.id); } }, "Devam") : null)));
+        r.status !== "success" && !r.batch && !busyProject() ? el("button", { class: "small", title: "Kaldığı yerden devam et", onclick: (e) => { e.stopPropagation(); resume(r.id); } }, "Devam") : null,
+        !busyProject() ? el("button", { class: "small danger", title: "Çalıştırmayı sil (çalışma kopyası ve kayıt; commit'li branch'ler korunur)", onclick: (e) => { e.stopPropagation(); deleteRun(r); } }, "Sil") : null)));
     if (S.selectedProject && !runs.length) $("runs").append(el("div", { class: "item sub" }, "Kayıt yok."));
     $("projectLabel").textContent = S.selectedProject ? `Proje: ${S.selectedProject}` : "Önce bir proje seç";
     renderRelPicker();
@@ -373,6 +374,15 @@
   async function removeProject(name) {
     if (!confirm(`${name} kayıttan çıkarılsın mı? (Dosyalara dokunulmaz.)`)) return;
     try { await api("POST", "/api/projects/remove", { name }); await refresh(); } catch (e) { showError(e); }
+  }
+  async function deleteRun(r) {
+    const what = r.status === "success" ? "Bu çalıştırmanın kaydı ve çalışma klasörü silinecek. Branch ve commit'ler kalır." : "Çalışma kopyası ve içindeki commit'lenmemiş değişiklikler silinecek; bu çalıştırma bir daha sürdürülemez. Commit'i olan branch'ler korunur.";
+    if (!confirm(`${r.jiraKey || r.id} silinsin mi?\n\n${what}`)) return;
+    try {
+      const res = await api("POST", "/api/runs/delete", { project: S.selectedProject, id: r.id });
+      showInfo(`Silindi: ${r.jiraKey || r.id}${res.keptBranches.length ? `\nKorunan branch'ler (içinde commit var): ${res.keptBranches.join(", ")}` : ""}`);
+      await selectProject(S.selectedProject);
+    } catch (e) { showError(e); }
   }
   async function resume(id) {
     try {

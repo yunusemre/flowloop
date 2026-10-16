@@ -549,7 +549,7 @@ Tarayıcı açılır. Soldan projeyi seç, alttaki kutuya görevi yaz (`IDT-123`
   - Sohbette ajanın dokunduğu dosyalar proje adıyla işaretlenir, kontroller proje proje gösterilir; değişiklik onayında farklar repo repo, bitişte commit ve PR bağlantıları her repo için ayrı yazar. Her değişen repoda aynı adla branch açılır.
   - "Değiştirir" seçilen proje çalıştırma bitene kadar meşgul sayılır (aynı repo iki çalıştırmada birden değiştirilmesin); sadece okunan projelerde kısıt yok.
   - Bir projede seçtiğin eşlikçiler, o projede sonraki görevde hazır gelir.
-- **Geçmiş:** seçili projenin çalıştırmaları solda listelenir; yarım kalanlarda **Devam** `flowloop resume` ile aynı işi yapar.
+- **Geçmiş:** seçili projenin çalıştırmaları solda listelenir; yarım kalanlarda **Devam** `flowloop resume` ile aynı işi yapar. **Sil** çalıştırmanın çalışma kopyalarını (ilgili repolarınkiler dahil) ve kaydını siler; commit'i olan branch'ler korunur (push'lanmış ya da senin işin olabilir), boş kalan branch silinir. `flowloop stats`'ın kullandığı ölçüm geçmişi silinmez. Süren bir çalıştırma varken o projede silme yapılmaz.
 - **Aynı anda:** her projede bir çalıştırma; farklı projeler paralel çalışabilir.
 - **Görünüm:** üstte aşamalar (Plan → Geliştirme → İnceleme → Senin onayın → Teslim), geçen süre ve maliyet. Ajanların yazdıkları ve araç çağrıları rol rozetiyle sohbette akar; "Ajan adımları" kutusuyla gizlenir. Kontroller ✓/✗ satırı, reviewer kararı rozet olarak görünür.
 - **Hızlı başlatma:** boş ekranda projenin son görevleri listelenir; tıklayınca kutuya yazılır. Yorum kutularında <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> gönderir. Yukarı kaydırdıysan ve cevabın bekleniyorsa altta "Cevabın bekleniyor ↓" düğmesi çıkar.
