@@ -266,3 +266,21 @@ test("ui: çalıştırma silinir — çalışma kopyaları ve klasör gider, com
   assert.throws(() => deleteRun(root, "../etc"), /Geçersiz/);
   assert.ok(fs.existsSync(path.join(root, ".flowloop/history.jsonl")), "ölçüm geçmişi kalır");
 });
+
+test("ui: anahtar saklanır, yeniden başlatmada adres değişmez; --new-token yeniler", async () => {
+  const { uiToken, readUiState, uiAlive } = await import("../src/ui.js");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-uih-"));
+  const t1 = uiToken(home);
+  assert.equal(uiToken(home), t1);
+  assert.notEqual(uiToken(home, true), t1);
+  assert.equal(readUiState(home)!.token.length >= 16, true);
+  if (process.platform !== "win32") assert.equal(fs.statSync(path.join(home, ".flowloop", "ui.json")).mode & 0o777, 0o600);
+  assert.equal(await uiAlive({ token: "x".repeat(20), pid: 999999, port: 1 }), false, "çalışmayan süreç");
+  const ui = await startUi({ port: 0, home, token: readUiState(home)!.token });
+  try {
+    assert.equal(await uiAlive({ token: readUiState(home)!.token, pid: process.pid, port: ui.port }), true);
+    assert.equal(await uiAlive({ token: "baska-anahtar-1234567", pid: process.pid, port: ui.port }), false);
+  } finally {
+    await ui.close();
+  }
+});

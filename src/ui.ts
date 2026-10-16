@@ -458,8 +458,69 @@ function describeAnswer(kind: PromptKind, v: any): string {
 
 // ───────────── sunucu ─────────────
 
+/** Arayüzün kalıcı durumu: anahtar sabit kalır (yer imi çalışsın), çalışan sürecin pid'i ve portu */
+export interface UiState {
+  token: string;
+  port?: number;
+  pid?: number;
+  startedAt?: string;
+}
+
+export function uiStateFile(home = os.homedir()): string {
+  return path.join(home, ".flowloop", "ui.json");
+}
+
+export function readUiState(home = os.homedir()): UiState | undefined {
+  try {
+    const j = JSON.parse(readText(uiStateFile(home))) as UiState;
+    return typeof j.token === "string" && j.token.length >= 16 ? j : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function writeUiState(st: UiState, home = os.homedir()): void {
+  const f = uiStateFile(home);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(st, null, 2), { mode: 0o600 });
+  try {
+    fs.chmodSync(f, 0o600);
+  } catch {
+    /* Windows */
+  }
+}
+
+/** Kayıtlı anahtar (yoksa ya da yenisi istenirse üretilir) */
+export function uiToken(home = os.homedir(), renew = false): string {
+  const st = readUiState(home);
+  if (st && !renew) return st.token;
+  const token = randomBytes(18).toString("base64url");
+  writeUiState({ token }, home);
+  return token;
+}
+
+export const uiUrl = (port: number, token: string) => `http://127.0.0.1:${port}/#t=${token}`;
+
+/** Kayıttaki süreç hâlâ çalışıyor ve bu anahtarla cevap veriyor mu */
+export async function uiAlive(st: UiState | undefined): Promise<boolean> {
+  if (!st?.pid || !st.port) return false;
+  try {
+    process.kill(st.pid, 0);
+  } catch {
+    return false;
+  }
+  try {
+    const r = await fetch(`http://127.0.0.1:${st.port}/api/state`, { headers: { "x-flowloop-token": st.token }, signal: AbortSignal.timeout(2000) });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 export interface UiOptions {
   port?: number;
+  /** Sabit anahtar (verilmezse rastgele) */
+  token?: string;
   home?: string;
   /** Testlerde gerçek ajan yerine */
   createAgent?: (root: string) => { runner: AgentRunner; backend: Backend; reason: string };
@@ -479,7 +540,7 @@ const MAX_BODY = 256 * 1024;
 
 export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
   const home = opts.home ?? os.homedir();
-  const token = randomBytes(18).toString("base64url");
+  const token = opts.token ?? randomBytes(18).toString("base64url");
   const sessions = new Map<string, Session>();
   const clients = new Set<http.ServerResponse>();
   const emit = (ev: { type: string; session: string; data: unknown }) => {
@@ -692,7 +753,7 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
   });
   port = (server.address() as { port: number }).port;
   return {
-    url: `http://127.0.0.1:${port}/#t=${token}`,
+    url: uiUrl(port, token),
     token,
     port,
     sessions,

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import readline from "node:readline/promises";
@@ -26,7 +26,7 @@ import { PACKAGE_ROOT, loadRoles } from "./roles.js";
 import { JIRA_KEY, JiraError, epicChildren, fetchIssue, issueToTask } from "./jira.js";
 import { BATCH_FILE, BATCH_PREFIX, runBatch, type BatchState } from "./batch.js";
 import { openerCommand, readText } from "./platform.js";
-import { addProject, startUi } from "./ui.js";
+import { addProject, readUiState, startUi, uiAlive, uiStateFile, uiToken, uiUrl, writeUiState, type UiState } from "./ui.js";
 import { ensureJiraTask as ensureJiraTaskFor, type Say } from "./tasks.js";
 
 const HELP = `flowloop — rol bazlı AI geliştirme ekibi (analist → developer ⇄ reviewer → committer)
@@ -54,9 +54,12 @@ Kullanım:
       -v, --verbose              Ajanların çıktısını canlı gösterir
   flowloop resume <id> [-v] [--agent claude|cursor] [--skip-review]
                                    Yarım kalan çalıştırmayı sürdürür (kontroller → reviewer → commit → push → Jira)
-  flowloop ui [--port 4317] [--no-open]
+  flowloop ui [--background] [--port 4317] [--awake] [--no-open]
                                    Yerel sohbet arayüzü (tarayıcıda): projeler, görev başlatma, plan onayı, sorular,
-                                   inceleme maddeleri ve değişiklik onayı kart olarak; sadece bu bilgisayardan erişilir
+                                   inceleme maddeleri ve değişiklik onayı kart olarak; sadece bu bilgisayardan erişilir.
+                                   --background: arka planda, sen durdurana kadar çalışır (terminal kapansa da)
+                                   --awake: (macOS) arayüz çalışırken bilgisayar uykuya geçmesin
+  flowloop ui status | open | stop   Arka plandaki arayüzün durumu / tarayıcıda aç / durdur
   flowloop runs                      Bu repo için yapılan çalıştırmaları listeler
   flowloop stats [--since 30d] [--json]
                                    Çalıştırmaların ölçüm özeti: başarı, ilk incelemede PASS, tur, insan
@@ -68,28 +71,109 @@ Kullanım:
   flowloop clean [--all]             Merge edilmiş (ya da --all ile tüm) çalıştırmaların worktree'lerini siler
 `;
 
-/** flowloop ui: yerel sohbet arayüzü. İçinde çalıştırılan proje kayda eklenir. */
+/**
+ * flowloop ui: yerel sohbet arayüzü. İçinde çalıştırılan proje kayda eklenir.
+ *   flowloop ui              ön planda çalışır (Ctrl+C ile durur)
+ *   flowloop ui --background arka planda çalışır; terminal kapansa da sen durdurana kadar sürer
+ *   flowloop ui status|open|stop
+ * Anahtar ~/.flowloop/ui.json'da saklanır: adres yeniden başlatmada değişmez (yer imi çalışır).
+ */
 async function cmdUi(args: string[]): Promise<number> {
-  const { values } = parseArgs({ args, options: { port: { type: "string" }, "no-open": { type: "boolean", default: false } } });
+  const { values, positionals } = parseArgs({
+    args,
+    allowPositionals: true,
+    options: {
+      port: { type: "string" },
+      "no-open": { type: "boolean", default: false },
+      background: { type: "boolean", short: "d", default: false },
+      awake: { type: "boolean", default: false },
+      "new-token": { type: "boolean", default: false },
+    },
+  });
+  const action = positionals[0] ?? "start";
+  if (!["start", "status", "open", "stop"].includes(action)) throw new FlowloopError("Kullanım: flowloop ui [--background] [--port N] [--awake] [--new-token] | flowloop ui status | open | stop");
   const port = values.port ? Number(values.port) : undefined;
   if (port !== undefined && !(Number.isInteger(port) && port > 0 && port < 65536)) throw new FlowloopError("--port 1-65535 arasında olmalı.");
+  const open = (url: string) => {
+    if (values["no-open"]) return;
+    const [c, a] = openerCommand(url);
+    spawnSync(c, a, { stdio: "ignore", windowsHide: true });
+  };
+  const st = readUiState();
+  const alive = await uiAlive(st);
+
+  if (action === "status") {
+    console.log(alive ? `${color.green("Çalışıyor")} (pid ${st!.pid}, ${st!.startedAt ?? "?"} itibarıyla)\n  ${uiUrl(st!.port!, st!.token)}` : "Çalışmıyor. Başlatmak için: flowloop ui --background");
+    return alive ? 0 : 1;
+  }
+  if (action === "stop") {
+    if (!alive) {
+      console.log("Çalışan arayüz yok.");
+      return 0;
+    }
+    process.kill(st!.pid!, "SIGTERM");
+    for (let i = 0; i < 50 && (await uiAlive(st)); i++) await new Promise((r) => setTimeout(r, 100));
+    writeUiState({ token: st!.token, port: st!.port });
+    console.log(color.green("Durduruldu.") + color.dim(" Süren çalıştırma varsa o da durdu; çalışma kopyası kalır, Devam ile sürdürülür."));
+    return 0;
+  }
+  // zaten çalışıyorsa ikincisi açılmaz: adresi göster ve tarayıcıyı aç
+  if (alive && !values["new-token"]) {
+    const url = uiUrl(st!.port!, st!.token);
+    console.log(`flowloop arayüzü zaten çalışıyor (pid ${st!.pid}):\n  ${url}`);
+    open(url);
+    return 0;
+  }
+  if (action === "open") {
+    console.log("Çalışan arayüz yok. Başlatmak için: flowloop ui --background");
+    return 1;
+  }
   const top = git(["rev-parse", "--show-toplevel"], process.cwd());
   if (top.code === 0 && fs.existsSync(path.join(top.stdout.trim(), CONFIG_FILE))) {
     const p = addProject(top.stdout.trim());
     console.log(color.dim(`Proje: ${p.name} (${p.root})`));
   }
-  const ui = await startUi({ port });
-  console.log(color.bold("flowloop arayüzü hazır:") + "\n  " + ui.url);
-  console.log(color.dim("Bu adres sadece bu bilgisayardan açılır; içindeki anahtarı paylaşma. Kapatmak için Ctrl+C (süren çalıştırmalar da durur)."));
-  if (!values["no-open"]) {
-    const [c, a] = openerCommand(ui.url);
-    spawnSync(c, a, { stdio: "ignore", windowsHide: true });
+  const token = uiToken(undefined, values["new-token"]);
+
+  if (values.background) {
+    // kendini ayrı bir süreç olarak başlat; terminal kapansa da çalışır
+    const log = path.join(path.dirname(uiStateFile()), "ui.log");
+    const out = fs.openSync(log, "a");
+    const child = spawn(process.execPath, [process.argv[1], "ui", "--no-open", ...(port ? ["--port", String(port)] : [])], {
+      detached: true,
+      stdio: ["ignore", out, out],
+      windowsHide: true,
+      env: { ...process.env, FLOWLOOP_NO_UPDATE_CHECK: "1" },
+    });
+    child.unref();
+    let now: UiState | undefined;
+    for (let i = 0; i < 100; i++) {
+      await new Promise((r) => setTimeout(r, 100));
+      now = readUiState();
+      if (now?.pid === child.pid && (await uiAlive(now))) break;
+    }
+    if (!now?.port || now.pid !== child.pid) throw new FlowloopError(`Arayüz arka planda başlatılamadı. Ayrıntı: ${log}`);
+    if (values.awake && process.platform === "darwin") spawn("caffeinate", ["-i", "-w", String(child.pid)], { detached: true, stdio: "ignore" }).unref();
+    const url = uiUrl(now.port, token);
+    console.log(color.bold("flowloop arayüzü arka planda çalışıyor:") + `\n  ${url}`);
+    console.log(color.dim(`Durdurmak için: flowloop ui stop · durum: flowloop ui status · kayıt: ${log}${values.awake && process.platform === "darwin" ? " · Mac çalışırken uykuya geçmez" : ""}`));
+    open(url);
+    return 0;
   }
+
+  // ön plan: son portu tercih et (yer imi çalışsın); doluysa başka port seçilir
+  const ui = await startUi({ port: port ?? st?.port, token });
+  writeUiState({ token, port: ui.port, pid: process.pid, startedAt: new Date().toISOString() });
+  console.log(color.bold("flowloop arayüzü hazır:") + "\n  " + ui.url);
+  console.log(color.dim("Bu adres sadece bu bilgisayardan açılır; içindeki anahtarı paylaşma. Kapatmak için Ctrl+C ya da flowloop ui stop (süren çalıştırmalar da durur)."));
+  open(ui.url);
   await new Promise<void>((resolve) => {
     process.once("SIGINT", () => resolve());
     process.once("SIGTERM", () => resolve());
   });
   await ui.close();
+  const cur = readUiState();
+  if (cur?.pid === process.pid) writeUiState({ token, port: ui.port });
   return 0;
 }
 

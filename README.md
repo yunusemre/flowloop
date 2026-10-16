@@ -30,6 +30,9 @@ flowloop init && flowloop check
 # 3) Jira görevini çalıştır (--approve-plan: planı onayla, yorumla güncellet ya da iptal et)
 #    Birbirine bağlı görevler: flowloop run IDT-1 IDT-2 IDT-3 --approve-plan -v  (ya da --epic IDT-100)
 flowloop run PROJ-1234 --approve-plan -v
+
+# Terminal yerine tarayıcıda sohbet gibi: arka planda, sen durdurana kadar çalışır
+flowloop ui --background
 ```
 
 Windows'ta (PowerShell) 1. adım:
@@ -44,8 +47,9 @@ git clone https://github.com/yunusemre/flowloop.git "$HOME\.flowloop\src"; power
 | `flowloop update` | flowloop'u günceller. Yeni sürüm çıkınca flowloop ekranın başında haber verir |
 | `flowloop run IDT-1 IDT-2 …` / `--epic IDT-100` | Birbirine bağlı görevler: toplu plan, sonra sırayla tek branch'te |
 | `flowloop runs` / `flowloop resume <id>` | Çalıştırmaları (toplu çalışmalar dahil) listeler / yarım kalanı sürdürür |
-| `flowloop ui` | Tarayıcıda sohbet arayüzü: birden fazla proje, görev başlatma; plan onayı, sorular, inceleme maddeleri ve değişiklik onayı kart olarak. Sadece bu bilgisayardan erişilir |
-| `flowloop stats [--since 30d]` | Ölçüm özeti: başarı, ilk incelemede PASS, tur, insan müdahalesi, kapsam talepleri, reddedilen işlemler, maliyet |
+| `flowloop ui [--background]` | Tarayıcıda sohbet arayüzü: birden fazla proje (üst klasörden toplu eklenir), görev başlatma, iki repoyu kapsayan iş (diğer projeyi "okur" ya da "değiştirir" seç), ajanın adımları canlı; plan onayı, sorular, inceleme maddeleri ve değişiklik onayı kart olarak; geçmiş çalıştırmaları sürdürme ve silme. Sadece bu bilgisayardan erişilir |
+| `flowloop ui status \| open \| stop` | Arka plandaki arayüzün durumu / tarayıcıda aç / durdur. Adres sabittir (yer imi olarak kaydedilebilir) |
+| `flowloop stats [--since 30d]` | Ölçüm özeti: başarı, ilk incelemede PASS, tur, insan müdahalesi, kapsam talepleri, reddedilen işlemler, maliyet ve süre dağılımı (en uzun adımlar) |
 | `flowloop --version` | Sürümü ve kurulum kaynağını gösterir |
 
 Gereksinimler: macOS, Linux ya da Windows ve git (Windows'ta Git for Windows; komutlar Git Bash ile çalışır). Node.js 20+ yoksa kurulum betiği kurar. Push için projenin kendi reposuna (ör. Bitbucket) erişimin olmalı.
@@ -67,7 +71,7 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 2. **Sadece bu işe odaklanılır.** Projede zaten var olan tip hataları, lint hataları ve kırık testler kimseyi bloklamaz. flowloop aynı kontrolleri dokunulmamış bir base kopyasında da çalıştırır ve sadece bu işle **gelen** hataları sayar. Lint uyarıları bloklamaz.
 3. **Testler işe özeldir.** Tüm suite değil, değişen dosyalarla ilgili testler çalışır (Jest'te `--findRelatedTests`).
 4. **Her zaman temiz bir çalışma alanı kullanılır.** İş, `origin`'den çekilen base branch (`production → main → master`) üzerinde açılan ayrı bir worktree'de yapılır; senin çalışma klasörüne dokunulmaz.
-5. **Teknolojiye göre çalışılır.** `flowloop init` projeyi tanır (React Native/Expo, React, Next.js, Node, NestJS, .NET) ve test, tip kontrolü, lint ve format komutlarını projenin kendi araçlarına göre seçer.
+5. **Teknolojiye göre çalışılır.** `flowloop init` projeyi tanır (React Native/Expo, React, Next.js, Node, NestJS, .NET) ve test, tip kontrolü, lint ve format komutlarını projenin kendi araçlarına göre seçer. .NET Framework test projeleri Windows'ta MSBuild + vstest ile koşar; hiç test koşmayan test adımı geçmiş sayılmaz. Commit hook'ları (husky, Husky.Net) çalışma kopyasında da çalışır.
 
 ## Güvenlik modeli
 
@@ -100,13 +104,14 @@ Ajanlar [Claude Agent SDK](https://docs.claude.com/en/api/agent-sdk/overview) il
 | `questions` | Analistin açık soruları: `ask` (terminalde sor; etkileşimsizse dur), `jira` (etkileşimsizse Jira'ya yaz ve dur), `assume` (varsayılanla devam). `--questions` ile tek seferlik ezilir |
 | `commands.testRelated` | Bu işin testleri; `{{files}}` ya da `{{testFiles}}` içermek zorunda |
 | `commands.typecheck` | Tüm projenin tip kontrolü; sadece yeni hatalar sayılır |
-| `commands.lint` | `{{files}}` ile; sadece yeni hatalar sayılır (uyarılar bloklamaz) |
+| `commands.lint` | `{{files}}` ile; sadece yeni hatalar sayılır (uyarılar bloklamaz). **Varsayılan kapalı** (`lint: false`); `flowloop init` algıladığı komutu yanına yorum olarak yazar. `typecheck` ve `format` da `false` ile kapatılır |
 | `commands.format` | `{{files}}` ile; her developer turundan sonra otomatik çalışır |
 | `linkDirs` | Repodan worktree'ye bağlanan klasörler (`node_modules` gibi) |
 | `paths.edit` / `paths.readDeny` | Developer'ın yazabileceği yollar (varsayılan `**`, bütün repo) / hiçbir rolün okuyamayacağı ve yazamayacağı dosyalar |
 | `agent` / `cursor.*` | Ajan aracı (`auto`, `claude`, `cursor`) ve Cursor ayarları |
 | `related` | Bağımlı repolar (ör. backend): okunur ya da `edit` ile değiştirilebilir; her repo ayrı branch/commit/PR. `edit` tavandır: analist planda görev için gereken repoları seçer, plan sadece daraltabilir |
-| `budgets` / `maxIterations` | Dolar bütçeleri (Claude) / developer ⇄ reviewer tur sayısı |
+| `redact.personal` | `true`: ajana dönen çıktılarda ve Jira yorumlarında e-posta ve telefonlar da maskelenir (gizli bilgiler her zaman maskelenir) |
+| `budgets` / `maxIterations` | Dolar bütçeleri (Claude) / developer ⇄ reviewer tur sayısı. Ajana kalan bütçe ve tur her turda söylenir |
 | `tech` | Teknoloji özeti (init üretir, düzenlenebilir) |
 
 ## Geliştirme

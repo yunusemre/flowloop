@@ -555,7 +555,12 @@ Tarayıcı açılır. Soldan projeyi seç, alttaki kutuya görevi yaz (`IDT-123`
 - **Hızlı başlatma:** boş ekranda projenin son görevleri listelenir; tıklayınca kutuya yazılır. Yorum kutularında <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> gönderir. Yukarı kaydırdıysan ve cevabın bekleniyorsa altta "Cevabın bekleniyor ↓" düğmesi çıkar.
 - **Bildirim:** cevabın beklendiğinde sekmenin başlığı değişir; tarayıcı bildirimine izin verirsen sekme arka plandayken bildirim gelir.
 - **Güvenlik:** sunucu sadece `127.0.0.1`'de dinler, ağdaki başka bir makineden açılamaz. Adresin `#t=…` kısmı oturumun anahtarıdır; onsuz hiçbir istek kabul edilmez, başka sitelerden gelen istekler de reddedilir. Adresi paylaşma.
-- **Kapatma:** terminalde Ctrl+C. Süren çalıştırmalar da durur; çalışma kopyası kalır, sonra **Devam** ya da `flowloop resume` ile sürdürülür.
+- **Sürekli açık bırakmak:** `flowloop ui --background` arayüzü arka planda başlatır; terminali kapatsan da sen durdurana kadar çalışır. Kayıt: `~/.flowloop/ui.log`.
+  - `flowloop ui status`: çalışıyor mu, adresi ne · `flowloop ui open`: tarayıcıda aç · `flowloop ui stop`: durdur.
+  - Adres sabittir: anahtar `~/.flowloop/ui.json`'da (sadece senin okuyabileceğin izinle) saklanır, yeniden başlatmada değişmez; yer imi olarak kaydedebilirsin. Yenilemek için `--new-token`.
+  - Arayüz zaten çalışıyorsa `flowloop ui` ikincisini açmaz, çalışanın adresini gösterip tarayıcıda açar.
+  - macOS'ta `--awake`: arayüz çalıştığı sürece bilgisayar uykuya geçmez (uzun çalıştırmalar yarıda kalmasın). Uyku ya da yeniden başlatmada süreç durur; açılışta tekrar `flowloop ui --background`.
+- **Kapatma:** ön planda Ctrl+C, arka planda `flowloop ui stop`. Süren çalıştırmalar da durur; çalışma kopyası kalır, sonra **Devam** ya da `flowloop resume` ile sürdürülür.
 - Seçenekler: `--port 4317` (doluysa boş bir port seçilir), `--no-open` (tarayıcıyı açma).
 
 ## 6. Diğer komutlar

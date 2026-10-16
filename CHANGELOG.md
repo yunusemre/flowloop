@@ -11,6 +11,7 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 ### Düzeltme
 - **Commit hook'u worktree'de düşüyordu (`.husky/_/husky.sh: No such file or directory`).** husky ve Husky.Net'in yardımcı dosyaları git'te izlenmez, sadece asıl repo klasöründe kurulur; worktree'de olmadıkları için hiç commit atılamıyordu. flowloop artık commit'ten önce bunları asıl repodan kopyalıyor (yoksa boş bir yardımcı yazıyor); hook'un kendi komutları yine çalışır. Ana repo ve ilgili repolar için geçerli; yarım kalan çalıştırma `flowloop resume` ile tamamlanır.
 - **Lint (ve tip kontrolü, format) kapatılabilir:** `commands.lint: false`. Boş bırakmak `flowloop init --force` ile yeniden algılanıp açılıyordu.
+- **Arayüz arka planda, sen durdurana kadar:** `flowloop ui --background` (terminal kapansa da çalışır), `flowloop ui status | open | stop`. Anahtar saklanır, adres yeniden başlatmada değişmez (`--new-token` ile yenilenir). Zaten çalışıyorsa ikincisi açılmaz. macOS'ta `--awake` ile bilgisayar uykuya geçmez.
 - **Arayüzde çalıştırma silme.** Geçmiş çalıştırmalarda **Sil**: çalışma kopyaları ve kayıt gider, commit'li branch'ler korunur, boş branch silinir; ölçüm geçmişi kalır.
 - **Lint varsayılan olarak kapalı.** `flowloop init` artık `lint: false` yazıyor; algılanan lint komutu yanındaki yorumda, açmak için onu yazmak yeterli. Mevcut projelerde `flowloop init --force` senin ayarını korur: lint açık olan projede kapatmak için `lint: false` yaz.
 
