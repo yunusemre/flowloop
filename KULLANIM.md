@@ -546,13 +546,17 @@ Tarayıcı açılır. Soldan projeyi seç, alttaki kutuda **İş** ya da **Soru*
 | Bütçe doldu | Ek bütçeyle devam · Durdur |
 
 - **Projeler:** `flowloop ui`'yi bir projenin içinde çalıştırırsan o proje kendiliğinden eklenir. Başkalarını **+ Ekle** ile eklersin: bir projenin klasörünü ya da projelerin hepsinin durduğu klasörü (ör. `~/Desktop/WORK`) yazabilirsin; üst klasör verilirse altındaki (iki seviyeye kadar) flowloop kurulu repoların hepsi eklenir, kurulu olmayanlar `flowloop init` gerektiği notuyla listelenir. Kayıt `~/.flowloop/projects.json` dosyasında durur; × ile kayıttan çıkarmak dosyalara dokunmaz.
-- **İki (ya da daha fazla) repoyu kapsayan iş:** görev kutusunun altındaki **Birlikte** satırında diğer kayıtlı projeler durur. Tıkladıkça değişir: kapalı → **okur** (ajanlar okur, değiştirmez) → **değiştirir** (developer o projede de yazar). Seçtiğin projeler o çalıştırmanın ilgili reposu olur; `flowloop.yaml`'a bir şey yazman gerekmez.
+- **İki (ya da daha fazla) repoyu kapsayan iş:** görev kutusunun altındaki **Birlikte** satırında diğer kayıtlı projeler durur. Tıkladıkça değişir: kapalı → **okur** (ajanlar okur, değiştirmez) → **değiştirir** (developer o projede de yazar). En fazla 4 proje görünür; seçtiklerin her zaman görünür kalır, diğerleri **+ N daha** listesinden (arama kutusuyla) seçilir. Seçtiğin projeler o çalıştırmanın ilgili reposu olur; `flowloop.yaml`'a bir şey yazman gerekmez.
   - Yetki sınırı her projenin kendi ayarıdır: "değiştirir" seçtiğin projede developer en fazla o projenin `paths.edit` yollarına yazabilir, `readDeny` dosyalarını kimse okuyamaz, kontroller o projenin kendi komutlarıyla çalışır.
   - Analist planda "## Repo kapsamı" yazarsa o geçerli olur (daraltabilir); yazmazsa "değiştirir" seçtiklerin açık kalır.
   - Sohbette ajanın dokunduğu dosyalar proje adıyla işaretlenir, kontroller proje proje gösterilir; değişiklik onayında farklar repo repo, bitişte commit ve PR bağlantıları her repo için ayrı yazar. Her değişen repoda aynı adla branch açılır.
   - "Değiştirir" seçilen proje çalıştırma bitene kadar meşgul sayılır (aynı repo iki çalıştırmada birden değiştirilmesin); sadece okunan projelerde kısıt yok.
   - Bir projede seçtiğin eşlikçiler, o projede sonraki görevde hazır gelir.
-- **Geçmiş:** seçili projenin çalıştırmaları solda listelenir; yarım kalanlarda **Devam** `flowloop resume` ile aynı işi yapar. **Sil** çalıştırmanın çalışma kopyalarını (ilgili repolarınkiler dahil) ve kaydını siler; commit'i olan branch'ler korunur (push'lanmış ya da senin işin olabilir), boş kalan branch silinir. `flowloop stats`'ın kullandığı ölçüm geçmişi silinmez. Süren bir çalıştırma varken o projede silme yapılmaz.
+- **Sohbet geçmişi ve kaldığın yerden devam:** sohbetler `~/.flowloop/ui/chats/` altında saklanır; arayüz kapanıp açılsa da (bilgisayar yeniden başlasa da) bütün mesajlarıyla solda durur. Bir sohbete tıklayınca kaldığı yerden açılır:
+  - **Soru sohbeti:** kutuya yazınca aynı bağlamla devam eder.
+  - **Yarım kalan iş** (bir adım hata verdi, arayüz kapandı, onay vermeden durdun): sohbetin altında **Kaldığı yerden devam et** çıkar. Kendiliğinden başlamaz; bastığında aynı sohbette sürer, tamamlanan adımlar (plan, onaylanan inceleme) tekrar çalışmaz. Developer hiçbir şey yazamadan durduysa onun turundan başlar.
+  - **Geçmiş çalıştırmalar** listesindeki bir çalıştırmaya tıklamak da sohbetini açar; terminalde başlatılmış bir çalıştırmanın sohbeti yoksa kaydından bir özet gösterilir ve oradan sürdürülebilir.
+- **Geçmiş:** seçili projenin çalıştırmaları solda listelenir; yarım kalanlarda **Devam** aynı işi kendi sohbetinde sürdürür (`flowloop resume` ile aynı). **Sil** çalıştırmanın çalışma kopyalarını (ilgili repolarınkiler dahil) ve kaydını siler; commit'i olan branch'ler korunur (push'lanmış ya da senin işin olabilir), boş kalan branch silinir. `flowloop stats`'ın kullandığı ölçüm geçmişi silinmez. Süren bir çalıştırma varken o projede silme yapılmaz.
 - **Aynı anda:** her projede bir çalıştırma; farklı projeler paralel çalışabilir.
 - **Görünüm:** üstte aşamalar (Plan → Geliştirme → İnceleme → Senin onayın → Teslim), geçen süre ve maliyet. Ajanların yazdıkları ve araç çağrıları rol rozetiyle sohbette akar; "Ajan adımları" kutusuyla gizlenir. Kontroller ✓/✗ satırı, reviewer kararı rozet olarak görünür.
 - **Hızlı başlatma:** boş ekranda projenin son görevleri listelenir; tıklayınca kutuya yazılır. Yorum kutularında <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>Enter</kbd> gönderir. Yukarı kaydırdıysan ve cevabın bekleniyorsa altta "Cevabın bekleniyor ↓" düğmesi çıkar.
@@ -563,7 +567,7 @@ Tarayıcı açılır. Soldan projeyi seç, alttaki kutuda **İş** ya da **Soru*
   - Adres sabittir: anahtar `~/.flowloop/ui.json`'da (sadece senin okuyabileceğin izinle) saklanır, yeniden başlatmada değişmez; yer imi olarak kaydedebilirsin. Yenilemek için `--new-token`.
   - Arayüz zaten çalışıyorsa `flowloop ui` ikincisini açmaz, çalışanın adresini gösterip tarayıcıda açar.
   - macOS'ta `--awake`: arayüz çalıştığı sürece bilgisayar uykuya geçmez (uzun çalıştırmalar yarıda kalmasın). Uyku ya da yeniden başlatmada süreç durur; açılışta tekrar `flowloop ui --background`.
-- **Kapatma:** ön planda Ctrl+C, arka planda `flowloop ui stop`. Süren çalıştırmalar da durur; çalışma kopyası kalır, sonra **Devam** ya da `flowloop resume` ile sürdürülür.
+- **Kapatma:** ön planda Ctrl+C, arka planda `flowloop ui stop`. Süren çalıştırmalar da durur; çalışma kopyası ve sohbet kalır, sonra sohbetteki **Kaldığı yerden devam et** ya da `flowloop resume` ile sürdürülür.
 - Seçenekler: `--port 4317` (doluysa boş bir port seçilir), `--no-open` (tarayıcıyı açma).
 
 ## 6. Diğer komutlar

@@ -149,6 +149,16 @@
   .rel.read { border-style: solid; border-color: var(--accent); color: var(--accent); }
   .rel.edit { border-style: solid; background: var(--accent); border-color: var(--accent); color: #fff; }
   .rel.busy { opacity: .45; cursor: not-allowed; }
+  .rel.more { border-style: solid; color: var(--text); }
+  .rel-wrap { position: relative; display: inline-block; }
+  .rel-pop { position: absolute; bottom: 130%; left: 0; z-index: 20; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 6px; min-width: 240px; max-height: 300px; overflow: auto; }
+  .rel-pop input { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+  .rel-pop .row { display: flex; justify-content: space-between; gap: 10px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .rel-pop .row:hover { background: var(--bg); }
+  .rel-pop .st { color: var(--muted); font-size: 12px; }
+  .rel-pop .st.read { color: var(--accent); }
+  .rel-pop .st.edit { color: var(--accent); font-weight: 600; }
+  .resume-bar { display: flex; align-items: center; gap: 12px; justify-content: space-between; border: 1px solid var(--accent); border-radius: 10px; padding: 10px 14px; margin: 8px 0; background: var(--panel); }
   .comp { font-size: 11.5px; padding: 1px 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
   .repo { font-size: 11px; font-weight: 600; padding: 0 6px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); margin-right: 4px; }
   #taskInput { resize: none; min-height: 40px; max-height: 220px; line-height: 1.45; padding: 9px 10px; }
@@ -334,11 +344,11 @@
     $("sessions").replaceChildren(...list.map((s) =>
       el("div", { class: "item" + (s.id === S.selectedSession ? " active" : ""), onclick: () => selectSession(s.id) },
         el("span", { class: "dot " + s.status }),
-        el("span", { class: "grow" }, s.title, el("div", { class: "sub" }, `${s.kind === "ask" ? "Soru · " : ""}${s.project} · ${s.kind === "ask" && s.status === "done" ? "cevaplandı" : statusText(s.status)}`)))));
+        el("span", { class: "grow" }, s.title, el("div", { class: "sub" }, `${s.kind === "ask" ? "Soru · " : ""}${s.project} · ${s.kind === "ask" && s.status === "done" ? "cevaplandı" : s.canResume ? "yarıda kaldı" : statusText(s.status)}`)))));
     if (!list.length) $("sessions").append(el("div", { class: "item sub" }, "Henüz yok."));
     const runs = S.runs.slice(0, 40);
     $("runs").replaceChildren(...runs.map((r) =>
-      el("div", { class: "item", title: r.error || r.branch || r.id },
+      el("div", { class: "item" + (sessionOfRun(r.id)?.id === S.selectedSession && S.selectedSession ? " active" : ""), title: (r.error || r.branch || r.id) + " — tıkla: sohbeti aç", onclick: () => openRun(r) },
         el("span", { class: "dot " + (r.status === "success" ? "success" : r.status === "failed" ? "failed" : "") }),
         el("span", { class: "grow" }, r.jiraKey || r.id, el("div", { class: "sub" }, [r.status === "success" ? "bitti" : r.status === "failed" ? "durdu" : r.status === "yarım" ? "yarım / sürüyor" : r.status, r.cost != null ? `$${Number(r.cost).toFixed(2)}` : "", r.startedAt ? new Date(r.startedAt).toLocaleString("tr-TR", { dateStyle: "short", timeStyle: "short" }) : ""].filter(Boolean).join(" · "))),
         r.status !== "success" && !r.batch && !busyProject() ? el("button", { class: "small", title: "Kaldığı yerden devam et", onclick: (e) => { e.stopPropagation(); resume(r.id); } }, "Devam") : null,
@@ -351,24 +361,53 @@
   const busyProject = () => S.projects.find((p) => p.name === S.selectedProject)?.busy;
   /** Görevle birlikte çalışılacak diğer projeler: tıkladıkça kapalı → okur → değiştirir */
   const REL_TEXT = { off: "", read: " · okur", edit: " · değiştirir" };
+  const REL_SHOWN = 4;
+  const relNext = (st) => (st === "off" ? "read" : st === "read" ? "edit" : "off");
+  const relTitle = (st) => st === "off" ? "Bu görevde kullanılmaz. Tıkla: okur" : st === "read" ? "Ajanlar okur, değiştirmez. Tıkla: değiştirir" : "Developer bu projede de değişiklik yapar (sınır: o projenin flowloop.yaml → paths.edit). Tıkla: kapat";
+  function setRel(name) {
+    S.rel.set(name, relNext(S.rel.get(name) || "off"));
+    prefs.rel[S.selectedProject] = Object.fromEntries(S.rel);
+    savePrefs();
+    renderRelPicker();
+  }
+  /** En çok 4 proje görünür: seçilenler hep görünür, gerisi "+ N daha" listesinden */
   function renderRelPicker() {
     const box = $("relPicker");
     const others = S.projects.filter((p) => p.name !== S.selectedProject);
     if (!S.selectedProject || !others.length) { box.replaceChildren(); return; }
-    box.replaceChildren(el("span", {}, "Birlikte:"), ...others.map((p) => {
+    const on = others.filter((p) => (S.rel.get(p.name) || "off") !== "off");
+    const shown = [...on, ...others.filter((p) => !on.includes(p)).slice(0, Math.max(0, REL_SHOWN - on.length))];
+    shown.sort((a, b) => others.indexOf(a) - others.indexOf(b));
+    const hidden = others.filter((p) => !shown.includes(p));
+    const chip = (p) => {
       const st = S.rel.get(p.name) || "off";
-      const busyEdit = p.busy;
-      return el("span", {
-        class: "rel " + st + (busyEdit && st === "edit" ? " busy" : ""),
-        title: st === "off" ? "Bu görevde kullanılmaz. Tıkla: okur" : st === "read" ? "Ajanlar okur, değiştirmez. Tıkla: değiştirir" : "Developer bu projede de değişiklik yapar (sınır: o projenin flowloop.yaml → paths.edit). Tıkla: kapat",
-        onclick: () => {
-          S.rel.set(p.name, st === "off" ? "read" : st === "read" ? "edit" : "off");
-          prefs.rel[S.selectedProject] = Object.fromEntries(S.rel);
-          savePrefs();
-          renderRelPicker();
-        },
-      }, p.name + REL_TEXT[st]);
-    }));
+      return el("span", { class: "rel " + st + (p.busy && st === "edit" ? " busy" : ""), title: relTitle(st), onclick: () => setRel(p.name) }, p.name + REL_TEXT[st]);
+    };
+    const kids = [el("span", {}, "Birlikte:"), ...shown.map(chip)];
+    if (hidden.length) {
+      const wrap = el("span", { class: "rel-wrap" });
+      const btn = el("span", { class: "rel more", title: "Diğer projeler", onclick: (e) => { e.stopPropagation(); S.relOpen = !S.relOpen; renderRelPicker(); } }, `+ ${hidden.length} daha`);
+      wrap.append(btn);
+      if (S.relOpen) {
+        const pop = el("div", { class: "rel-pop", onclick: (e) => e.stopPropagation() });
+        const q = el("input", { type: "text", placeholder: "Proje ara…", value: S.relQuery || "" });
+        const list = el("div");
+        const paint = () => {
+          const f = (S.relQuery || "").toLowerCase();
+          list.replaceChildren(...others.filter((p) => !f || p.name.toLowerCase().includes(f)).map((p) => {
+            const st = S.rel.get(p.name) || "off";
+            return el("div", { class: "row", title: relTitle(st), onclick: () => { setRel(p.name); } }, el("span", {}, p.name), el("span", { class: "st " + st }, st === "off" ? "kapalı" : st === "read" ? "okur" : "değiştirir"));
+          }));
+        };
+        q.addEventListener("input", () => { S.relQuery = q.value; paint(); });
+        paint();
+        pop.append(q, list);
+        wrap.append(pop);
+        setTimeout(() => q.focus(), 0);
+      }
+      kids.push(wrap);
+    }
+    box.replaceChildren(...kids);
   }
   const statusText = (s) => ({ running: "çalışıyor", waiting: "cevabını bekliyor", done: "bitti", failed: "durdu" })[s] || s;
 
@@ -410,6 +449,22 @@
       showInfo(`Silindi: ${r.jiraKey || r.id}${res.keptBranches.length ? `\nKorunan branch'ler (içinde commit var): ${res.keptBranches.join(", ")}` : ""}`);
       await selectProject(S.selectedProject);
     } catch (e) { showError(e); }
+  }
+  const sessionOfRun = (id) => [...S.sessions.values()].find((s) => s.kind !== "ask" && s.runId === id && s.project === S.selectedProject);
+  /** Geçmişteki çalıştırmaya tıklayınca sohbeti açılır (terminalden başlatıldıysa kaydından özet) */
+  async function openRun(r) {
+    const known = sessionOfRun(r.id);
+    if (known) return selectSession(known.id);
+    try {
+      const { session } = await api("POST", "/api/runs/open", { project: S.selectedProject, id: r.id });
+      await refresh();
+      selectSession(session);
+    } catch (e) { showError(e); }
+  }
+  async function resumeSession(s, btn) {
+    if (btn) btn.disabled = true;
+    try { await api("POST", `/api/sessions/${s.id}/resume`); s.canResume = false; }
+    catch (e) { showError(e); if (btn) btn.disabled = false; }
   }
   async function resume(id) {
     try {
@@ -566,6 +621,10 @@
       else nodes.push(renderInfo(m));
     }
     if (s.status === "running") nodes.push(el("div", { class: "typing" }, el("span"), el("span"), el("span")));
+    if (s.canResume && s.status !== "running" && s.status !== "waiting") {
+      const btn = el("button", { class: "primary", onclick: () => resumeSession(s, btn) }, "Kaldığı yerden devam et");
+      nodes.push(el("div", { class: "resume-bar" }, el("span", {}, s.interrupted ? "Bu iş yarıda kaldı. Çalışma kopyası duruyor; tamamlanan adımlar tekrar çalışmaz." : "Bu iş tamamlanmadı. Çalışma kopyası duruyor; tamamlanan adımlar tekrar çalışmaz."), btn));
+    }
     if (s.prompt) {
       // kart yeniden çizilmez: yazmakta olduğun yorum ve seçimlerin kaybolmasın
       if (S.card?.id !== s.prompt.id) S.card = { id: s.prompt.id, node: renderPrompt(s, s.prompt) };
@@ -842,7 +901,11 @@
     try {
       const st = await api("GET", "/api/state");
       S.projects = st.projects;
-      if (full) for (const s of st.sessions) S.sessions.set(s.id, s);
+      for (const s of st.sessions) {
+        const cur = S.sessions.get(s.id);
+        if (full || !cur) S.sessions.set(s.id, s);
+        else Object.assign(cur, { canResume: s.canResume, runId: s.runId, interrupted: s.interrupted });
+      }
       if (!S.selectedProject && S.projects.length) {
         const keep = S.projects.find((p) => p.name === prefs.project);
         await selectProject((keep ?? S.projects[0]).name);
@@ -892,6 +955,7 @@
       if (msg) showInfo(msg);
     } catch (e) { showError(e); }
   };
+  document.addEventListener("click", () => { if (S.relOpen) { S.relOpen = false; renderRelPicker(); } });
   document.addEventListener("click", () => { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }, { once: true });
 
   if (!token) {

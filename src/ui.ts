@@ -287,6 +287,72 @@ function recordedEditRoots(root: string, id: string): string[] {
   return [];
 }
 
+/** Çalıştırmanın kaydı (run.json) ve klasörü; toplu çalışmalar hariç */
+function readRun(root: string, id: string): { dir: string; run: RunSummary } | undefined {
+  if (!/^[\w.-]+$/.test(id) || id.startsWith(BATCH_PREFIX)) return undefined;
+  try {
+    for (const base of workDirsFor(loadConfig(root), root)) {
+      const f = path.join(base, id, "run.json");
+      if (fs.existsSync(f)) return { dir: path.join(base, id), run: JSON.parse(readText(f)) as RunSummary };
+    }
+  } catch {
+    /* kayıt okunamadı */
+  }
+  return undefined;
+}
+
+/** Yarım kalan çalıştırma kaldığı yerden sürdürülebilir mi: kayıt ve çalışma kopyası duruyor, başarıyla bitmemiş */
+export function runResumable(root: string, id: string): boolean {
+  const r = readRun(root, id);
+  return !!r && r.run.status !== "success" && !!r.run.worktree && fs.existsSync(r.run.worktree);
+}
+
+/** Çalıştırmanın başlığı: görev dosyasının başlığı, yoksa Jira anahtarı */
+function runTitle(root: string, id: string): string {
+  const r = readRun(root, id);
+  if (!r) return id;
+  return taskTitle(root, path.join(r.dir, "run", "task.md")) ?? r.run.jiraKey ?? id;
+}
+
+// ───────────── sohbet geçmişi (kalıcı) ─────────────
+
+/** Sohbetler: ~/.flowloop/ui/chats/<id>.json — arayüz yeniden başlayınca geri gelir */
+export function chatsDir(home = os.homedir()): string {
+  return path.join(home, ".flowloop", "ui", "chats");
+}
+export interface ChatRecord {
+  id: string;
+  kind: "task" | "ask";
+  project: string;
+  projectRoot: string;
+  title: string;
+  status: Session["status"];
+  startedAt: number;
+  costUsd: number;
+  agentSession?: string;
+  runId?: string;
+  interrupted?: boolean;
+  companions: { name: string; edit: boolean }[];
+  summary?: Session["summary"];
+  messages: Message[];
+}
+/** En yeni 200 sohbet */
+function loadChats(home: string): ChatRecord[] {
+  const dir = chatsDir(home);
+  if (!fs.existsSync(dir)) return [];
+  const out: { rec: ChatRecord; at: number }[] = [];
+  for (const f of fs.readdirSync(dir)) {
+    if (!/^[\w-]+\.json$/.test(f)) continue;
+    try {
+      const rec = JSON.parse(readText(path.join(dir, f))) as ChatRecord;
+      if (rec?.id && Array.isArray(rec.messages)) out.push({ rec, at: rec.messages.at(-1)?.at ?? rec.startedAt ?? 0 });
+    } catch {
+      /* bozuk kayıt */
+    }
+  }
+  return out.sort((a, b) => b.at - a.at).slice(0, 200).map((x) => x.rec);
+}
+
 // ───────────── oturum: bir çalıştırmanın sohbeti ─────────────
 
 export type MessageLevel = "step" | "info" | "ok" | "warn" | "error" | "detail" | "user" | "done" | "answer";
@@ -307,7 +373,11 @@ const ANSI = /\x1b\[[0-9;]*m/g;
 const strip = (s: string) => s.replace(ANSI, "");
 
 export class Session {
-  readonly id = randomUUID().slice(0, 8);
+  readonly id: string;
+  /** Görev sohbetinin çalıştırması (yarım kalırsa aynı sohbette sürdürülür) */
+  runId?: string;
+  /** Arayüz kapanırken sürüyordu */
+  interrupted?: boolean;
   status: "running" | "waiting" | "done" | "failed" = "running";
   /** task: plan → geliştirme → inceleme → teslim · ask: sadece okuyan ajanla soru-cevap */
   kind: "task" | "ask" = "task";
@@ -325,7 +395,33 @@ export class Session {
     readonly project: ProjectEntry,
     public title: string,
     private emit: (ev: { type: string; session: string; data: unknown }) => void,
-  ) {}
+    id?: string,
+  ) {
+    this.id = id ?? randomUUID().slice(0, 8);
+  }
+
+  toRecord(): ChatRecord {
+    return {
+      id: this.id, kind: this.kind, project: this.project.name, projectRoot: this.project.root, title: this.title, status: this.status, startedAt: this.startedAt,
+      costUsd: this.costUsd, agentSession: this.agentSession, runId: this.runId, interrupted: this.interrupted, companions: this.companions, summary: this.summary, messages: this.messages,
+    };
+  }
+
+  static fromRecord(rec: ChatRecord, project: ProjectEntry, emit: (ev: { type: string; session: string; data: unknown }) => void): Session {
+    const s = new Session(project, rec.title, emit, rec.id);
+    s.kind = rec.kind === "ask" ? "ask" : "task";
+    s.status = rec.status;
+    s.startedAt = rec.startedAt ?? Date.now();
+    s.costUsd = rec.costUsd ?? 0;
+    s.agentSession = rec.agentSession;
+    s.runId = rec.runId;
+    s.interrupted = rec.interrupted;
+    s.companions = rec.companions ?? [];
+    s.summary = rec.summary;
+    s.messages = rec.messages;
+    s.seq = rec.messages.reduce((m, x) => Math.max(m, x.seq ?? 0), 0);
+    return s;
+  }
 
   push(level: MessageLevel, text: string): void {
     const m = { seq: ++this.seq, at: Date.now(), level, text: strip(text) };
@@ -374,11 +470,11 @@ export class Session {
     return this.pending ? { id: this.pending.id, kind: this.pending.kind, payload: this.pending.payload } : null;
   }
 
-  view() {
-    return { id: this.id, kind: this.kind, costUsd: this.costUsd, project: this.project.name, title: this.title, status: this.status, startedAt: this.startedAt, companions: this.companions, prompt: this.publicPrompt(), summary: this.summary, messages: this.messages };
+  view(canResume = false) {
+    return { id: this.id, kind: this.kind, costUsd: this.costUsd, project: this.project.name, title: this.title, status: this.status, startedAt: this.startedAt, companions: this.companions, prompt: this.publicPrompt(), summary: this.summary, runId: this.runId, interrupted: this.interrupted, canResume, messages: this.messages };
   }
 
-  readonly startedAt = Date.now();
+  startedAt = Date.now();
   /** Bu çalıştırmada değiştirilebilen ilgili repoların kökleri (aynı anda başka çalıştırma onları değiştiremez) */
   editRoots: string[] = [];
   companions: { name: string; edit: boolean }[] = [];
@@ -592,10 +688,47 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
   const token = opts.token ?? randomBytes(18).toString("base64url");
   const sessions = new Map<string, Session>();
   const clients = new Set<http.ServerResponse>();
+  // sohbetler diske yazılır (her değişiklikten kısa süre sonra; kapanırken hemen)
+  const saveTimers = new Map<string, NodeJS.Timeout>();
+  const saveNow = (id: string) => {
+    clearTimeout(saveTimers.get(id));
+    saveTimers.delete(id);
+    const s = sessions.get(id);
+    if (!s) return;
+    try {
+      fs.mkdirSync(chatsDir(home), { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(chatsDir(home), `${s.id}.json`), JSON.stringify(s.toRecord()), { mode: 0o600 });
+    } catch {
+      /* yazılamadı: sohbet bu oturumda yine görünür */
+    }
+  };
+  const scheduleSave = (id: string) => {
+    if (!saveTimers.has(id)) saveTimers.set(id, setTimeout(() => saveNow(id), 300));
+  };
+  const forget = (s: Session) => {
+    clearTimeout(saveTimers.get(s.id));
+    saveTimers.delete(s.id);
+    sessions.delete(s.id);
+    fs.rmSync(path.join(chatsDir(home), `${s.id}.json`), { force: true });
+  };
   const emit = (ev: { type: string; session: string; data: unknown }) => {
     const line = `data: ${JSON.stringify(ev)}\n\n`;
     for (const c of clients) safeWrite(c, line);
+    if (ev.session) scheduleSave(ev.session);
   };
+  // önceki sohbetler: arayüz kapanırken sürenler yarıda kalmış sayılır (iş kaldığı yerden sürdürülebilir)
+  for (const rec of loadChats(home)) {
+    if (!rec.projectRoot || !fs.existsSync(rec.projectRoot)) continue;
+    const p = readProjects(home).find((x) => x.root === rec.projectRoot) ?? { name: rec.project, root: rec.projectRoot };
+    const s = Session.fromRecord(rec, p, emit);
+    sessions.set(s.id, s);
+    if (s.status === "running" || s.status === "waiting") {
+      s.status = "failed";
+      s.interrupted = true;
+      s.push("warn", s.kind === "ask" ? "Arayüz kapandığında cevap hazırlanıyordu; soruyu tekrar sorabilirsin." : "Arayüz kapandığında bu iş sürüyordu. Kaldığı yerden devam etmek için Devam et'e bas.");
+    }
+  }
+  const canResume = (s: Session) => s.kind === "task" && s.status !== "running" && s.status !== "waiting" && !!s.runId && runResumable(s.project.root, s.runId);
   // kapanmış bir tarayıcı sekmesine yazmak süreci düşürmesin
   const safeWrite = (c: http.ServerResponse, line: string) => {
     if (c.destroyed || c.writableEnded) {
@@ -651,22 +784,32 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     title: string,
     work: (s: Session, base: Partial<RunOptions> & { agent: AgentRunner; backend: Backend; log: Logger }) => Promise<RunSummary | void>,
     editRoots: string[] = [],
+    existing?: Session,
   ) => {
     if (busy(p)) throw new FlowloopError(`${p.name} projesinde süren bir çalıştırma var; bitince yenisini başlat.`);
     for (const r of editRoots) {
       const other = active().find((s) => s.project.root === r || s.editRoots.includes(r));
       if (other) throw new FlowloopError(`${path.basename(r)} şu an başka bir çalıştırmada (${other.title}) değiştiriliyor; bitince başlat ya da o projeyi "okur" seç.`);
     }
-    const s = new Session(p, title, emit);
+    const s = existing ?? new Session(p, title, emit);
     s.editRoots = editRoots;
-    s.companions = [];
+    if (existing) {
+      s.status = "running";
+      s.interrupted = false;
+      s.pending = undefined;
+      s.summary = undefined;
+    } else s.companions = [];
     sessions.set(s.id, s);
-    emit({ type: "session", session: s.id, data: { id: s.id, project: p.name, title, status: s.status } });
+    emit({ type: "session", session: s.id, data: { id: s.id, project: p.name, title: s.title, status: s.status } });
     void (async () => {
       try {
         const r = (opts.createAgent ?? ((root: string) => createRunner(loadConfig(root))))(p.root);
         s.push("info", `Ajan: ${r.backend === "cursor" ? "Cursor CLI" : "Claude (Agent SDK)"} — ${r.reason}`);
-        const sum = await work(s, { ...opts.runExtras, ...s.callbacks(), agent: r.runner, backend: r.backend, log: s.logger() });
+        const onRunStarted = (id: string) => {
+          s.runId = id;
+          scheduleSave(s.id);
+        };
+        const sum = await work(s, { ...opts.runExtras, ...s.callbacks(), agent: r.runner, backend: r.backend, log: s.logger(), onRunStarted });
         s.status = "done";
         if (sum) {
           s.summary = { runId: sum.id, branch: sum.branch, prUrl: sum.prUrl, jiraCommentUrl: sum.jiraCommentUrl, cost: sum.backend === "cursor" ? undefined : sum.totalCostUsd, durationMs: sum.durationMs };
@@ -726,13 +869,49 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     emit({ type: "session", session: s.id, data: { id: s.id, kind: s.kind, project: s.project.name, title: s.title, status: s.status, costUsd: s.costUsd } });
   };
 
+  /** Yarım kalan çalıştırmayı sürdürür: sohbeti varsa aynı sohbette (mesajlar alta eklenir) */
+  const resumeIn = (p: ProjectEntry, id: string, existing?: Session) => {
+    const chat = existing ?? [...sessions.values()].find((x) => x.kind === "task" && x.runId === id && x.project.root === p.root);
+    if (chat && (chat.status === "running" || chat.status === "waiting")) throw new FlowloopError("Bu iş zaten sürüyor.");
+    const s = start(p, chat?.title ?? runTitle(p.root, id), (s, base) => {
+      s.push("step", "Kaldığı yerden devam");
+      return resumeRun({ ...base, root: p.root, resume: id, taskFile: "" } as RunOptions & { resume: string });
+    }, recordedEditRoots(p.root, id), chat);
+    s.runId = id;
+    return s;
+  };
+  const openRun = (p: ProjectEntry, id: string) => {
+    const chat = [...sessions.values()].find((x) => x.kind === "task" && x.runId === id && x.project.root === p.root);
+    if (chat) return chat;
+    const r = readRun(p.root, id);
+    if (!r) throw new FlowloopError(`Çalıştırma bulunamadı: ${id}`);
+    const s = new Session(p, runTitle(p.root, id), emit);
+    s.runId = id;
+    s.startedAt = r.run.startedAt ? Date.parse(r.run.startedAt) || Date.now() : Date.now();
+    s.costUsd = r.run.totalCostUsd ?? 0;
+    sessions.set(s.id, s);
+    s.push("info", `Bu çalıştırma arayüz dışında (terminalde) başlatıldı; sohbeti yok, kaydından özet:`);
+    const lines = [`Başlangıç: ${r.run.startedAt ? new Date(r.run.startedAt).toLocaleString("tr-TR") : "?"}`];
+    if (r.run.branch) lines.push(`Branch: ${r.run.branch}`);
+    for (const ph of r.run.phases ?? []) lines.push(`${ph.role}${ph.iteration ? ` (tur ${ph.iteration})` : ""}${ph.verdict ? ` — ${ph.verdict}` : ""}`);
+    s.push("info", lines.join("\n"));
+    if (r.run.status === "success") {
+      s.status = "done";
+      s.push("done", `Bitti: ${r.run.commits?.length ?? 0} commit · ${r.run.branch ?? ""}`);
+    } else {
+      s.status = "failed";
+      s.push(r.run.error ? "error" : "warn", r.run.error ?? "Yarıda kaldı.");
+    }
+    return s;
+  };
+
   const routes = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> => {
     const m = req.method ?? "GET";
     const parts = url.pathname.split("/").filter(Boolean);
     if (m === "GET" && url.pathname === "/api/state") {
       return send(res, 200, {
         projects: readProjects(home).map((p) => ({ ...p, busy: busy(p) })),
-        sessions: [...sessions.values()].map((s) => s.view()),
+        sessions: [...sessions.values()].map((s) => s.view(canResume(s))),
       });
     }
     if (m === "GET" && parts[1] === "projects" && parts[3] === "runs") return send(res, 200, projectRuns(projectByName(decodeURIComponent(parts[2])).root));
@@ -773,7 +952,7 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
         if (files.length === 1) s.rename(taskTitle(p.root, files[0]) ?? s.title);
         const common = { ...base, root: p.root, planApproval: b.approvePlan !== false, noPush: b.noPush === true, extraRelated };
         if (files.length > 1) {
-          await runBatch({ ...common, taskFiles: files, rerun: `flowloop run ${inputs.join(" ")}`, approveEachPlan: false });
+          await runBatch({ ...common, onRunStarted: undefined, taskFiles: files, rerun: `flowloop run ${inputs.join(" ")}`, approveEachPlan: false });
           return;
         }
         return runTask({ ...common, taskFile: files[0] });
@@ -803,15 +982,25 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
       const p = projectByName(b.project);
       // süren bir çalıştırmanın klasörü silinmesin
       if (busy(p)) throw new FlowloopError(`${p.name} projesinde süren bir çalıştırma var; bitince sil.`);
-      return send(res, 200, deleteRun(p.root, str(b.id, 300)));
+      const id = str(b.id, 300);
+      const out = deleteRun(p.root, id);
+      for (const s of [...sessions.values()]) if (s.runId === id && s.project.root === p.root) forget(s);
+      return send(res, 200, out);
     }
     if (m === "POST" && url.pathname === "/api/resume") {
       const b = await readBody(req);
       const p = projectByName(b.project);
       const id = str(b.id, 300);
       if (!/^[\w.-]+$/.test(id)) throw new FlowloopError("Geçersiz çalıştırma.");
-      const s = start(p, `devam: ${id}`, (s, base) => resumeRun({ ...base, root: p.root, resume: id, taskFile: "" } as RunOptions & { resume: string }), recordedEditRoots(p.root, id));
-      return send(res, 200, { session: s.id });
+      return send(res, 200, { session: resumeIn(p, id).id });
+    }
+    // geçmişteki bir çalıştırmayı sohbet olarak aç: sohbeti varsa o, yoksa kaydından özet
+    if (m === "POST" && url.pathname === "/api/runs/open") {
+      const b = await readBody(req);
+      const p = projectByName(b.project);
+      const id = str(b.id, 300);
+      if (!/^[\w.-]+$/.test(id)) throw new FlowloopError("Geçersiz çalıştırma.");
+      return send(res, 200, { session: openRun(p, id).id });
     }
     if (parts[1] === "sessions" && parts[2]) {
       const s = sessions.get(parts[2]);
@@ -826,6 +1015,12 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
         void askQuestion(s, question, withProjects);
         return send(res, 200, { ok: true });
       }
+      if (m === "POST" && parts[3] === "resume") {
+        if (s.kind !== "task" || !s.runId) throw new FlowloopError("Bu sohbette sürdürülecek bir iş yok.");
+        if (s.status === "running" || s.status === "waiting") throw new FlowloopError("Bu iş zaten sürüyor.");
+        resumeIn(s.project, s.runId, s);
+        return send(res, 200, { ok: true });
+      }
       if (m === "POST" && parts[3] === "answer") {
         const b = await readBody(req);
         s.answer(str(b.prompt, 100), b.value);
@@ -833,7 +1028,7 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
       }
       if (m === "GET" && parts[3] === "diff") return send(res, 200, { diff: strip(s.diff?.() ?? "") });
       if (m === "POST" && parts[3] === "dismiss" && s.status !== "running" && s.status !== "waiting") {
-        sessions.delete(s.id);
+        forget(s);
         return send(res, 200, { ok: true });
       }
     }
@@ -902,6 +1097,7 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
     sessions,
     close: () =>
       new Promise<void>((resolve) => {
+        for (const id of [...saveTimers.keys()]) saveNow(id);
         for (const c of clients) c.destroy();
         server.close(() => resolve());
       }),

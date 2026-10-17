@@ -6,6 +6,15 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.15.0 — 2026-10-17
+
+### Yeni
+- **Arayüzde sohbet geçmişi kalıcı; tıklayıp kaldığın yerden devam.** Sohbetler `~/.flowloop/ui/chats/` altında saklanır, arayüz yeniden başlayınca bütün mesajlarıyla geri gelir. Yarım kalan bir işin sohbetinde **Kaldığı yerden devam et** çıkar; kendiliğinden başlamaz, bastığında aynı sohbette sürer (yeni sohbet açılmaz). Geçmiş çalıştırmalar listesinden tıklamak da sohbeti açar; terminalde başlatılanlar için kaydından özet gösterilir. Soru sohbetleri yeniden başlatmadan sonra da aynı bağlamla sürer.
+- **"Birlikte" seçimi sadeleşti:** en fazla 4 proje görünür, seçtiklerin hep görünür; diğerleri **+ N daha** listesinden (aramalı) seçilir.
+
+### Düzeltme
+- **Developer hiçbir şey yazamadan durduysa (ör. Claude oturumu düştü) sürdürme "değişiklik yok" diye kalıyordu.** Artık developer'ın turundan başlıyor.
+
 ## 1.14.1 — 2026-10-16
 
 ### Düzeltme

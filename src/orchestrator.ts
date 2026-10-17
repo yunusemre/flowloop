@@ -179,6 +179,8 @@ export interface RunOptions {
   questionsMode?: QuestionsMode;
   /** Bu çalıştırmaya eklenen ilgili repolar (sohbet arayüzünde seçilen diğer projeler) */
   extraRelated?: ExtraRelated[];
+  /** Çalıştırma klasörü açılınca kimliği bildirilir (sohbet arayüzü yarım kalan işi bununla sürdürür) */
+  onRunStarted?: (id: string) => void;
   now?: () => Date;
   /** Testlerde kontrol komutlarını taklit etmek için */
   checkRunner?: CheckRunner;
@@ -851,6 +853,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   sw.time("base kopya", "setup", () => gitOk(["worktree", "add", "-q", "--detach", baseWt, baseSha], root));
   summary.worktree = wt;
   summary.runDir = runDir;
+  opts.onRunStarted?.(id);
   fs.copyFileSync(taskPath, files.task);
   if (opts.batch?.context) {
     taskText = `${taskText.trimEnd()}\n\n${opts.batch.context.trim()}\n`;
@@ -1677,7 +1680,10 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     let devRounds = 0;
     assertScope("Developer");
     for (let round = 0; ; round++) {
-      if (feedback) {
+      // developer hiçbir şey yazamadan yarıda kaldıysa (ör. bağlantı koptu) sürdürme onun turuyla başlar
+      const unfinishedDev = round === 0 && !feedback && !changed().length && !related.some((r) => r.hasChanges());
+      if (unfinishedDev) log.info("Developer'ın önceki turu değişiklik bırakmadan yarıda kalmış; geliştirme baştan yapılıyor.");
+      if (feedback || unfinishedDev) {
         if (devRounds >= cfg.maxIterations) fail(`Sürdürmede ${cfg.maxIterations} geliştirme turunda onay alınamadı. Son geri bildirim run.json'da.`);
         devRounds++;
         summary.iterations = (summary.iterations ?? 0) + 1;

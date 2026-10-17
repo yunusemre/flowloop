@@ -375,3 +375,73 @@ test("ui: soru modunda ajan sadece okur; takip sorusu aynı oturumla sürer; gö
     await ui.close();
   }
 });
+
+test("ui: sohbetler kalıcı; yarım kalan iş yeniden başlatmadan sonra aynı sohbette kaldığı yerden sürer; geçmişten açılır", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-uih-"));
+  const root = makeRepo();
+  const p = addProject(root, home);
+  const roles: string[] = [];
+  let failDev = true;
+  const agent: AgentRunner = {
+    async run(req) {
+      roles.push(req.role);
+      if (req.role === "developer" && failDev) return { ok: false, text: "", error: "bağlantı koptu", costUsd: 0.1, denials: [], models: [] };
+      return new FakeAgent().run(req);
+    },
+  };
+  const open = () => startUi({ port: 0, home, createAgent: () => ({ runner: agent, backend: "claude", reason: "test" }), runExtras: { noFetch: true, home } });
+  let ui = await open();
+  const call = async (method: string, url: string, body?: unknown) => {
+    const r = await fetch(`http://127.0.0.1:${ui.port}${url}`, { method, headers: { "x-flowloop-token": ui.token, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    return j;
+  };
+  const waitFor = async (id: string, pred: (s: any) => boolean) => {
+    for (const t0 = Date.now(); Date.now() - t0 < 30_000; ) {
+      const s = (await call("GET", "/api/state")).sessions.find((x: any) => x.id === id);
+      if (s && pred(s)) return s;
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    throw new Error("zaman aşımı");
+  };
+  try {
+    const { session } = await call("POST", "/api/run", { project: p.name, task: ".flowloop/tasks/ekspres.md", approvePlan: false });
+    let s = await waitFor(session, (x) => x.status === "failed");
+    assert.ok(s.runId, "çalıştırma kimliği sohbete yazılır");
+    assert.equal(s.canResume, true);
+    const before = s.messages.length;
+    await ui.close();
+
+    // arayüz yeniden başlar: sohbet, mesajları ve devam imkânıyla geri gelir
+    failDev = false;
+    ui = await open();
+    s = await waitFor(session, () => true);
+    assert.equal(s.title, "KG-42 · Ekspres teslimat");
+    assert.ok(s.messages.length >= before);
+    assert.equal(s.canResume, true);
+    const analistBefore = roles.filter((r) => r === "analist").length;
+    await call("POST", `/api/sessions/${session}/resume`);
+    s = await waitFor(session, (x) => x.prompt?.kind === "changes" || x.status === "failed");
+    assert.equal(s.status, "waiting", JSON.stringify(s.messages.slice(-4)));
+    await call("POST", `/api/sessions/${session}/answer`, { prompt: s.prompt.id, value: { action: "approve" } });
+    s = await waitFor(session, (x) => x.status === "done" || x.status === "failed");
+    assert.equal(s.status, "done", JSON.stringify(s.messages.slice(-4)));
+    assert.equal(roles.filter((r) => r === "analist").length, analistBefore, "analist tekrar çalışmaz");
+    assert.ok(s.messages.some((m: any) => m.text === "Kaldığı yerden devam"));
+    assert.ok(s.messages.some((m: any) => /bağlantı koptu/.test(m.text)), "önceki mesajlar aynı sohbette");
+    assert.equal(s.canResume, false);
+    assert.equal((await call("GET", "/api/state")).sessions.length, 1, "yeni sohbet açılmaz");
+
+    // geçmişten açma: sohbeti varsa o; sohbet kapatıldıysa kaydından özet
+    assert.equal((await call("POST", "/api/runs/open", { project: p.name, id: s.runId })).session, session);
+    await call("POST", `/api/sessions/${session}/dismiss`);
+    assert.equal(fs.existsSync(path.join(home, ".flowloop", "ui", "chats", `${session}.json`)), false);
+    const { session: imported } = await call("POST", "/api/runs/open", { project: p.name, id: s.runId });
+    const im = await waitFor(imported, () => true);
+    assert.equal(im.status, "done");
+    assert.ok(im.messages.some((m: any) => /terminalde/.test(m.text)));
+  } finally {
+    await ui.close();
+  }
+});
