@@ -26,6 +26,7 @@ import { questionsMarkdown as qMarkdown, resolveQuestions as questionLoop, type 
 import { isWindows, linkDir, readText } from "./platform.js";
 import { Stopwatch, readMutantRuns, timingReport, type TimingEntry } from "./timing.js";
 import { mutantRunsFile, type CheckTools } from "./mutant.js";
+import { breakdownTable, focusNote, orderTasks, parseBreakdown, planAks, pointBudget, totalPoints, usesBreakdown, validateBreakdown, type BreakdownState } from "./breakdown.js";
 export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
 
 /** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
@@ -69,6 +70,7 @@ export function buildJiraComment(aiSummary: string, s: RunSummary, links?: Remot
         return `  - \`${c.slice(0, i)}\` ${c.slice(i + 1)}`;
       }),
     ]),
+    s.breakdown ? `- *İş kırılımı:* ${s.breakdown.tasks.length} görev · ${s.breakdown.points} puan, her görev ayrı commit` : "",
     s.batch ? `- *Toplu çalışma:* ${s.batch.index}/${s.batch.total} — aynı branch'te sırayla: ${s.batch.keys.join(", ")}` : "",
     `- *Kontroller:* bu işin testleri yeşil, yeni tip/lint hatası yok, reviewer onayı ${s.iterations}. turda`,
   ].filter(Boolean);
@@ -76,6 +78,7 @@ export function buildJiraComment(aiSummary: string, s: RunSummary, links?: Remot
   return [
     aiSummary.trim() || "## Yapılan\n(özet üretilemedi; commit mesajlarına bakın)",
     ...noteSections(s),
+    ...(s.breakdown ? ["", "## İş kırılımı", breakdownTable(s.breakdown.tasks)] : []),
     "",
     "## Teslim",
     ...facts,
@@ -407,6 +410,8 @@ export interface RunSummary {
   assumptions?: string[];
   /** İnsanın bakması önerilenler */
   attention?: AttentionItem[];
+  /** İş kırılımı: görevler sırayla geliştirilir, her biri ayrı commit olur */
+  breakdown?: { tasks: BreakdownState[]; points: number };
   /** Toplu çalışmanın parçasıysa */
   batch?: BatchRef;
   /** Görev metninin özeti: görev değiştiyse (ör. Jira'dan cevaplarla yeniden çekildi) eski plan kullanılmaz */
@@ -951,6 +956,8 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     : undefined;
 
   const budgetLeft = () => cfg.budgets.total - summary.totalCostUsd;
+  /** İş kırılımında developer ve reviewer'ın o an odaklandığı görev */
+  let focus: BreakdownState | undefined;
   const call = async (role: RoleSpec, phase: string, phaseBudgetLeft: number, extraVars: Record<string, string> = {}, iteration?: number): Promise<AgentResult> => {
     let budget = Math.min(phaseBudgetLeft, budgetLeft());
     if (budget <= 0.01) {
@@ -963,7 +970,10 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       role: role.name,
       persona: role.persona,
       ruleset: role.ruleset,
-      prompt: taskMessage(taskText, jira, render(role.promptTemplate, { ...vars, ...extraVars })) + limitsNote(role.name, budget, iteration, cfg.maxIterations, opts.backend),
+      prompt:
+        taskMessage(taskText, jira, render(role.promptTemplate, { ...vars, ...extraVars })) +
+        limitsNote(role.name, budget, iteration, cfg.maxIterations, opts.backend) +
+        (focus && summary.breakdown && (role.name === "developer" || role.name === "reviewer") ? focusNote(focus, summary.breakdown.tasks, role.name) : ""),
       cwd: wt,
       runRoot,
       perms: role.perms,
@@ -1002,7 +1012,25 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     if (workingTreeHash(wt, X) !== h0) fail("Analist kod değiştirdi! Rol ihlali.");
     if (!fs.existsSync(files.plan) || !readText(files.plan).trim()) fail("Analist plan yazmadı.");
     if (feedback && readText(files.plan) === before) log.warn("Analist planı değiştirmedi; gerekçesi aşağıda.");
+    // iş kırılımı kurallara uymuyorsa analist sadece o bölümü düzeltir (en çok iki kez; olmazsa kırılımsız sürer)
+    for (let k = 0; k < 2; k++) {
+      const errs = breakdownErrors();
+      if (!errs.length) break;
+      log.warn(`İş kırılımı kurallara uymuyor, analist düzeltiyor:\n${errs.map((e) => `  - ${e}`).join("\n")}`);
+      const fix = await call(roles.analist, "analist", Math.max(0.05, analistBudget), {
+        planFeedback: `Plandaki "## İş kırılımı" bölümü kurallara uymuyor. SADECE o bölümü düzelt, planın geri kalanına dokunma:\n${errs.map((e) => `- ${e}`).join("\n")}`,
+      });
+      analistBudget = Math.max(0.05, analistBudget - fix.costUsd);
+      if (workingTreeHash(wt, X) !== h0) fail("Analist kod değiştirdi! Rol ihlali.");
+    }
     return res;
+  };
+  /** Plandaki kırılımın hataları (kırılım yoksa ya da tek görevse boş) */
+  const breakdownErrors = (): string[] => {
+    const plan = fs.existsSync(files.plan) ? readText(files.plan) : "";
+    const tasks = parseBreakdown(plan);
+    if (!tasks || tasks.length < 2) return [];
+    return validateBreakdown(tasks, planAks(plan), cfg.paths.edit);
   };
 
   // Aynı görevin önceki bir çalıştırmasında yazılmış plan varsa analizi boşa harcama
@@ -1108,6 +1136,21 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   }
   summary.scopeRequests = [];
 
+  // ───────────── iş kırılımı ─────────────
+  {
+    const plan = readText(files.plan);
+    const tasks = parseBreakdown(plan);
+    if (usesBreakdown(tasks)) {
+      const errs = validateBreakdown(tasks, planAks(plan), cfg.paths.edit);
+      if (errs.length) log.warn(`İş kırılımı kurallara uymadığı için kullanılmıyor; iş tek parça geliştirilecek:\n${errs.map((e) => `  - ${e}`).join("\n")}`);
+      else {
+        summary.breakdown = { tasks: orderTasks(tasks).map((t) => ({ ...t, status: "pending" as const })), points: totalPoints(tasks) };
+        log.ok(`İş kırılımı: ${tasks.length} görev · ${summary.breakdown.points} puan · sıra ${summary.breakdown.tasks.map((t) => t.id).join(" → ")}`);
+        saveSummary();
+      }
+    }
+  }
+
   /** Developer kapsam dışı bir değişiklik istediyse: insan karar verir. Developer'a gidecek geri bildirimi döner. */
   const handleScopeRequest = async (req: ScopeRequest, userRequests: string): Promise<string> => {
     summary.scopeRequests!.push(req);
@@ -1168,22 +1211,26 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   summary.decisions = summary.decisions ?? [];
   let turn = 0;
   /** Onay ekranı ve Jira için: varsayımlar ve insanın bakması gerekenler */
+  /** Kırılımda önceki görevlerin inceleme maddeleri (son görevinkiyle birlikte gösterilir) */
+  const earlierAttention: AttentionItem[] = [];
   const refreshNotes = () => {
-    summary.attention = collectAttention(lastDevText, lastReviewerNote);
+    const cur = collectAttention(lastDevText, lastReviewerNote);
+    summary.attention = [...earlierAttention.filter((a) => !cur.some((c) => c.text === a.text)), ...cur];
     summary.assumptions = [
       ...extractAssumptions(readText(files.plan)),
       ...(summary.questions ?? []).filter((q) => q.assumed).map((q) => `${q.id} cevaplanmadı (${q.text.replace(/\s*\n\s*/g, " ")}) → ${q.assumed}`),
     ];
   };
   /** developer ⇄ kontroller ⇄ reviewer; reviewer PASS verince true */
-  const developLoop = async (initialFeedback: string, userRequests: string): Promise<boolean> => {
+  const developLoop = async (initialFeedback: string, userRequests: string, budget = cfg.budgets.gelistir, since?: string): Promise<boolean> => {
     let feedback = initialFeedback;
     let gelistirSpent = 0;
+    let noChangeWarned = false;
     for (let i = 1; i <= cfg.maxIterations; i++) {
       turn++;
       summary.iterations = turn;
       log.info(`\n· Tur ${i}/${cfg.maxIterations}${summary.changeRequests!.length ? ` (${summary.changeRequests!.length}. değişiklik isteği)` : ""}`);
-      const d = await call(roles.developer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { feedback }, turn);
+      const d = await call(roles.developer, "gelistir", budget - gelistirSpent, { feedback }, turn);
       gelistirSpent += d.costUsd;
       if (d.text.trim()) lastDevText = d.text;
       applyEmptiedDeletions(wt, baseWt, X, log);
@@ -1197,6 +1244,14 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
       // Deterministik, işe odaklı kontroller
       const files_ = changed();
+      // kırılımda: görev için hiç değişiklik yoksa bir kez uyarılır; ikincisinde reviewer karar verir (önceki görev karşılamış olabilir)
+      const unchangedTask = !!since && workingTreeHash(wt, X) === since && !related.some((r) => r.hasChanges());
+      if (unchangedTask && !noChangeWarned) {
+        noChangeWarned = true;
+        feedback = "Bu görev için hiçbir dosya değişmedi. Görevi uygula; önceki görevler bu görevin kriterlerini zaten karşılıyorsa hiçbir şey değiştirme ve bunu gerekçesiyle yaz.";
+        log.warn("Developer bu görev için hiçbir şey değiştirmedi.");
+        continue;
+      }
       if (files_.length === 0 && !related.some((r) => r.hasChanges())) {
         feedback = "Hiçbir dosya değişmedi. Görevi uygula.";
         log.warn("Developer hiçbir şey değiştirmedi.");
@@ -1226,7 +1281,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
       const beforeReview = workingTreeHash(wt, X);
       const relatedBefore = related.map((r) => r.treeHash());
-      const r = await call(roles.reviewer, "gelistir", cfg.budgets.gelistir - gelistirSpent, { checks: report, userRequests, relatedChanges: relatedChanges(related), previousReview: prevReview ? clipReport(prevReview) : "" }, turn);
+      const r = await call(roles.reviewer, "gelistir", budget - gelistirSpent, { checks: report, userRequests, relatedChanges: relatedChanges(related), previousReview: prevReview ? clipReport(prevReview) : "" }, turn);
       gelistirSpent += r.costUsd;
       if (workingTreeHash(wt, X) !== beforeReview) fail("Reviewer gerçek dosyaları değiştirdi! Rol ihlali.");
       if (related.some((x, k) => x.treeHash() !== relatedBefore[k])) fail("Reviewer ilgili repodaki dosyaları değiştirdi! Rol ihlali.");
@@ -1268,7 +1323,28 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     return false;
   };
 
-  if (!(await developLoop("", ""))) fail(`${cfg.maxIterations} turda onay alınamadı. Son geri bildirim run.json ve ${LESSONS_FILE} içinde.`);
+  if (summary.breakdown) {
+    // görevler sırayla; her biri kendi kontrol + reviewer kapısından geçer, onaylanan hâl commit noktası olur
+    const all = summary.breakdown.tasks;
+    for (const [k, t] of all.entries()) {
+      log.step(`GÖREV ${k + 1}/${all.length} · ${t.id} — ${t.title}  (puan ${t.points}, ${t.ak.join(", ")})`);
+      focus = t;
+      prevReview = "";
+      const t0 = Date.now();
+      const turn0 = turn;
+      const cost0 = summary.totalCostUsd;
+      const since = k ? all[k - 1].tree : undefined;
+      if (!(await developLoop("", "", pointBudget(t.points, cfg.budgets.gelistir), since))) {
+        fail(`${t.id} (${t.title}) ${cfg.maxIterations} turda onay alınamadı. Onaylanan görevler: ${all.filter((x) => x.status === "done").map((x) => x.id).join(", ") || "yok"}.\n  Son geri bildirim run.json ve ${LESSONS_FILE} içinde. Sürdürmek için: flowloop resume ${summary.id}`);
+      }
+      Object.assign(t, { status: "done", tree: workingTreeHash(wt, X), iterations: turn - turn0, costUsd: summary.totalCostUsd - cost0, durationMs: Date.now() - t0 });
+      if (k < all.length - 1) earlierAttention.push(...collectAttention(lastDevText, lastReviewerNote));
+      log.ok(`${t.id} onaylandı (${t.iterations} tur · $${t.costUsd!.toFixed(2)})`);
+      saveSummary();
+    }
+    focus = undefined;
+    log.info("\n" + breakdownTable(all));
+  } else if (!(await developLoop("", ""))) fail(`${cfg.maxIterations} turda onay alınamadı. Son geri bildirim run.json ve ${LESSONS_FILE} içinde.`);
   if (statusPorcelain(wt, X).length === 0 && !related.some((r) => r.hasChanges())) fail("Onay geldi ama hiçbir değişiklik yok.");
 
   // ───────────── KULLANICI ONAYI (commit'ten önce) ─────────────
@@ -1342,7 +1418,7 @@ interface CommitCtx {
   summary: RunSummary;
   saveSummary: () => void;
   fail: (msg: string) => never;
-  call: (role: RoleSpec, phase: string, budget: number) => Promise<AgentResult>;
+  call: (role: RoleSpec, phase: string, budget: number, extraVars?: Record<string, string>) => Promise<AgentResult>;
   committer: RoleSpec;
   log: Logger;
   opts: RunOptions;
@@ -1378,6 +1454,92 @@ export function jiraBaseFromTask(task: string): string {
   return /^Kaynak:\s*(https:\/\/[^/\s]+)\/browse\//m.exec(task)?.[1] ?? "";
 }
 
+/** Görev başına commit grubu: görevin onaylandığı andaki ağaç ve bir önceki noktaya göre değişen dosyalar */
+export interface CommitGroup {
+  task?: BreakdownState;
+  tree: string;
+  files: string[];
+}
+
+const treeDiff = (wt: string, a: string, b: string) => gitOk(["diff", "--name-only", "--no-renames", a, b], wt).split("\n").filter(Boolean);
+
+/**
+ * Kırılımın commit grupları: her görev, kendinden önceki onay noktasına göre değiştirdiği dosyalar.
+ * Görevlerden sonra gelen değişiklikler (kullanıcının değişiklik isteği) ayrı bir grup olur.
+ */
+export function commitGroups(wt: string, baseSha: string, tasks: BreakdownState[], approved: string): CommitGroup[] {
+  const out: CommitGroup[] = [];
+  let prev = gitOk(["rev-parse", `${baseSha}^{tree}`], wt);
+  for (const t of tasks) {
+    if (!t.tree) continue;
+    const files = treeDiff(wt, prev, t.tree);
+    if (files.length) out.push({ task: t, tree: t.tree, files });
+    prev = t.tree;
+  }
+  if (approved !== prev) {
+    const files = treeDiff(wt, prev, approved);
+    if (files.length) out.push({ tree: approved, files });
+  }
+  return out;
+}
+
+/** Grubun dosyalarını o grubun içeriğine getirir (index'e dokunmadan bırakır) */
+function materialize(wt: string, g: CommitGroup): void {
+  const present = g.files.filter((f) => git(["cat-file", "-e", `${g.tree}:${f}`], wt).code === 0);
+  for (let i = 0; i < present.length; i += 100) gitOk(["checkout", g.tree, "--", ...present.slice(i, i + 100)], wt);
+  for (const f of g.files.filter((x) => !present.includes(x))) fs.rmSync(path.join(wt, f), { force: true });
+  for (let i = 0; i < g.files.length; i += 100) git(["reset", "-q", "--", ...g.files.slice(i, i + 100)], wt);
+}
+
+/**
+ * Görev başına commit. Dosyaları görevler arasında ayrıksa committer hepsini tek çağrıda sırayla atar;
+ * bir dosyayı birden fazla görev değiştirdiyse her görev için o görevin içeriği hazırlanıp ayrı çağrılır.
+ * Her commit'in dosyaları ve içeriği görevin onaylanan hâliyle birebir aynı olmalı.
+ */
+async function commitByTask(o: {
+  wt: string;
+  groups: CommitGroup[];
+  total: number;
+  jira: string;
+  fail: (m: string) => never;
+  hooks: string;
+  log: Logger;
+  cancelled: (text: string) => void;
+  run: (extra: Record<string, string>) => Promise<AgentResult>;
+}): Promise<void> {
+  const { wt, groups, fail } = o;
+  const label = (g: CommitGroup) => (g.task ? `${g.task.id} (${g.task.title})` : "değişiklik isteği");
+  const describe = (g: CommitGroup, k: number) =>
+    [
+      `### Commit ${k + 1}/${groups.length} — ${g.task ? `${g.task.id}: ${g.task.title}` : "kullanıcının onay sırasındaki değişiklik isteği"}`,
+      "Dosyalar:",
+      ...g.files.map((f) => `- ${f}`),
+      "Gövde:",
+      ...(g.task ? [g.task.ak.join(", "), `Görev: ${g.task.id}/${o.total} · Puan: ${g.task.points}`] : ["Kullanıcının değişiklik isteği"]),
+      ...(o.jira ? [`Jira: ${o.jira}`] : []),
+    ].join("\n");
+  const disjoint = groups.every((g, i) => groups.every((h, j) => i === j || !g.files.some((f) => h.files.includes(f))));
+  const batches = disjoint ? [groups.map((_, k) => k)] : groups.map((_, k) => [k]);
+  o.log.info(`  Görev başına ${groups.length} commit${disjoint ? "" : " (ortak dosya var: görevler tek tek commit'lenir)"}`);
+  for (const [b, idx] of batches.entries()) {
+    if (!disjoint) materialize(wt, groups[idx[0]]);
+    const before = headSha(wt);
+    const c = await o.run({ taskCommits: idx.map((k) => describe(groups[k], k)).join("\n\n"), skipSummary: b < batches.length - 1 ? "1" : "" });
+    o.cancelled(c.text);
+    const made = gitOk(["rev-list", "--reverse", `${before}..HEAD`], wt).split("\n").filter(Boolean);
+    if (made.length !== idx.length) fail(`Görev başına commit bekleniyordu: ${idx.length} commit yerine ${made.length} atıldı (${idx.map((k) => label(groups[k])).join(", ")}).`);
+    made.forEach((sha, n) => {
+      const g = groups[idx[n]];
+      const got = gitOk(["diff-tree", "--no-commit-id", "--name-only", "-r", "--no-renames", sha], wt).split("\n").filter(Boolean).sort();
+      const want = [...g.files].sort();
+      if (got.join("\n") !== want.join("\n")) {
+        fail(`${label(g)} commit'i başka dosyalar içeriyor.\n  Beklenen: ${want.join(", ")}\n  Commit'te: ${got.join(", ")}`);
+      }
+      if (gitOk(["rev-parse", `${sha}^{tree}`], wt) !== g.tree) fail(`${label(g)} commit'inin içeriği görevin onaylanan hâliyle aynı değil.${o.hooks}`);
+    });
+  }
+}
+
 async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   const { cfg, root, wt, baseWt, baseSha, baseBranch, branch, jira, X, approved, summary, saveSummary, fail, call, log, opts, files } = ctx;
   // ───────────── 3) COMMITTER ─────────────
@@ -1389,13 +1551,22 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   }
   const mainChanged = gitOk(["rev-parse", "HEAD^{tree}"], wt) !== approved || statusPorcelain(wt, X).length > 0;
   summary.mainChanged = mainChanged;
-  const c = await call(ctx.committer, "commit", cfg.budgets.commit);
+  const hooks = fs.existsSync(path.join(wt, ".husky")) ? " Commit hook'u (husky/lint-staged) dosya değiştirmiş olabilir." : "";
+  const cancelled = (text: string) => {
+    if (/COMMIT İPTAL/i.test(text)) fail(`Committer iptal etti: ${text.split("\n").find((l) => /COMMIT İPTAL/i.test(l))}`);
+  };
+  // iş kırılımı: her görev ayrı commit (görevin onaylandığı andaki içerikle)
+  const groups = mainChanged && summary.breakdown ? commitGroups(wt, baseSha, summary.breakdown.tasks, approved) : [];
+  if (groups.length > 1) {
+    await commitByTask({ wt, groups, total: summary.breakdown!.tasks.length, jira, fail, hooks, log, cancelled, run: (extra) => call(ctx.committer, "commit", cfg.budgets.commit, extra) });
+  } else {
+    const c = await call(ctx.committer, "commit", cfg.budgets.commit);
+    cancelled(c.text);
+  }
   const tDeliver = Date.now();
-  if (/COMMIT İPTAL/i.test(c.text)) fail(`Committer iptal etti: ${c.text.split("\n").find((l) => /COMMIT İPTAL/i.test(l))}`);
   if (mainChanged && headSha(wt) === baseSha) fail("Committer hiç commit atmadı.");
   if (!mainChanged && headSha(wt) !== baseSha) fail("Ana repoda değişiklik yokken commit atıldı.");
   const leftover = statusPorcelain(wt, X);
-  const hooks = fs.existsSync(path.join(wt, ".husky")) ? " Commit hook'u (husky/lint-staged) dosya değiştirmiş olabilir." : "";
   if (leftover.length) fail(`Commit sonrası değişiklik kaldı: ${leftover.map((l) => l.slice(3)).slice(0, 10).join(", ")}.${hooks}`);
   if (gitOk(["rev-parse", "HEAD^{tree}"], wt) !== approved) {
     const differ = gitOk(["diff", "--name-only", approved, "HEAD^{tree}"], wt).split("\n").filter(Boolean);
@@ -1472,7 +1643,6 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   if (jira && cfg.jira.comment && jiraBase) {
     const body = buildJiraComment(fs.existsSync(files.summary) ? readText(files.summary) : "", summary, links);
     try {
-      // canlı veriden kişisel veri dönen bir çalıştırmanın yorumunda e-posta ve telefon da maskelenir
       summary.jiraCommentUrl = await postComment(jira, jiraBase, body, { ...opts.jira, personal: cfg.redact.personal });
       log.ok(`Jira'ya yorum eklendi: ${jira}`);
     } catch (e) {
@@ -1608,10 +1778,15 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   const mutant = cfg.mutation.enabled
     ? new MutantSandbox(wt, files.mutant, () => fillFiles(cfg.commands.testRelated, changed(), wt), X, cfg.mutation.testTimeoutSec, X.length ? "" : cfg.commands.install)
     : undefined;
+  let focus: BreakdownState | undefined;
   const call = async (role: RoleSpec, phase: string, budget: number, extraVars: Record<string, string> = {}): Promise<AgentResult> => {
     const res = await timedAgent(sw, role.name, summary.iterations, mutant, () => runWithBudget(agent, {
       role: role.name, persona: role.persona, ruleset: role.ruleset,
-      prompt: taskMessage(resumeTaskText, summary.jiraKey ?? "", render(role.promptTemplate, { ...vars, ...extraVars })) + limitsNote(role.name, budget, summary.iterations, cfg.maxIterations, summary.backend), cwd: wt, runRoot, perms: role.perms, policy,
+      prompt:
+        taskMessage(resumeTaskText, summary.jiraKey ?? "", render(role.promptTemplate, { ...vars, ...extraVars })) +
+        limitsNote(role.name, budget, summary.iterations, cfg.maxIterations, summary.backend) +
+        (focus && summary.breakdown && (role.name === "developer" || role.name === "reviewer") ? focusNote(focus, summary.breakdown.tasks, role.name) : ""),
+      cwd: wt, runRoot, perms: role.perms, policy,
       model: role.model, budgetUsd: budget, isolation: cfg.isolation, claudeMd: false, log,
       mutant: role.name === "reviewer" ? mutant : undefined,
       checks: role.name === "developer" || role.name === "reviewer" ? checkTools : undefined,
@@ -1631,7 +1806,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
 
   let approved = summary.approvedTree ?? current;
   /** kontroller → reviewer (→ ret olursa developer) döngüsü; PASS olunca onaylanan içerik güncellenir */
-  const reviewLoop = async (initialFeedback = "", userRequests = ""): Promise<void> => {
+  const reviewLoop = async (initialFeedback = "", userRequests = "", o: { fresh?: boolean; since?: string } = {}): Promise<void> => {
     // Developer'ın son hâli: güncel flowloop.yaml ile otomatik kontroller, sonra reviewer.
     // Kontroller ya da reviewer reddederse developer geri bildirimle devam eder (tur sınırı içinde).
     log.step("SÜRDÜR · otomatik kontroller + reviewer (analist tekrar çalışmaz; ret olursa developer düzeltir)");
@@ -1649,13 +1824,13 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     const atBase = (l: string[]) => l.filter((f) => fs.existsSync(path.join(baseWt, f)));
     const checks = resumeChecks;
     // önceki reviewer FAIL'i bu sürdürmede developer'ın ilk geri bildirimi olur
-    const lastFail = lastReview?.verdict === "FAIL" && !(lastDev && summary.phases.lastIndexOf(lastDev) > summary.phases.lastIndexOf(lastReview));
+    const lastFail = !o.fresh && lastReview?.verdict === "FAIL" && !(lastDev && summary.phases.lastIndexOf(lastDev) > summary.phases.lastIndexOf(lastReview));
     // son karar FAIL ise ve geri bildirimi kayıtlıysa reviewer'ı boşuna tekrar çalıştırma: developer başlar
     let feedback = initialFeedback || (lastFail && summary.lastReviewFeedback ? summary.lastReviewFeedback : "");
     summary.decisions = summary.decisions ?? [];
     let decisionRounds = 0;
     // reviewer'ın önceki raporu bağlam olur: önceki onaylar ve kararlar yeniden açılmasın
-    let prevReview = summary.lastReviewFeedback || summary.lastPassReport || "";
+    let prevReview = o.fresh ? "" : summary.lastReviewFeedback || summary.lastPassReport || "";
     /** Reviewer kullanıcı kararı istediyse sorar; developer'a gidecek geri bildirimi döner */
     const handleDecisions = async (reviewText: string): Promise<string | undefined> => {
       const items = parseDecisions(reviewText);
@@ -1681,7 +1856,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     assertScope("Developer");
     for (let round = 0; ; round++) {
       // developer hiçbir şey yazamadan yarıda kaldıysa (ör. bağlantı koptu) sürdürme onun turuyla başlar
-      const unfinishedDev = round === 0 && !feedback && !changed().length && !related.some((r) => r.hasChanges());
+      const unfinishedDev = round === 0 && !feedback && (o.since ? workingTreeHash(wt, X) === o.since : !changed().length) && !related.some((r) => r.hasChanges());
       if (unfinishedDev) log.info("Developer'ın önceki turu değişiklik bırakmadan yarıda kalmış; geliştirme baştan yapılıyor.");
       if (feedback || unfinishedDev) {
         if (devRounds >= cfg.maxIterations) fail(`Sürdürmede ${cfg.maxIterations} geliştirme turunda onay alınamadı. Son geri bildirim run.json'da.`);
@@ -1757,7 +1932,24 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     for (const x of related) x.s.approvedTree = x.treeHash();
     saveSummary();
   };
-  if (needsReview) await reviewLoop();
+  // iş kırılımı: onaylanmamış görevler sırayla, kaldığı yerden
+  const pending = summary.breakdown?.tasks.filter((t) => t.status !== "done") ?? [];
+  if (pending.length) {
+    const all = summary.breakdown!.tasks;
+    for (const [k, t] of pending.entries()) {
+      const idx = all.indexOf(t);
+      log.step(`GÖREV ${idx + 1}/${all.length} · ${t.id} — ${t.title}  (puan ${t.points})`);
+      focus = t;
+      const t0 = Date.now();
+      const it0 = summary.iterations ?? 0;
+      const cost0 = summary.totalCostUsd;
+      await reviewLoop("", "", { fresh: k > 0, since: idx ? all[idx - 1].tree : undefined });
+      Object.assign(t, { status: "done", tree: workingTreeHash(wt, X), iterations: (t.iterations ?? 0) + (summary.iterations ?? 0) - it0, costUsd: (t.costUsd ?? 0) + summary.totalCostUsd - cost0, durationMs: (t.durationMs ?? 0) + Date.now() - t0 });
+      log.ok(`${t.id} onaylandı`);
+      saveSummary();
+    }
+    focus = undefined;
+  } else if (needsReview) await reviewLoop();
   log.ok(`Sürdürülüyor: ${summary.id} · branch ${branch} · onaylanan içerik ${approved.slice(0, 12)}`);
   if (opts.reviewChanges && !summary.userApproved) {
     summary.changeRequests = summary.changeRequests ?? [];

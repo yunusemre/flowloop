@@ -218,10 +218,17 @@ export function issueToTask(i: JiraIssue, fetchedAt: Date): string {
 
 /** Kısa markdown → Jira wiki markup (yorumlar için yeterli alt küme) */
 export function markdownToWiki(md: string): string {
-  return md
-    .replace(/\r/g, "")
-    .split("\n")
-    .map((line) => {
+  const lines = md.replace(/\r/g, "").split("\n");
+  // tablo: başlık satırı ||a||b||, ayraç satırı düşer
+  const sep = /^\s*\|(\s*:?-{2,}:?\s*\|)+\s*$/;
+  const isRow = (l: string | undefined) => !!l && /^\s*\|.*\|\s*$/.test(l);
+  return lines
+    .map((line, i) => {
+      if (sep.test(line) && isRow(lines[i - 1])) return null;
+      if (isRow(line)) {
+        const cells = line.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim().replace(/`([^`]+)`/g, "{{$1}}") || " ");
+        return sep.test(lines[i + 1] ?? "") ? `||${cells.join("||")}||` : `|${cells.join("|")}|`;
+      }
       let l = line;
       const h = /^(#{1,6})\s+(.*)$/.exec(l);
       if (h) return `h${Math.min(6, h[1].length + 1)}. ${h[2]}`;
@@ -232,6 +239,7 @@ export function markdownToWiki(md: string): string {
       l = l.replace(/\[([^\]]+)\]\(([^)]+)\)/g, "[$1|$2]");
       return l;
     })
+    .filter((l): l is string => l !== null)
     .join("\n");
 }
 

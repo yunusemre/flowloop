@@ -56,6 +56,26 @@ ayar dosyasında "anahtar yok") planlama; bakım yükü getirir, davranış doğ
 Mevcut davranışı bozma riski, sınır değerler, kurallardaki ilgili maddeler.
 Projede önceden var olan hatalar (tip, lint, kırık testler) kapsam dışıdır; planlama.
 
+## İş kırılımı
+İş birden fazla bağımsız parçaya ayrılabiliyorsa küçük görevlere böl; her görev ayrı geliştirilip ayrı
+incelenir ve ayrı commit olur. Tek tablo, şu sütunlarla:
+
+| Görev | Başlık | AK | Dosyalar | Bağımlı | Puan |
+|---|---|---|---|---|---|
+| T1 | <kısa, davranış anlatan başlık> | AK-1 | src/a/X.cs, test/a/XTests.cs | — | 2 |
+| T2 | ... | AK-2, AK-3 | src/b/** | T1 | 3 |
+
+- Görev kimlikleri T1, T2 … Her AK en az bir görevde olmalı.
+- Dosyalar: görevin dokunacağı yollar (glob olabilir); görevin testleri de aynı satırda. İki görev aynı
+  dosyayı değiştirecekse bunu en aza indir; kaçınılmazsa ikincisini birincisine bağımlı yap.
+- Bağımlı: başlamadan önce bitmesi gereken görevler (yoksa —).
+- Puan (1-2-3-5-8):
+  1 = tek dosya, mevcut test kalıbı yeterli · 2 = tek dosya ama yeni test ya da küçük bir sözleşme değişikliği ·
+  3 = birkaç dosya, tek katman · 5 = birden fazla katman ya da repo, yeni test kurgusu ·
+  8 = belirsizlik, veri göçü ya da geniş etki. 8'den büyük görev olmaz; böl.
+- Her görev tek başına derlenmeli ve kendi testleriyle geçmeli (sonraki görevleri beklemeden).
+- İş küçükse (tek görev ya da toplam puan 3 veya altı) bu bölümü yazma.
+
 ## Açık sorular
 Görevde netleşmeyen noktaları ikiye ayır:
 - Kodu okuyarak, projenin mevcut davranışından ya da makul bir varsayımla çözebildiklerin soru DEĞİLDİR;

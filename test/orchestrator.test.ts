@@ -1309,3 +1309,179 @@ test("Jira'ya giden yorumda gizli bilgi maskelenir", async () => {
   assert.match(bodies.at(-1)!, /Password=\[gizli\]/);
   assert.doesNotMatch(bodies.at(-1)!, /Cok\$Gizli1/);
 });
+
+// ───────────── iş kırılımı ─────────────
+const BD_PLAN = (pointsT1 = "2") =>
+  `# Plan\n\n## Kabul kriterleri\n- AK-1: ekspres +50\n- AK-2: kargo sınıfı\n\n## İş kırılımı\n| Görev | Başlık | AK | Dosyalar | Bağımlı | Puan |\n|---|---|---|---|---|---|\n` +
+  `| T1 | Ekspres fiyat farkı | AK-1 | src/fiyat.js, test/ekspres.test.js | — | ${pointsT1} |\n| T2 | Kargo sınıfı | AK-2 | src/kargo.js, test/kargo.test.js | T1 | 3 |\n`;
+const T2_FILES = (req: AgentRequest) => {
+  W(req, "src/kargo.js", 'export const sinif = (kg) => (kg <= 5 ? "küçük" : "büyük");\n');
+  W(req, "test/kargo.test.js", 'import { test } from "node:test";\nimport assert from "node:assert/strict";\nimport { sinif } from "../src/kargo.js";\ntest("k", () => assert.equal(sinif(3), "küçük"));\n');
+};
+/** Committer: flowloop'un verdiği listeyi aynen uygular (görev başına bir commit) */
+const taskCommitter: Script = (req) => {
+  const blocks = req.prompt.split(/^### Commit /m).slice(1);
+  if (!blocks.length) return good.committer!(req, 1) ?? undefined;
+  for (const b of blocks) {
+    const title = /^\d+\/\d+ — (?:T\d+: )?(.+)$/m.exec(b)![1];
+    const files = /Dosyalar:\n([\s\S]*?)\nGövde:/.exec(b)![1].split("\n").map((l) => l.replace(/^- /, ""));
+    const body = /Gövde:\n([\s\S]*?)(?:\n\n|$)/.exec(b)![1].split("\n").filter(Boolean);
+    GIT(req, "add", "--", ...files);
+    GIT(req, "commit", "-qm", `feat(fiyat): ${title.toLowerCase()}`, ...body.flatMap((l) => ["-m", l]));
+  }
+};
+
+test("iş kırılımı: görevler sırayla, her biri kendi incelemesiyle; her görev ayrı commit, mesajı görevden", async () => {
+  const { s, agent, root, err } = await run({
+    analist: (req) => void fs.writeFileSync(planFile(req), BD_PLAN()),
+    developer: (req, n) => {
+      if (/Şu anki görev: T1\/2/.test(req.prompt)) good.developer!(req, n);
+      if (/Şu anki görev: T2\/2/.test(req.prompt)) T2_FILES(req);
+    },
+    reviewer: (req) => (/Şu anki görev: T(\d)/.test(req.prompt) ? "✅\nVERDICT: PASS" : "❌ odak yok\nVERDICT: FAIL"),
+    committer: taskCommitter,
+  });
+  assert.equal(err, undefined);
+  assert.equal(s!.status, "success");
+  assert.deepEqual(agent.calls.map((c) => c.role), ["analist", "developer", "reviewer", "developer", "reviewer", "committer"]);
+  assert.match(agent.calls[3].prompt, /Tamamlanan ve onaylanan görevler: T1/);
+  assert.deepEqual(s!.breakdown!.tasks.map((t) => [t.id, t.status, t.iterations]), [["T1", "done", 1], ["T2", "done", 1]]);
+  assert.equal(s!.breakdown!.points, 5);
+  const commits = gitOk(["log", "--reverse", "--format=%s%n%b---", `main..${s!.branch}`], root).split("---").map((x) => x.trim()).filter(Boolean);
+  assert.equal(commits.length, 2);
+  assert.match(commits[0], /^feat\(fiyat\): ekspres fiyat farkı\nAK-1\n\nGörev: T1\/2 · Puan: 2\n\nJira: KG-42/);
+  assert.match(commits[1], /^feat\(fiyat\): kargo sınıfı\nAK-2\n\nGörev: T2\/2 · Puan: 3/);
+  const filesOf = (ref: string) => gitOk(["diff-tree", "--no-commit-id", "--name-only", "-r", ref], root).split("\n").sort();
+  assert.deepEqual(filesOf(`${s!.branch}~1`), ["src/fiyat.js", "test/ekspres.test.js"]);
+  assert.deepEqual(filesOf(s!.branch!), ["src/kargo.js", "test/kargo.test.js"]);
+});
+
+test("iş kırılımı: iki görev aynı dosyayı değiştirirse her commit o görevin onaylanan içeriğini taşır", async () => {
+  const { s, agent, root, err } = await run({
+    analist: (req) => void fs.writeFileSync(planFile(req), BD_PLAN()),
+    developer: (req, n) => {
+      if (/Şu anki görev: T1\/2/.test(req.prompt)) good.developer!(req, n);
+      if (/Şu anki görev: T2\/2/.test(req.prompt)) {
+        T2_FILES(req);
+        W(req, "src/fiyat.js", fs.readFileSync(path.join(req.cwd, "src/fiyat.js"), "utf8") + "export const T2 = true;\n");
+      }
+    },
+    committer: taskCommitter,
+  });
+  assert.equal(err, undefined, err);
+  assert.equal(agent.calls.filter((c) => c.role === "committer").length, 2, "ortak dosya: görev başına ayrı çağrı");
+  assert.match(agent.calls.filter((c) => c.role === "committer")[0].prompt, /^### Commit 1\/2/m);
+  assert.doesNotMatch(agent.calls.filter((c) => c.role === "committer")[0].prompt, /summary\.md/, "özet sadece son commit'te");
+  const t1 = gitOk(["show", `${s!.branch}~1:src/fiyat.js`], root);
+  assert.match(t1, /ekspres/);
+  assert.doesNotMatch(t1, /T2 = true/, "T1 commit'inde T2'nin değişikliği yok");
+  assert.match(gitOk(["show", `${s!.branch}:src/fiyat.js`], root), /T2 = true/);
+  assert.deepEqual(gitOk(["diff-tree", "--no-commit-id", "--name-only", "-r", s!.branch!], root).split("\n").sort(), ["src/fiyat.js", "src/kargo.js", "test/kargo.test.js"]);
+});
+
+test("iş kırılımı: committer listeye uymazsa (hepsini tek commit) durur; kurala uymayan kırılım analiste düzelttirilir", async () => {
+  const lump = await run({
+    analist: (req) => void fs.writeFileSync(planFile(req), BD_PLAN()),
+    developer: (req, n) => {
+      if (/T1\/2/.test(req.prompt)) good.developer!(req, n);
+      else T2_FILES(req);
+    },
+    committer: (req) => {
+      GIT(req, "add", "-A");
+      GIT(req, "commit", "-qm", "feat(fiyat): hepsi");
+    },
+  });
+  assert.match(lump.err!, /Görev başına commit bekleniyordu: 2 commit yerine 1 atıldı/);
+
+  let fixPrompt = "";
+  const fixed = await run(
+    {
+      analist: (req, n) => {
+        if (n === 1) fs.writeFileSync(planFile(req), BD_PLAN("13"));
+        else {
+          fixPrompt = req.prompt;
+          fs.writeFileSync(planFile(req), BD_PLAN("5"));
+        }
+      },
+      developer: (req, n) => {
+        if (/T1\/2/.test(req.prompt)) good.developer!(req, n);
+        else T2_FILES(req);
+      },
+      committer: taskCommitter,
+    },
+  );
+  assert.match(fixPrompt, /SADECE o bölümü düzelt/);
+  assert.match(fixPrompt, /T1: puan 13/);
+  assert.equal(fixed.s!.breakdown!.points, 8);
+});
+
+test("iş kırılımı: küçük iş (tek görev) bugünkü akışla, kırılımsız", async () => {
+  const { s } = await run({
+    analist: (req) =>
+      void fs.writeFileSync(planFile(req), "# Plan\n## Kabul kriterleri\n- AK-1\n## İş kırılımı\n| Görev | Başlık | AK | Dosyalar | Bağımlı | Puan |\n|---|---|---|---|---|---|\n| T1 | Ekspres | AK-1 | src/fiyat.js | — | 2 |\n"),
+  });
+  assert.equal(s!.breakdown, undefined);
+  assert.equal(s!.commits.length, 2);
+});
+
+test("iş kırılımı: ikinci görevde yarım kalan iş sürdürülünce onaylanan görev tekrar çalışmaz", async () => {
+  let failT2 = true;
+  const scripts: Partial<Record<RoleName, Script>> = {
+    analist: (req) => void fs.writeFileSync(planFile(req), BD_PLAN()),
+    developer: (req, n) => {
+      if (/Şu anki görev: T1\/2/.test(req.prompt)) good.developer!(req, n);
+      if (/Şu anki görev: T2\/2/.test(req.prompt)) {
+        if (failT2) throw new FlowloopError("bağlantı koptu");
+        T2_FILES(req);
+      }
+    },
+    committer: taskCommitter,
+  };
+  const first = await run(scripts);
+  assert.match(first.err!, /bağlantı koptu/);
+  const root = first.root;
+  const runsDir = path.join(root, "..", path.basename(root) + "-work", path.basename(root));
+  const id = fs.readdirSync(runsDir)[0];
+  const before = JSON.parse(fs.readFileSync(path.join(runsDir, id, "run.json"), "utf8"));
+  assert.deepEqual(before.breakdown.tasks.map((t: any) => t.status), ["done", "pending"]);
+  failT2 = false;
+  const agent = new FakeAgent({ ...good, ...scripts });
+  const s = await resumeRun({ root, resume: id, taskFile: "", agent, log: silentLogger(), noPush: true });
+  assert.equal(s.status, "success");
+  assert.equal(agent.calls[0].role, "developer", "T2 developer'ın turuyla başlar");
+  assert.match(agent.calls[0].prompt, /Şu anki görev: T2\/2/);
+  assert.ok(!agent.calls.some((c) => /Şu anki görev: T1/.test(c.prompt)), "T1 tekrar çalışmaz");
+  assert.equal(s.commits.length, 2);
+});
+
+test("iş kırılımı: onayda istenen değişiklik ayrı commit olur; Jira yorumunda kırılım tablosu", async () => {
+  const root = makeRepo('jira: { baseUrl: "https://kg.atlassian.net", comment: true }');
+  let posted = "";
+  const fetchFn = async (_u: string, init: any) => {
+    posted = JSON.parse(init.body).body;
+    return { ok: true, status: 201, json: async () => ({ id: "1" }), text: async () => "" };
+  };
+  const agent = new FakeAgent({
+    ...good,
+    analist: (req) => void fs.writeFileSync(planFile(req), BD_PLAN()),
+    developer: (req, n) => {
+      if (/Şu anki görev: T1\/2/.test(req.prompt)) good.developer!(req, n);
+      else if (/Şu anki görev: T2\/2/.test(req.prompt)) T2_FILES(req);
+      else W(req, "src/not.js", "export const NOT = 'ekspres';\n");
+    },
+    committer: (req, n) => {
+      taskCommitter(req, n);
+      fs.writeFileSync(path.join(req.runRoot, "summary.md"), "## Yapılan\n- ekspres");
+    },
+  });
+  let round = 0;
+  const s = await runTask({
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, home: fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-emptyhome-")),
+    reviewChanges: async () => (++round === 1 ? { action: "revise", comment: "not dosyası ekle" } : { action: "approve" }),
+    jira: { fetchFn, email: "a", token: "t" },
+  });
+  assert.equal(s.commits.length, 3);
+  assert.match(s.commits[0], /değişiklik isteği/i);
+  assert.deepEqual(gitOk(["diff-tree", "--no-commit-id", "--name-only", "-r", s.branch!], root).split("\n"), ["src/not.js"]);
+  assert.match(posted, /h3\. İş kırılımı\n\|\|Görev\|\|Başlık\|\|AK\|\|Puan\|\|Tur\|\|\n\|T1\|Ekspres fiyat farkı\|AK-1\|2\|1\|/);
+});

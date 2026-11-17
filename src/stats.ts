@@ -35,6 +35,7 @@ export interface RunRecord {
   error?: string;
   timings?: TimingEntry[];
   durationMs?: number;
+  breakdown?: { tasks: { points: number; status: string; iterations?: number; costUsd?: number; durationMs?: number }[] };
 }
 
 export interface Stats {
@@ -60,6 +61,8 @@ export interface Stats {
   cost: { total: number; avg: number; runsCounted: number };
   /** Dakika; sadece başlangıç/bitiş zamanı olan kayıtlar */
   duration: { median: number; runsCounted: number };
+  /** İş kırılımı: puan başına onaylanan görevlerin ortalama turu, maliyeti ve süresi (ölçeğin kalibrasyonu) */
+  points: { runs: number; tasks: number; byPoints: { points: number; tasks: number; avgIterations: number; avgCost: number; avgMs: number }[] };
   /** Adım adım süre (sadece süre ölçümü olan kayıtlar; ms) */
   time: {
     runsCounted: number;
@@ -148,8 +151,19 @@ export function computeStats(records: RunRecord[]): Stats {
     slowSteps: [...stepSum].map(([k, v]) => [k, v / timed.length] as [string, number]).sort((a, b) => b[1] - a[1]).slice(0, 6),
   };
 
+  const bdTasks = done.flatMap((r) => (r.breakdown?.tasks ?? []).filter((t) => t.status === "done"));
+  const points = {
+    runs: done.filter((r) => r.breakdown?.tasks?.length).length,
+    tasks: bdTasks.length,
+    byPoints: [...new Set(bdTasks.map((t) => t.points))].sort((a, b) => a - b).map((p) => {
+      const ts = bdTasks.filter((t) => t.points === p);
+      return { points: p, tasks: ts.length, avgIterations: avg(ts.map((t) => t.iterations ?? 0)), avgCost: avg(ts.map((t) => t.costUsd ?? 0)), avgMs: avg(ts.map((t) => t.durationMs ?? 0)) };
+    }),
+  };
+
   return {
     time,
+    points,
     runs: done.length,
     success: success.length,
     failed: failed.length,
@@ -254,6 +268,12 @@ export function renderStats(s: Stats, label: string): string {
     `  Reddedilen işlem        : ${s.denials.total} (${s.denials.runsWithDenials} çalıştırmada)`,
     ...s.denials.top.map(([k, n]) => `    - ${k}: ${n}`),
   ];
+  if (s.points.tasks) {
+    lines.push("", `İş kırılımı (${s.points.runs} çalıştırma · ${s.points.tasks} onaylanan görev)`, "  Puan  Görev  Tur   Maliyet  Süre");
+    for (const b of s.points.byPoints) {
+      lines.push(`  ${String(b.points).padStart(4)}  ${String(b.tasks).padStart(5)}  ${b.avgIterations.toFixed(1).padStart(3)}  ${`$${b.avgCost.toFixed(2)}`.padStart(8)}  ${fmtDuration(b.avgMs)}`);
+    }
+  }
   if (s.failReasons.length) lines.push("", "Başarısızlık nedenleri", ...s.failReasons.map(([k, n]) => `  - ${k}: ${n}`));
   lines.push("", "Maliyet ve süre");
   lines.push(s.cost.runsCounted ? `  Maliyet                 : $${s.cost.total.toFixed(2)} toplam · $${s.cost.avg.toFixed(2)} ortalama (${s.cost.runsCounted} Claude çalıştırması)` : "  Maliyet                 : — (Cursor maliyet bildirmez)");

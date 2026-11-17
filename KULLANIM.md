@@ -338,6 +338,45 @@ Plan uygun mu?
 - **[h] İptal:** analiz boşa gitmez. Plan saklanır; aynı görevi tekrar `flowloop run PROJ-1234 --approve-plan` ile çalıştırdığında analist yeniden çalışmaz, aynı plan karşına gelir. O zaman ek olarak **[b] Bu planı kullanma, baştan analiz et** seçeneği de çıkar.
 - Verdiğin yorumlar çalıştırma kaydında (`run.json` → `planFeedback`) ve `run/plan-feedback.md` dosyasında durur.
 
+### İş kırılımı ve puan
+
+Analist, birden fazla parçaya ayrılabilen bir işi planda küçük görevlere böler ve her görevi **1-2-3-5-8** ölçeğinde puanlar:
+
+| Görev | Başlık | AK | Dosyalar | Bağımlı | Puan |
+|---|---|---|---|---|---|
+| T1 | GSM normalize yardımcısı | AK-1 | src/Common/Gsm.cs, test/GsmTests.cs | — | 2 |
+| T2 | Kayıtta doğrulama | AK-1, AK-2 | src/Users/** | T1 | 3 |
+
+| Puan | Ne demek |
+|---|---|
+| 1 | Tek dosya, mevcut test kalıbı yeterli |
+| 2 | Tek dosya ama yeni test ya da küçük bir sözleşme değişikliği |
+| 3 | Birkaç dosya, tek katman |
+| 5 | Birden fazla katman ya da repo, yeni test kurgusu |
+| 8 | Belirsizlik, veri göçü ya da geniş etki (daha büyüğü bölünür) |
+
+- **Onay:** kırılım planın içindedir; planı onaylamak kırılımı da onaylar. Yorum yazarsan analist ikisini birlikte günceller.
+- **Kurallar:** her AK en az bir görevde, puanlar ölçekte, bağımlılıklarda döngü yok, dosyalar developer'ın yazabileceği yollarda. Uymazsa analist o bölümü kendisi düzeltir (en çok iki kez); yine uymazsa iş kırılımsız, tek parça geliştirilir.
+- **Geliştirme:** görevler bağımlılık sırasıyla, **her biri kendi kapısından** geçer: developer sadece o görevi yapar, otomatik kontroller ve reviewer sadece o görevi değerlendirir; kırmızı olan görev developer'a döner. Onaylanan görev bir sonraki görevin başlangıç noktasıdır. Geliştirme bütçesi puana göre ölçeklenir (1 puan yarısı, 8 puan iki katı).
+- **Senin onayın:** bütün görevler bitince değişikliklerin tamamı bir kez sorulur (bugünkü gibi).
+- **Commit'ler:** her görev **ayrı commit** olur ve sadece o görevin dosyalarını içerir; mesaj görevden yazılır:
+
+  ```
+  feat(gsm): numara normalize yardımcısı
+
+  AK-1
+
+  Görev: T1/2 · Puan: 2
+
+  Jira: IDT-22685
+  ```
+
+  İki görev aynı dosyayı değiştirdiyse her commit o dosyanın görevin onaylandığı andaki hâlini taşır. Onay sırasında istediğin değişiklikler son ayrı commit olur. flowloop her commit'in dosyalarını ve içeriğini görevin onaylanan hâliyle karşılaştırır; uymazsa durur.
+- **Küçük iş:** tek görev ya da toplam puan 3 veya altındaysa kırılım kullanılmaz, iş bugünkü gibi tek parça yürür.
+- **Yarım kalırsa:** `flowloop resume` (ya da arayüzde **Kaldığı yerden devam et**) onaylanan görevleri tekrar çalıştırmaz, kalan görevden sürer.
+- **Jira:** görevler Jira'ya ayrıca açılmaz; yorumda kırılımın özet tablosu yer alır.
+- **Ölçüm:** `flowloop stats` puan başına onaylanan görevlerin ortalama turunu, maliyetini ve süresini gösterir; ölçeğin tutup tutmadığını buradan görürsün.
+
 ### Değişiklik onayı
 
 Reviewer işi onayladıktan sonra hiçbir şey commit'lenmeden, push'lanmadan ve Jira'ya yazılmadan önce şunu görürsün:

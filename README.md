@@ -58,7 +58,7 @@ Gereksinimler: macOS, Linux ya da Windows ve git (Windows'ta Git for Windows; ko
 
 | Rol | Yapabilir | Yapamaz |
 |---|---|---|
-| Analist | Kodu ve proje kurallarını okur, kabul kriterli plan yazar; ilgili repolar varsa görevin repo kapsamını ve repolar arası sözleşmeyi planlar | Kod değiştirmek, komut çalıştırmak, `flowloop.yaml`'ın izin vermediği bir repoyu yazılabilir yapmak |
+| Analist | Kodu ve proje kurallarını okur, kabul kriterli plan yazar; işi görevlere böler ve 1-2-3-5-8 ile puanlar (her görev ayrı incelenir ve ayrı commit olur); ilgili repolar varsa görevin repo kapsamını ve repolar arası sözleşmeyi planlar | Kod değiştirmek, komut çalıştırmak, `flowloop.yaml`'ın izin vermediği bir repoyu yazılabilir yapmak |
 | Developer | `paths.edit` ve onaylanan repo kapsamı altını düzenler; bu işin testlerini ve lint'i çalıştırır; kapsam dışı bir değişiklik gerekirse kapsam talebi yazar | Başka dosya, kapsamı kendi genişletmek, tüm test suite'i, commit |
 | Reviewer | Okur, testleri çalıştırır, kodu **kopyada** bozarak testleri dener (mutasyon testi), repolar arası sözleşme uyumunu kontrol eder, PASS/FAIL verir | Gerçek dosyaya yazmak, commit |
 | Committer | `git add`, `git commit`, Jira özeti | Dosya düzenlemek, push, `--no-verify`, `--amend` |
