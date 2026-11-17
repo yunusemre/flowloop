@@ -6,6 +6,19 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.16.0 — 2026-11-17
+
+### Yeni
+- **İş kırılımı ve puan.** Analist işi planda küçük görevlere böler (`## İş kırılımı` tablosu: AK, dosyalar, bağımlılık) ve her görevi 1-2-3-5-8 ölçeğinde puanlar. Kırılım plan onayıyla birlikte onaylanır; kurallara uymazsa analist düzeltir.
+  - Görevler bağımlılık sırasıyla geliştirilir; **her görev kendi kontrol ve reviewer kapısından** geçer, kırmızı olan developer'a döner. Geliştirme bütçesi puana göre ölçeklenir.
+  - **Her görev ayrı commit:** sadece o görevin dosyaları, görevin onaylandığı andaki içerikle; mesaj görevden (`Görev: T1/3 · Puan: 2`, AK'ler, Jira anahtarı). Onayda istenen değişiklikler ayrı commit olur. flowloop her commit'i görevin onaylanan hâliyle karşılaştırır.
+  - Küçük işte (tek görev ya da toplam ≤ 3 puan) kırılım kullanılmaz. Yarım kalan iş onaylanan görevleri tekrar çalıştırmadan kalan görevden sürer.
+  - Jira yorumunda kırılım tablosu; `flowloop stats`'ta puan başına tur, maliyet ve süre.
+- Jira yorumlarında markdown tablolar Jira tablosu olarak görünür.
+
+### Düzeltme
+- **Branch ve PR bağlantıları `ssh.bitbucket.org`'a gidiyordu.** Global git ayarında SSH'ı 443 portundan geçiren bir `url.<x>.insteadOf` yönlendirmesi varsa, Jira yorumundaki ve terminaldeki bağlantılar SSH ana makinesini gösteriyordu. Artık remote'un ham adresi okunuyor; SSH için kullanılan adresler (`ssh.bitbucket.org`, `ssh.github.com`) ve portlar web adresine çevriliyor.
+
 ## 1.15.0 — 2026-10-17
 
 ### Yeni

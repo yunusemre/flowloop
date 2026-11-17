@@ -7,12 +7,37 @@ export interface RemoteLinks {
   pr: (b: string, base: string) => string;
 }
 
+/** SSH için kullanılan ana makine adları → web adresi (ör. 443 portundan SSH: ssh.bitbucket.org, ssh.github.com) */
+const WEB_HOST: Record<string, string> = { "ssh.bitbucket.org": "bitbucket.org", "altssh.bitbucket.org": "bitbucket.org", "ssh.github.com": "github.com", "altssh.gitlab.com": "gitlab.com" };
+
+/** Remote adresinden ana makine ve repo yolu: scp biçimi (git@host:yol), ssh://, https:// (port ve kullanıcı atılır) */
+export function parseRemote(url: string): { host: string; repo: string } | undefined {
+  let host = "";
+  let repo = "";
+  const scp = /^(?:[^@/]+@)?([^:/]+):(?!\/)(.+)$/.exec(url);
+  if (/^[a-z+]+:\/\//i.test(url)) {
+    try {
+      const u = new URL(url);
+      host = u.hostname;
+      repo = u.pathname.replace(/^\/+/, "");
+    } catch {
+      return undefined;
+    }
+  } else if (scp) {
+    host = scp[1];
+    repo = scp[2];
+  } else return undefined;
+  repo = repo.replace(/\/+$/, "").replace(/\.git$/, "");
+  if (!host || !repo) return undefined;
+  return { host: WEB_HOST[host.toLowerCase()] ?? host.toLowerCase(), repo };
+}
+
 export function remoteLinks(root: string): RemoteLinks | undefined {
-  const url = git(["remote", "get-url", "origin"], root).stdout.trim();
-  const m = /^(?:git@|ssh:\/\/git@|https?:\/\/(?:[^@/]+@)?)([^:/]+)[:/](.+?)(?:\.git)?\/?$/.exec(url);
-  if (!m) return undefined;
-  const host = m[1];
-  const repo = m[2];
+  // ham ayar: kullanıcının global "url.<x>.insteadOf" yönlendirmesi (ör. SSH'ı 443'ten geçirmek) web adresini bozmasın
+  const url = git(["config", "--get", "remote.origin.url"], root).stdout.trim() || git(["remote", "get-url", "origin"], root).stdout.trim();
+  const p = parseRemote(url);
+  if (!p) return undefined;
+  const { host, repo } = p;
   const web = `https://${host}/${repo}`;
   const enc = encodeURIComponent;
   if (host.includes("bitbucket")) {
