@@ -627,6 +627,12 @@ Tarayıcı açılır. Soldan projeyi seç, alttaki kutuda **İş** ya da **Soru*
 
 Her çalıştırma bittiğinde (başarılı ya da başarısız) özeti `.flowloop/history.jsonl` dosyasına eklenir. Bu dosya git'te yerel olarak yok sayılır ve `flowloop clean` ile silinmez; çalışma klasörleri temizlense de geçmiş kalır. `flowloop stats` bu geçmişi ve henüz temizlenmemiş çalıştırmaları birlikte okur:
 
+- **Aşama başarısı ve rework:** her aşama için ilk seferde geçen çalıştırmaların oranı ve çalıştırma başına ortalama rework (aşamanın işi geri gönderip yeniden yaptırması); en çok rework çıkaran aşama:
+  - **Analiz:** plan ilk sunulduğunda onaylandı mı; rework = plan yorumu, baştan analiz, kırılımın düzeltilmesi. Kırılımlı işlerde **dosya tahmini**: görevlerin değiştirdiği dosyaların plandaki dosya listesine uyma oranı.
+  - **Test:** otomatik kontroller (testler, tip, lint) ilk turda geçti mi; rework = kontroller kırmızı olduğu için developer'a dönüş. Kontrol turu geçme oranı, test kırmızısı ve "hiç test koşmadı" sayıları ayrıca.
+  - **Geliştirme:** ilk incelemede PASS mı; rework = reviewer FAIL ile developer'a dönüş.
+  - **Senin onayın:** değişiklikler ilk sunulduğunda onaylandı mı; rework = değişiklik istekleri ("bu işte düzelt" seçilen inceleme maddeleri dahil).
+  Aşama hiç çalışmadıysa (ör. plan onaya sunulmadı) o çalıştırma oranına girmez.
 - **Kalite:** başarı oranı, ilk incelemede PASS oranı, reviewer FAIL oranı, otomatik kontrol hatası oranı, ortalama tur.
 - **İnsan müdahalesi:** plan yorumu ve değişiklik isteği ortalaması, kapsam talepleri ve verilen kararlar.
 - **Yönetişim:** kapsamı plandan gelen ve birden fazla repoya dokunan çalıştırmalar, reddedilen işlemler (en sık rol ve araç).
@@ -634,7 +640,20 @@ Her çalıştırma bittiğinde (başarılı ya da başarısız) özeti `.flowloo
 
 - **Süre dağılımı:** toplam, makine ve senin cevabın (plan onayı, sorular, inceleme maddeleri, değişiklik onayı) ayrı; ajanlar, kontroller, hazırlık ve teslim için çalıştırma başına ortalama; en uzun adımlar.
 
-Her çalıştırmanın sonunda da aynı ölçüm kısaca gösterilir:
+Her çalıştırmanın sonunda (başarılı ya da başarısız) aşama özeti yazılır; terminalde ve sohbet arayüzünde görünür, Jira'ya gitmez:
+
+```
+Kalite
+  Analiz      : ✗ · 1 plan yorumu · dosya tahmini %88
+  Test        : 2/3 kontrol turu geçti · 1 rework (testlerden: 1)
+  Geliştirme  : 2. incelemede PASS · 1 rework
+  Senin onayın: ✓ ilk seferde
+  Toplam rework: 3
+```
+
+Aynı ölçüm `run.json` ve geçmiş kaydında `quality` alanında durur. Kırılımlı işlerde görev başına kontrol ve reviewer rework'ü ile dosya tahmini de kaydedilir; `flowloop stats`'taki puan tablosunda puan başına ortalama rework görünür.
+
+Süre ölçümü de kısaca gösterilir:
 
 ```
 Süre: toplam 18:42 · makine 14:10 · senin cevabın 4:32

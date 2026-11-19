@@ -6,6 +6,13 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **MINOR** (1.x.0): yeni özellik; mevcut ayarlar ve komutlar aynen çalışır.
 - **MAJOR** (x.0.0): uyumsuz değişiklik; gerekenler burada yazılır (çoğunlukla `kgflow init --force` yeterlidir).
 
+## 1.17.0 — 2026-11-19
+
+### Yeni
+- **Aşama başarısı ve rework.** Her çalıştırmanın sonunda analiz, test (otomatik kontroller), geliştirme (reviewer) ve senin onayın için ilk seferde geçti mi ve kaç rework çıktı yazılır (terminal ve sohbet arayüzü; Jira'ya gitmez). Kayıtta `quality` alanı olarak durur.
+  - `flowloop stats`: aşama başına ilk seferde başarı oranı, çalıştırma başına ortalama rework ve en çok rework çıkaran aşama; kontrol turu geçme oranı, test kırmızıları, "hiç test koşmadı" sayısı. Eski kayıtlar mevcut alanlardan hesaplanır.
+  - İş kırılımında görev başına kontrol ve reviewer rework'ü ile analistin **dosya tahmini isabeti** (görevin değiştirdiği dosyaların plandaki listeye uyma oranı); puan tablosunda puan başına rework.
+
 ## 1.16.0 — 2026-11-17
 
 ### Yeni

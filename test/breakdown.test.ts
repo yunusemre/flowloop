@@ -80,5 +80,5 @@ test("stats: puan başına onaylanan görevlerin turu, maliyeti ve süresi", asy
   ]);
   assert.equal(st.points.tasks, 3);
   assert.deepEqual(st.points.byPoints.map((b) => [b.points, b.tasks, b.avgIterations, b.avgCost]), [[1, 1, 1, 0.2], [3, 2, 3, 1.5]]);
-  assert.match(renderStats(st, "Test"), /İş kırılımı \(2 çalıştırma · 3 onaylanan görev\)\n  Puan  Görev  Tur   Maliyet  Süre\n     1      1  1.0     \$0.20/);
+  assert.match(renderStats(st, "Test"), /İş kırılımı \(2 çalıştırma · 3 onaylanan görev\)\n  Puan  Görev  Tur   Rework   Maliyet  Süre\n     1      1  1.0     0.0     \$0.20/);
 });

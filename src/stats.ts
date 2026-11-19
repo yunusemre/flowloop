@@ -1,3 +1,4 @@
+import { computeQuality, type RunQuality } from "./quality.js";
 import fs from "node:fs";
 import path from "node:path";
 import { FLOWLOOP_DIR } from "./config.js";
@@ -29,13 +30,19 @@ export interface RunRecord {
   related?: { commits?: string[] }[];
   checkRounds?: number;
   failedCheckRounds?: number;
-  checks?: { status: string }[][];
+  checks?: { name: string; status: string; summary?: string }[][];
   startedAt?: string;
   finishedAt?: string;
   error?: string;
   timings?: TimingEntry[];
   durationMs?: number;
-  breakdown?: { tasks: { points: number; status: string; iterations?: number; costUsd?: number; durationMs?: number }[] };
+  breakdown?: { tasks: { points: number; status: string; iterations?: number; costUsd?: number; durationMs?: number; checkFails?: number; reviewFails?: number; filesChanged?: number; filesOutside?: string[] }[] };
+  planReviewed?: boolean;
+  planRestarts?: number;
+  breakdownFixes?: number;
+  changesReviewed?: boolean;
+  triage?: { choice: string }[];
+  quality?: RunQuality;
 }
 
 export interface Stats {
@@ -62,7 +69,17 @@ export interface Stats {
   /** Dakika; sadece başlangıç/bitiş zamanı olan kayıtlar */
   duration: { median: number; runsCounted: number };
   /** İş kırılımı: puan başına onaylanan görevlerin ortalama turu, maliyeti ve süresi (ölçeğin kalibrasyonu) */
-  points: { runs: number; tasks: number; byPoints: { points: number; tasks: number; avgIterations: number; avgCost: number; avgMs: number }[] };
+  points: { runs: number; tasks: number; byPoints: { points: number; tasks: number; avgIterations: number; avgCost: number; avgMs: number; avgRework: number }[] };
+  /** Aşama aşama ilk seferde başarı (aşamanın çalıştığı çalıştırmalar içinde) ve çalıştırma başına ortalama rework */
+  stages: {
+    analysis: StageStat & { fileAccuracy: number | null };
+    test: StageStat & { passRate: number; testFails: number; noTests: number };
+    dev: StageStat;
+    human: StageStat;
+    avgRework: number;
+    /** En çok rework çıkaran aşama */
+    top?: string;
+  };
   /** Adım adım süre (sadece süre ölçümü olan kayıtlar; ms) */
   time: {
     runsCounted: number;
@@ -74,6 +91,13 @@ export interface Stats {
     /** adım adı → çalıştırma başına ortalama süre; en uzunlar */
     slowSteps: [string, number][];
   };
+}
+
+export interface StageStat {
+  /** null: bu aşama hiçbir çalıştırmada çalışmadı */
+  firstTimeRate: number | null;
+  runsCounted: number;
+  avgRework: number;
 }
 
 const ratio = (a: number, b: number) => (b ? a / b : 0);
@@ -157,13 +181,33 @@ export function computeStats(records: RunRecord[]): Stats {
     tasks: bdTasks.length,
     byPoints: [...new Set(bdTasks.map((t) => t.points))].sort((a, b) => a - b).map((p) => {
       const ts = bdTasks.filter((t) => t.points === p);
-      return { points: p, tasks: ts.length, avgIterations: avg(ts.map((t) => t.iterations ?? 0)), avgCost: avg(ts.map((t) => t.costUsd ?? 0)), avgMs: avg(ts.map((t) => t.durationMs ?? 0)) };
+      return { points: p, tasks: ts.length, avgIterations: avg(ts.map((t) => t.iterations ?? 0)), avgCost: avg(ts.map((t) => t.costUsd ?? 0)), avgMs: avg(ts.map((t) => t.durationMs ?? 0)), avgRework: avg(ts.map((t) => (t.checkFails ?? 0) + (t.reviewFails ?? 0))) };
     }),
   };
+
+  // eski kayıtlarda kalite alanı yok: mevcut alanlardan hesaplanır
+  const quals = done.map((r) => r.quality ?? computeQuality(r));
+  const stage = (pick: (q: RunQuality) => { firstTime: boolean | null; rework: number }): StageStat => {
+    const ran = quals.map(pick).filter((x) => x.firstTime !== null);
+    return { firstTimeRate: ran.length ? ratio(ran.filter((x) => x.firstTime).length, ran.length) : null, runsCounted: ran.length, avgRework: avg(quals.map((q) => pick(q).rework)) };
+  };
+  const acc = quals.map((q) => q.analysis.fileAccuracy).filter((x): x is number => x !== undefined);
+  const testRounds = quals.reduce((n, q) => n + q.test.rounds, 0);
+  const stages: Stats["stages"] = {
+    analysis: { ...stage((q) => q.analysis), fileAccuracy: acc.length ? avg(acc) : null },
+    test: { ...stage((q) => q.test), passRate: ratio(quals.reduce((n, q) => n + q.test.passed, 0), testRounds), testFails: quals.reduce((n, q) => n + q.test.testFails, 0), noTests: quals.reduce((n, q) => n + q.test.noTests, 0) },
+    dev: stage((q) => q.dev),
+    human: stage((q) => q.human),
+    avgRework: avg(quals.map((q) => q.rework)),
+  };
+  const byStage: [string, number][] = [["analiz", stages.analysis.avgRework], ["test", stages.test.avgRework], ["geliştirme", stages.dev.avgRework], ["senin onayın", stages.human.avgRework]];
+  const top = byStage.sort((a, b) => b[1] - a[1])[0];
+  if (top[1] > 0) stages.top = top[0];
 
   return {
     time,
     points,
+    stages,
     runs: done.length,
     success: success.length,
     failed: failed.length,
@@ -245,10 +289,25 @@ export function parseSince(v: string, now = new Date()): Date {
 
 const pct = (x: number) => `%${Math.round(x * 100)}`;
 
+function stageLines(st: Stats["stages"]): string[] {
+  const row = (label: string, x: StageStat, extra = "") =>
+    `  ${label.padEnd(13)}: ${x.firstTimeRate === null ? "—" : `${pct(x.firstTimeRate)} ilk seferde`.padEnd(16)} · ${x.avgRework.toFixed(1)} rework${extra}`;
+  return [
+    row("Analiz", st.analysis, st.analysis.fileAccuracy !== null ? ` · dosya tahmini ${pct(st.analysis.fileAccuracy)}` : ""),
+    row("Test", st.test, `${st.test.passRate ? ` · kontrol turu geçme oranı ${pct(st.test.passRate)}` : ""}${st.test.testFails ? ` · ${st.test.testFails} test kırmızısı` : ""}${st.test.noTests ? ` · ${st.test.noTests} kez hiç test koşmadı` : ""}`),
+    row("Geliştirme", st.dev),
+    row("Senin onayın", st.human),
+    `  Toplam rework: ${st.avgRework.toFixed(1)} / çalıştırma${st.top ? ` · en çok: ${st.top}` : ""}`,
+  ];
+}
+
 export function renderStats(s: Stats, label: string): string {
   if (!s.runs) return `${label}: tamamlanmış çalıştırma yok.`;
   const lines = [
     `${label}: ${s.runs} çalıştırma · ${s.success} başarılı · ${s.failed} başarısız (başarı ${pct(s.successRate)})`,
+    "",
+    "Aşama başarısı ve rework (ilk seferde geçen · çalıştırma başına rework)",
+    ...stageLines(s.stages),
     "",
     "Kalite",
     `  İlk incelemede PASS     : ${pct(s.firstPassRate)}`,
@@ -269,9 +328,9 @@ export function renderStats(s: Stats, label: string): string {
     ...s.denials.top.map(([k, n]) => `    - ${k}: ${n}`),
   ];
   if (s.points.tasks) {
-    lines.push("", `İş kırılımı (${s.points.runs} çalıştırma · ${s.points.tasks} onaylanan görev)`, "  Puan  Görev  Tur   Maliyet  Süre");
+    lines.push("", `İş kırılımı (${s.points.runs} çalıştırma · ${s.points.tasks} onaylanan görev)`, "  Puan  Görev  Tur   Rework   Maliyet  Süre");
     for (const b of s.points.byPoints) {
-      lines.push(`  ${String(b.points).padStart(4)}  ${String(b.tasks).padStart(5)}  ${b.avgIterations.toFixed(1).padStart(3)}  ${`$${b.avgCost.toFixed(2)}`.padStart(8)}  ${fmtDuration(b.avgMs)}`);
+      lines.push(`  ${String(b.points).padStart(4)}  ${String(b.tasks).padStart(5)}  ${b.avgIterations.toFixed(1).padStart(3)}  ${b.avgRework.toFixed(1).padStart(6)}  ${`$${b.avgCost.toFixed(2)}`.padStart(8)}  ${fmtDuration(b.avgMs)}`);
     }
   }
   if (s.failReasons.length) lines.push("", "Başarısızlık nedenleri", ...s.failReasons.map(([k, n]) => `  - ${k}: ${n}`));

@@ -1346,6 +1346,8 @@ test("iş kırılımı: görevler sırayla, her biri kendi incelemesiyle; her g�
   assert.deepEqual(agent.calls.map((c) => c.role), ["analist", "developer", "reviewer", "developer", "reviewer", "committer"]);
   assert.match(agent.calls[3].prompt, /Tamamlanan ve onaylanan görevler: T1/);
   assert.deepEqual(s!.breakdown!.tasks.map((t) => [t.id, t.status, t.iterations]), [["T1", "done", 1], ["T2", "done", 1]]);
+  assert.deepEqual(s!.breakdown!.tasks.map((t) => [t.filesChanged, t.filesOutside, t.checkFails, t.reviewFails]), [[2, [], 0, 0], [2, [], 0, 0]]);
+  assert.equal(s!.quality!.analysis.fileAccuracy, 1);
   assert.equal(s!.breakdown!.points, 5);
   const commits = gitOk(["log", "--reverse", "--format=%s%n%b---", `main..${s!.branch}`], root).split("---").map((x) => x.trim()).filter(Boolean);
   assert.equal(commits.length, 2);
@@ -1484,4 +1486,40 @@ test("iş kırılımı: onayda istenen değişiklik ayrı commit olur; Jira yoru
   assert.match(s.commits[0], /değişiklik isteği/i);
   assert.deepEqual(gitOk(["diff-tree", "--no-commit-id", "--name-only", "-r", s.branch!], root).split("\n"), ["src/not.js"]);
   assert.match(posted, /h3\. İş kırılımı\n\|\|Görev\|\|Başlık\|\|AK\|\|Puan\|\|Tur\|\|\n\|T1\|Ekspres fiyat farkı\|AK-1\|2\|1\|/);
+});
+
+test("kalite: plan yorumu, kontrol hatası ve reviewer FAIL rework olarak sayılır; özet sonda yazılır ve geçmişe girer", async () => {
+  const root = makeRepo();
+  let plans = 0;
+  const agent = new FakeAgent({
+    ...good,
+    analist: (req) => void fs.writeFileSync(planFile(req), `# Plan\nAK-1: ekspres +50 (sürüm ${++plans})\n`),
+    developer: (req, n) => {
+      if (n === 1) W(req, "test/ekspres.test.js", 'import { test } from "node:test";\nimport assert from "node:assert/strict";\ntest("kırmızı", () => assert.equal(1, 2));\n');
+      else good.developer!(req, n);
+    },
+    reviewer: (_req, n) => (n === 1 ? "❌ README notu yok\nVERDICT: FAIL" : "✅\nVERDICT: PASS"),
+  });
+  const log = silentLogger();
+  let planRound = 0;
+  const s = await runTask({
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent, log, noFetch: true, home: fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-emptyhome-")),
+    planApproval: true,
+    reviewPlan: async () => (++planRound === 1 ? { action: "revise", comment: "sınır değerini de yaz" } : { action: "approve" }),
+    reviewChanges: async () => ({ action: "approve" }),
+  });
+  const q = s.quality!;
+  assert.equal(q.analysis.firstTime, false);
+  assert.equal(q.analysis.revisions, 1);
+  assert.equal(q.test.firstTime, false);
+  assert.equal(q.test.rework, 1);
+  assert.equal(q.test.testFails, 1);
+  assert.equal(q.dev.firstTime, false);
+  assert.equal(q.dev.rework, 1);
+  assert.equal(q.human.firstTime, true);
+  assert.equal(q.rework, 3);
+  const out = log.lines.join("\n");
+  assert.match(out, /Kalite\n  Analiz      : ✗ · 1 plan yorumu\n  Test        : 2\/3 kontrol turu geçti · 1 rework \(testlerden: 1\)\n  Geliştirme  : 2\. incelemede PASS · 1 rework\n  Senin onayın: ✓ ilk seferde\n  Toplam rework: 3/);
+  const hist = fs.readFileSync(path.join(root, ".flowloop", "history.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+  assert.equal(hist.at(-1).quality.rework, 3);
 });

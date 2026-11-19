@@ -10,6 +10,7 @@
  * her görev ayrı commit olur. Küçük işte (tek görev ya da toplam puan ≤ 3) kırılım kullanılmaz.
  */
 import picomatch from "picomatch";
+import type { TaskQuality } from "./quality.js";
 
 export const POINTS = [1, 2, 3, 5, 8] as const;
 export type Points = (typeof POINTS)[number];
@@ -25,7 +26,7 @@ export interface BreakdownTask {
 }
 
 /** Görevin çalıştırmadaki durumu (run.json) */
-export interface BreakdownState extends BreakdownTask {
+export interface BreakdownState extends BreakdownTask, TaskQuality {
   status: "pending" | "done";
   /** Görev onaylandığında çalışma ağacının hash'i (commit'ler bu noktalardan kurulur) */
   tree?: string;
@@ -174,4 +175,10 @@ export function breakdownTable(tasks: BreakdownState[]): string {
     "|---|---|---|---|---|",
     ...tasks.map((t) => `| ${t.id} | ${t.title.replace(/\|/g, "/")} | ${t.ak.join(", ")} | ${t.points} | ${t.iterations ?? "—"} |`),
   ].join("\n");
+}
+
+/** Görevin değiştirdiği dosyalardan plandaki dosya listesine uymayanlar (analistin dosya tahmini isabeti) */
+export function filesOutside(task: BreakdownTask, changed: string[]): string[] {
+  const match = picomatch(task.files.map((f) => f.replace(/^\.\//, "")), { dot: true });
+  return changed.filter((f) => !match(f));
 }

@@ -26,7 +26,8 @@ import { questionsMarkdown as qMarkdown, resolveQuestions as questionLoop, type 
 import { isWindows, linkDir, readText } from "./platform.js";
 import { Stopwatch, readMutantRuns, timingReport, type TimingEntry } from "./timing.js";
 import { mutantRunsFile, type CheckTools } from "./mutant.js";
-import { breakdownTable, focusNote, orderTasks, parseBreakdown, planAks, pointBudget, totalPoints, usesBreakdown, validateBreakdown, type BreakdownState } from "./breakdown.js";
+import { computeQuality, qualityReport, type RunQuality } from "./quality.js";
+import { breakdownTable, filesOutside, focusNote, orderTasks, parseBreakdown, planAks, pointBudget, totalPoints, usesBreakdown, validateBreakdown, type BreakdownState } from "./breakdown.js";
 export { MAX_QUESTION_ROUNDS, questionsComment, questionsMarkdown, type QuestionDecision } from "./questions.js";
 
 /** Jira yorumu ve özet için: varsayımlar ve insanın bakması gerekenler */
@@ -410,6 +411,14 @@ export interface RunSummary {
   assumptions?: string[];
   /** İnsanın bakması önerilenler */
   attention?: AttentionItem[];
+  /** Plan kullanıcıya onaya sunuldu mu; baştan analiz sayısı; analistin kırılımı kendiliğinden düzeltme sayısı */
+  planReviewed?: boolean;
+  planRestarts?: number;
+  breakdownFixes?: number;
+  /** Değişiklikler commit'ten önce kullanıcıya sunuldu mu */
+  changesReviewed?: boolean;
+  /** Aşama başarısı ve rework (geçmişe yazılırken hesaplanır) */
+  quality?: RunQuality;
   /** İş kırılımı: görevler sırayla geliştirilir, her biri ayrı commit olur */
   breakdown?: { tasks: BreakdownState[]; points: number };
   /** Toplu çalışmanın parçasıysa */
@@ -497,6 +506,7 @@ const HISTORY_FILE = path.join(FLOWLOOP_DIR, "history.jsonl");
 export function appendHistory(root: string, s: RunSummary, now: Date): void {
   try {
     s.finishedAt = now.toISOString();
+    s.quality = computeQuality(s);
     const { checks, ...rest } = s;
     const rec = { ...rest, checkRounds: checks.length, failedCheckRounds: checks.filter((r) => r.some((c) => c.status === "fail")).length };
     const f = path.join(root, HISTORY_FILE);
@@ -877,6 +887,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
     const rep = timingReport(summary.timings ?? [], summary.durationMs ?? 0);
     if (rep) log.info("\n" + rep);
     appendHistory(root, summary, now());
+    log.info("\n" + qualityReport(computeQuality(summary)));
     saveSummary();
     throw new FlowloopError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
   };
@@ -1021,6 +1032,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
         planFeedback: `Plandaki "## İş kırılımı" bölümü kurallara uymuyor. SADECE o bölümü düzelt, planın geri kalanına dokunma:\n${errs.map((e) => `- ${e}`).join("\n")}`,
       });
       analistBudget = Math.max(0.05, analistBudget - fix.costUsd);
+      summary.breakdownFixes = (summary.breakdownFixes ?? 0) + 1;
       if (workingTreeHash(wt, X) !== h0) fail("Analist kod değiştirdi! Rol ihlali.");
     }
     return res;
@@ -1081,6 +1093,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   await resolveQuestions();
 
   if (opts.planApproval) {
+    summary.planReviewed = true;
     for (let round = 1; ; round++) {
       const planText = readText(files.plan);
       if (PLAN_SMELLS.test(planText)) log.warn("Plan rollerle çelişen talimat içeriyor (commit/push ya da dış skill). Developer bunları uygulayamaz.");
@@ -1101,6 +1114,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       if (d.action === "restart") {
         reused = false;
         summary.planFrom = undefined;
+        summary.planRestarts = (summary.planRestarts ?? 0) + 1;
         fs.rmSync(files.plan, { force: true });
         log.step("ANALİST  (baştan analiz)");
         await runAnalist();
@@ -1334,10 +1348,17 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       const turn0 = turn;
       const cost0 = summary.totalCostUsd;
       const since = k ? all[k - 1].tree : undefined;
+      const checks0 = summary.checks.length;
+      const phases0 = summary.phases.length;
       if (!(await developLoop("", "", pointBudget(t.points, cfg.budgets.gelistir), since))) {
         fail(`${t.id} (${t.title}) ${cfg.maxIterations} turda onay alınamadı. Onaylanan görevler: ${all.filter((x) => x.status === "done").map((x) => x.id).join(", ") || "yok"}.\n  Son geri bildirim run.json ve ${LESSONS_FILE} içinde. Sürdürmek için: flowloop resume ${summary.id}`);
       }
-      Object.assign(t, { status: "done", tree: workingTreeHash(wt, X), iterations: turn - turn0, costUsd: summary.totalCostUsd - cost0, durationMs: Date.now() - t0 });
+      const tree = workingTreeHash(wt, X);
+      const taskFiles = treeDiff(wt, since ?? gitOk(["rev-parse", `${baseSha}^{tree}`], wt), tree);
+      Object.assign(t, {
+        status: "done", tree, iterations: turn - turn0, costUsd: summary.totalCostUsd - cost0, durationMs: Date.now() - t0,
+        ...taskQuality(summary, checks0, phases0), filesChanged: taskFiles.length, filesOutside: filesOutside(t, taskFiles),
+      });
       if (k < all.length - 1) earlierAttention.push(...collectAttention(lastDevText, lastReviewerNote));
       log.ok(`${t.id} onaylandı (${t.iterations} tur · $${t.costUsd!.toFixed(2)})`);
       saveSummary();
@@ -1349,6 +1370,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
 
   // ───────────── KULLANICI ONAYI (commit'ten önce) ─────────────
   if (opts.reviewChanges) {
+    summary.changesReviewed = true;
     for (let round = 1; ; round++) {
       summary.approvedTree = workingTreeHash(wt, X); // iptal edilirse resume bu içerikten devam eder
       for (const r of related) r.s.approvedTree = r.treeHash();
@@ -1460,6 +1482,12 @@ export interface CommitGroup {
   tree: string;
   files: string[];
 }
+
+/** Bir görevin süresinde: kontrol hatasıyla ve reviewer FAIL ile developer'a dönüş sayısı */
+const taskQuality = (s: RunSummary, checks0: number, phases0: number) => ({
+  checkFails: s.checks.slice(checks0).filter((r) => r.some((c) => c.status === "fail")).length,
+  reviewFails: s.phases.slice(phases0).filter((p) => p.role === "reviewer" && p.verdict && p.verdict !== "PASS").length,
+});
 
 const treeDiff = (wt: string, a: string, b: string) => gitOk(["diff", "--name-only", "--no-renames", a, b], wt).split("\n").filter(Boolean);
 
@@ -1656,6 +1684,7 @@ async function commitAndDeliver(ctx: CommitCtx): Promise<RunSummary> {
   const rep = timingReport(summary.timings ?? [], summary.durationMs ?? 0);
   if (rep) log.info("\n" + rep);
   appendHistory(root, summary, opts.now?.() ?? new Date());
+  log.info("\n" + qualityReport(computeQuality(summary)));
   saveSummary();
   return summary;
 }
@@ -1767,6 +1796,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
     const rep = timingReport(summary.timings ?? [], summary.durationMs ?? 0);
     if (rep) log.info("\n" + rep);
     appendHistory(root, summary, opts.now?.() ?? new Date());
+    log.info("\n" + qualityReport(computeQuality(summary)));
     saveSummary();
     throw new FlowloopError(`${msg}\n  Çalışma alanı incelemen için bırakıldı: ${wt}`);
   };
@@ -1943,8 +1973,17 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
       const t0 = Date.now();
       const it0 = summary.iterations ?? 0;
       const cost0 = summary.totalCostUsd;
-      await reviewLoop("", "", { fresh: k > 0, since: idx ? all[idx - 1].tree : undefined });
-      Object.assign(t, { status: "done", tree: workingTreeHash(wt, X), iterations: (t.iterations ?? 0) + (summary.iterations ?? 0) - it0, costUsd: (t.costUsd ?? 0) + summary.totalCostUsd - cost0, durationMs: (t.durationMs ?? 0) + Date.now() - t0 });
+      const checks0 = summary.checks.length;
+      const phases0 = summary.phases.length;
+      const since = idx ? all[idx - 1].tree : undefined;
+      await reviewLoop("", "", { fresh: k > 0, since });
+      const tree = workingTreeHash(wt, X);
+      const taskFiles = treeDiff(wt, since ?? gitOk(["rev-parse", `${baseSha}^{tree}`], wt), tree);
+      const tq = taskQuality(summary, checks0, phases0);
+      Object.assign(t, {
+        checkFails: (t.checkFails ?? 0) + tq.checkFails, reviewFails: (t.reviewFails ?? 0) + tq.reviewFails, filesChanged: taskFiles.length, filesOutside: filesOutside(t, taskFiles),
+      });
+      Object.assign(t, { status: "done", tree, iterations: (t.iterations ?? 0) + (summary.iterations ?? 0) - it0, costUsd: (t.costUsd ?? 0) + summary.totalCostUsd - cost0, durationMs: (t.durationMs ?? 0) + Date.now() - t0 });
       log.ok(`${t.id} onaylandı`);
       saveSummary();
     }
@@ -1952,6 +1991,7 @@ export async function resumeRun(opts: RunOptions & { resume: string }): Promise<
   } else if (needsReview) await reviewLoop();
   log.ok(`Sürdürülüyor: ${summary.id} · branch ${branch} · onaylanan içerik ${approved.slice(0, 12)}`);
   if (opts.reviewChanges && !summary.userApproved) {
+    summary.changesReviewed = true;
     summary.changeRequests = summary.changeRequests ?? [];
     for (;;) {
       const round = summary.changeRequests.length + 1;
