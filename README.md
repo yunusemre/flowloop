@@ -48,6 +48,7 @@ git clone https://github.com/yunusemre/flowloop.git "$HOME\.flowloop\src"; power
 | `flowloop run IDT-1 IDT-2 …` / `--epic IDT-100` | Birbirine bağlı görevler: toplu plan, sonra sırayla tek branch'te |
 | `flowloop runs` / `flowloop resume <id>` | Çalıştırmaları (toplu çalışmalar dahil) listeler / yarım kalanı sürdürür |
 | `flowloop ui [--background]` | Tarayıcıda sohbet arayüzü: **İş** (Jira anahtarı ya da kendi cümlelerinle istek) ve **Soru** (sadece okuyan ajan kodu inceleyip cevaplar); birden fazla proje (üst klasörden toplu eklenir), görev başlatma, iki repoyu kapsayan iş (diğer projeyi "okur" ya da "değiştirir" seç), ajanın adımları canlı; plan onayı, sorular, inceleme maddeleri ve değişiklik onayı kart olarak; sohbetler kalıcı, yarım kalan iş tıklayıp **Kaldığı yerden devam et** ile aynı sohbette sürer; geçmiş çalıştırmaları silme. Sadece bu bilgisayardan erişilir |
+| VS Code / Cursor eklentisi (`vscode/`) | Sohbet arayüzü editörün içinde: dosya adlarına tıklayınca editörde açılır, VS Code teması, durum çubuğunda süren iş ve "cevabın bekleniyor" bildirimi. Kurulum: `cd vscode && npm install && npm run package`, sonra **Install from VSIX** |
 | `flowloop ui status \| open \| stop` | Arka plandaki arayüzün durumu / tarayıcıda aç / durdur. Adres sabittir (yer imi olarak kaydedilebilir) |
 | `flowloop stats [--since 30d]` | Ölçüm özeti: başarı, ilk incelemede PASS, tur, insan müdahalesi, kapsam talepleri, reddedilen işlemler, maliyet ve süre dağılımı (en uzun adımlar) |
 | `flowloop --version` | Sürümü ve kurulum kaynağını gösterir |

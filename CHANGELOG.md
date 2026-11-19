@@ -12,6 +12,8 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **Aşama başarısı ve rework.** Her çalıştırmanın sonunda analiz, test (otomatik kontroller), geliştirme (reviewer) ve senin onayın için ilk seferde geçti mi ve kaç rework çıktı yazılır (terminal ve sohbet arayüzü; Jira'ya gitmez). Kayıtta `quality` alanı olarak durur.
   - `flowloop stats`: aşama başına ilk seferde başarı oranı, çalıştırma başına ortalama rework ve en çok rework çıkaran aşama; kontrol turu geçme oranı, test kırmızıları, "hiç test koşmadı" sayısı. Eski kayıtlar mevcut alanlardan hesaplanır.
   - İş kırılımında görev başına kontrol ve reviewer rework'ü ile analistin **dosya tahmini isabeti** (görevin değiştirdiği dosyaların plandaki listeye uyma oranı); puan tablosunda puan başına rework.
+- **VS Code / Cursor eklentisi** (`vscode/`). Sohbet arayüzü editörün yanında bir panelde; arka planda aynı `flowloop ui` sunucusu (çalışmıyorsa eklenti başlatır). Açık çalışma alanı proje olarak eklenir; sohbetteki dosya adlarına tıklayınca dosya editörde o satırda açılır (süren işte çalışma kopyasından); panel VS Code temasını kullanır; durum çubuğunda süren iş ve adımı, cevabın beklendiğinde bildirim. `.vsix` olarak kurulur.
+  - Sunucu: `?embed=vscode` ile açılan sayfa sadece VS Code panelinde çerçevelenebilir; durum çubuğu için hafif `/api/status` ucu.
 
 ## 1.16.0 — 2026-11-17
 

@@ -307,6 +307,12 @@ export function runResumable(root: string, id: string): boolean {
   return !!r && r.run.status !== "success" && !!r.run.worktree && fs.existsSync(r.run.worktree);
 }
 
+/** Çalıştırmanın çalışma kopyası (duruyorsa): dosya bağlantıları süren işte oradan açılır */
+function runWorktree(root: string, id: string): string | undefined {
+  const w = readRun(root, id)?.run.worktree;
+  return w && fs.existsSync(w) ? w : undefined;
+}
+
 /** Çalıştırmanın başlığı: görev dosyasının başlığı, yoksa Jira anahtarı */
 function runTitle(root: string, id: string): string {
   const r = readRun(root, id);
@@ -908,10 +914,19 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
   const routes = async (req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> => {
     const m = req.method ?? "GET";
     const parts = url.pathname.split("/").filter(Boolean);
+    // hafif durum: eklentinin durum çubuğu için (mesajlar olmadan)
+    if (m === "GET" && url.pathname === "/api/status") {
+      const list = [...sessions.values()].filter((s) => s.status === "running" || s.status === "waiting");
+      return send(res, 200, {
+        running: list.filter((s) => s.status === "running").length,
+        waiting: list.filter((s) => s.status === "waiting").length,
+        sessions: list.map((s) => ({ id: s.id, kind: s.kind, project: s.project.name, title: s.title, status: s.status, step: [...s.messages].reverse().find((x) => x.level === "step")?.text })),
+      });
+    }
     if (m === "GET" && url.pathname === "/api/state") {
       return send(res, 200, {
         projects: readProjects(home).map((p) => ({ ...p, busy: busy(p) })),
-        sessions: [...sessions.values()].map((s) => s.view(canResume(s))),
+        sessions: [...sessions.values()].map((s) => ({ ...s.view(canResume(s)), worktree: s.kind === "task" && s.runId ? runWorktree(s.project.root, s.runId) : undefined })),
       });
     }
     if (m === "GET" && parts[1] === "projects" && parts[3] === "runs") return send(res, 200, projectRuns(projectByName(decodeURIComponent(parts[2])).root));
@@ -1044,11 +1059,13 @@ export async function startUi(opts: UiOptions = {}): Promise<UiServer> {
       if (origin && origin !== `http://127.0.0.1:${port}` && origin !== `http://localhost:${port}`) return send(res, 403, { error: "origin" });
       const url = new URL(req.url ?? "/", `http://${host}`);
       if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+        // VS Code eklentisi sayfayı kendi panelinde çerçeveler (panel vscode-webview://, masaüstü pencere vscode-file://); başka hiçbir site çerçeveleyemez
+        const embed = url.searchParams.get("embed") === "vscode";
         res.writeHead(200, {
           "content-type": "text/html; charset=utf-8",
           "cache-control": "no-store",
-          "content-security-policy": "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'",
-          "x-frame-options": "DENY",
+          "content-security-policy": `default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors ${embed ? "vscode-webview: vscode-file:" : "'none'"}`,
+          ...(embed ? {} : { "x-frame-options": "DENY" }),
           "referrer-policy": "no-referrer",
         });
         return res.end(html());

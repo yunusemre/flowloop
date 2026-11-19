@@ -609,6 +609,19 @@ Tarayıcı açılır. Soldan projeyi seç, alttaki kutuda **İş** ya da **Soru*
 - **Kapatma:** ön planda Ctrl+C, arka planda `flowloop ui stop`. Süren çalıştırmalar da durur; çalışma kopyası ve sohbet kalır, sonra sohbetteki **Kaldığı yerden devam et** ya da `flowloop resume` ile sürdürülür.
 - Seçenekler: `--port 4317` (doluysa boş bir port seçilir), `--no-open` (tarayıcıyı açma).
 
+### VS Code / Cursor eklentisi
+
+Sohbet arayüzü editörün içinde de açılır. Eklenti ince bir istemcidir: arka planda aynı `flowloop ui` sunucusu çalışır (çalışmıyorsa eklenti başlatır), terminal, tarayıcı ve eklenti aynı çalıştırmaları görür.
+
+- **Kurulum:** flowloop klasöründe `cd vscode && npm install && npm run package` → `flowloop-vscode.vsix`. VS Code ya da Cursor'da Extensions → `…` → **Install from VSIX…** (ya da `code --install-extension vscode/flowloop-vscode.vsix`, Cursor'da `cursor --install-extension …`).
+- **Açmak:** komut paletinde **flowloop: Paneli aç** ya da durum çubuğundaki **flowloop**'a tıkla. Panel editörün yanında açılır. Açık çalışma alanında flowloop kuruluysa proje olarak eklenir ve seçili gelir.
+- **Dosyalar:** sohbetteki dosya adlarına (`src/a.ts:42`, ajanın okuduğu ve yazdığı dosyalar) tıklayınca dosya yandaki sütunda o satırda açılır. Süren bir işte dosyanın çalışma kopyasındaki hâli açılır (ajanın değiştirdiği içerik).
+- **Tema:** panel VS Code temasının renklerini ve koyu/açık ayarını kullanır.
+- **Durum çubuğu:** süren iş ve adımı (`flowloop: IDT-22685 · GÖREV 2/3`); cevabın beklendiğinde uyarı rengi alır ve panel arkadaysa bildirim çıkar.
+- **Diğer komutlar:** **flowloop: Arayüzü tarayıcıda aç**, **flowloop: Kaydı göster** (sunucuyu başlatırken bir sorun olursa ayrıntı burada).
+- **Ayar:** `flowloop.command`. VS Code dock'tan ya da Finder'dan açıldığında kabuğun PATH'ini görmeyebilir; eklenti komutu senin kabuğunla (login) çalıştırır. Yine bulunamazsa tam yolu yaz.
+- **Güvenlik:** sayfa sadece VS Code'un kendi panelinde çerçevelenebilir; başka siteler çerçeveleyemez. Anahtar ve yalnızca bu bilgisayardan erişim kuralları aynıdır.
+
 ## 6. Diğer komutlar
 
 | Komut | Ne yapar |

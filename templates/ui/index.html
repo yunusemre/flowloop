@@ -19,6 +19,20 @@
       --add: #1c3324; --del: #3d1f22;
     }
   }
+  /* VS Code panelinde: editörün teması koyu mu açık mı ona göre (işletim sisteminin ayarı değil) */
+  :root.light {
+    --bg: #f6f7f9; --panel: #ffffff; --text: #1d2330; --muted: #6b7385; --line: #e3e6ec;
+    --accent: #3b5bdb; --accent-soft: #e8edff; --ok: #2b8a3e; --ok-soft: #e6f4ea; --warn: #b26a00; --warn-soft: #fff4e0;
+    --err: #c92a2a; --err-soft: #fdecec; --user: #3b5bdb; --user-text: #fff; --code: #f1f3f6;
+    --add: #e6f4ea; --del: #fdecec;
+  }
+  :root.dark {
+    --bg: #14161b; --panel: #1c1f26; --text: #e4e7ee; --muted: #8e96a8; --line: #2c313b;
+    --accent: #7b93ff; --accent-soft: #252c47; --ok: #69c47f; --ok-soft: #1c3324; --warn: #f0b04f; --warn-soft: #3a2d17;
+    --err: #ff7b7b; --err-soft: #3d1f22; --user: #3b5bdb; --user-text: #fff; --code: #242832;
+    --add: #1c3324; --del: #3d1f22;
+  }
+  body.embed { font-family: var(--font, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif); }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
   body { font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); display: flex; }
@@ -181,6 +195,9 @@
   .err-bar.info { background: var(--accent-soft); color: var(--accent); }
   .conn { font-size: 12px; color: var(--muted); }
   .conn.off { color: var(--err); }
+  /* VS Code panelinde: dosya adları tıklanınca editörde açılır */
+  body.embed .chat code.file, body.embed .tool.file { cursor: pointer; }
+  body.embed .chat code.file:hover, body.embed .tool.file:hover .tool-arg { text-decoration: underline; color: var(--accent); }
 </style>
 </head>
 <body>
@@ -238,7 +255,11 @@
 (() => {
   // ───── durum ─────
   const token = new URLSearchParams(location.hash.slice(1)).get("t") || sessionStorage.getItem("flowloop-t") || "";
-  if (token) { try { sessionStorage.setItem("flowloop-t", token); } catch {} history.replaceState(null, "", location.pathname); }
+  if (token) { try { sessionStorage.setItem("flowloop-t", token); } catch {} history.replaceState(null, "", location.pathname + location.search); }
+  // VS Code eklentisinin panelinde mi (dosya açma ve tema eklentiyle)
+  const EMBED = new URLSearchParams(location.search).get("embed") === "vscode";
+  const EMBED_PROJECT = new URLSearchParams(location.search).get("project");
+  if (EMBED) document.body.classList.add("embed");
   const S = { mode: "task", ctx: null, projects: [], sessions: new Map(), selectedProject: null, selectedSession: null, runs: [], composing: true, open: new Map(), card: null, rel: new Map() };
   // seçimler sayfa yenilenince kaybolmasın: bu tarayıcıda saklanır (proje, sohbet, "Birlikte" seçimleri, seçenekler)
   const PREFS_KEY = "flowloop-ui-prefs";
@@ -907,7 +928,7 @@
         else Object.assign(cur, { canResume: s.canResume, runId: s.runId, interrupted: s.interrupted });
       }
       if (!S.selectedProject && S.projects.length) {
-        const keep = S.projects.find((p) => p.name === prefs.project);
+        const keep = S.projects.find((p) => p.name === (EMBED_PROJECT || prefs.project));
         await selectProject((keep ?? S.projects[0]).name);
         // yenilemeden önce açık olan sohbet (sunucu hâlâ çalışıyorsa)
         if (full && prefs.session && S.sessions.has(prefs.session) && !S.selectedSession) selectSession(prefs.session);
@@ -956,7 +977,41 @@
     } catch (e) { showError(e); }
   };
   document.addEventListener("click", () => { if (S.relOpen) { S.relOpen = false; renderRelPicker(); } });
-  document.addEventListener("click", () => { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }, { once: true });
+  if (!EMBED) document.addEventListener("click", () => { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); }, { once: true });
+
+  // ───── VS Code paneli ─────
+  if (EMBED) {
+    // tema: eklenti VS Code'un renklerini gönderir
+    window.addEventListener("message", (e) => {
+      if (e.source !== window.parent || e.data?.type !== "flowloop:theme") return;
+      const root = document.documentElement;
+      root.classList.toggle("dark", e.data.dark === true);
+      root.classList.toggle("light", e.data.dark === false);
+      root.removeAttribute("style");
+      for (const [k, v] of Object.entries(e.data.vars || {})) if (/^--[\w-]+$/.test(k) && typeof v === "string" && v) document.documentElement.style.setProperty(k, v);
+    });
+    window.parent.postMessage({ type: "flowloop:ready" }, "*");
+    // dosya adı: "src/a.ts", "src/a.ts:42", "/abs/yol/a.ts:10-20"
+    const FILE = /^((?:\.{0,2}\/|\/)?[\w@.+\-]+(?:\/[\w@.+\-]+)*\.[A-Za-z0-9]+)(?::(\d+)(?:[-–]\d+)?)?$/;
+    const markFiles = () => {
+      for (const c of document.querySelectorAll("#chatInner code:not(.file)")) if (FILE.test(c.textContent.trim())) c.classList.add("file");
+      for (const t of document.querySelectorAll("#chatInner .tool:not(.file)")) {
+        const m = /^→\s*(?:Read|Edit|Write|MultiEdit|NotebookEdit)\b:?\s*(\S+)/.exec(t.title || "");
+        if (m) { t.classList.add("file"); t.dataset.path = m[1]; }
+      }
+    };
+    new MutationObserver(markFiles).observe($("chatInner"), { childList: true, subtree: true });
+    $("chatInner").addEventListener("click", (e) => {
+      const el = e.target.closest("code.file, .tool.file");
+      if (!el) return;
+      const m = FILE.exec((el.dataset.path || el.textContent).trim());
+      if (!m) return;
+      const s = S.sessions.get(S.selectedSession);
+      const proj = S.projects.find((p) => p.name === (s?.project || S.selectedProject));
+      const others = (s?.companions || []).map((c) => S.projects.find((p) => p.name === c.name)?.root).filter(Boolean);
+      window.parent.postMessage({ type: "flowloop:open", path: m[1], line: m[2] ? Number(m[2]) : undefined, roots: [s?.worktree, proj?.root, ...others].filter(Boolean) }, "*");
+    });
+  }
 
   if (!token) {
     document.body.innerHTML = '<div class="empty" style="margin:20vh auto"><h2>Anahtar yok</h2><p>Bu sayfayı flowloop ui komutunun yazdığı adresle aç.</p></div>';

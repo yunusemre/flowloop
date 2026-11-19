@@ -1,0 +1,40 @@
+{
+  "name": "flowloop-vscode",
+  "displayName": "flowloop",
+  "description": "flowloop sohbet arayüzü editörün içinde: görev başlat, planı onayla, ajanları izle; dosya adları editörde açılır.",
+  "version": "0.1.0",
+  "publisher": "flowloop",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "main": "./dist/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      { "command": "flowloop.open", "title": "Paneli aç", "category": "flowloop" },
+      { "command": "flowloop.openInBrowser", "title": "Arayüzü tarayıcıda aç", "category": "flowloop" },
+      { "command": "flowloop.showLog", "title": "Kaydı göster", "category": "flowloop" }
+    ],
+    "configuration": {
+      "title": "flowloop",
+      "properties": {
+        "flowloop.command": {
+          "type": "string",
+          "default": "flowloop",
+          "description": "flowloop komutu (PATH'te değilse tam yolu, ör. ~/.flowloop/bin/flowloop). Arayüz çalışmıyorsa eklenti bununla arka planda başlatır."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "package": "npm run build && vsce package --no-dependencies --allow-missing-repository --skip-license -o flowloop-vscode.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "~1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.6.0"
+  }
+}

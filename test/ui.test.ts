@@ -445,3 +445,54 @@ test("ui: sohbetler kalıcı; yarım kalan iş yeniden başlatmadan sonra aynı 
     await ui.close();
   }
 });
+
+test("ui: VS Code paneli — sayfa sadece vscode-webview tarafından çerçevelenebilir; hafif durum ucu; süren işin çalışma kopyası", async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-uih-"));
+  const root = makeRepo();
+  const p = addProject(root, home);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const agent: AgentRunner = {
+    async run(req) {
+      if (req.role === "developer") await gate;
+      return new FakeAgent().run(req);
+    },
+  };
+  const ui = await startUi({ port: 0, home, createAgent: () => ({ runner: agent, backend: "claude", reason: "test" }), runExtras: { noFetch: true, home } });
+  const base = `http://127.0.0.1:${ui.port}`;
+  const call = async (method: string, url: string, body?: unknown) => {
+    const r = await fetch(base + url, { method, headers: { "x-flowloop-token": ui.token, "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+    return r.json();
+  };
+  try {
+    const normal = await fetch(base + "/");
+    assert.equal(normal.headers.get("x-frame-options"), "DENY");
+    assert.match(normal.headers.get("content-security-policy")!, /frame-ancestors 'none'/);
+    const embed = await fetch(base + "/?embed=vscode&project=x");
+    assert.equal(embed.headers.get("x-frame-options"), null);
+    assert.match(embed.headers.get("content-security-policy")!, /frame-ancestors vscode-webview: vscode-file:$/);
+    assert.equal((await fetch(base + "/api/status")).status, 401, "durum ucu da anahtar ister");
+
+    const { session } = await call("POST", "/api/run", { project: p.name, task: ".flowloop/tasks/ekspres.md", approvePlan: false });
+    let st: any;
+    for (const t0 = Date.now(); Date.now() - t0 < 15_000; await new Promise((r) => setTimeout(r, 50))) {
+      st = await call("GET", "/api/status");
+      if (st.sessions[0]?.step && /DEVELOPER/.test(st.sessions[0].step)) break;
+    }
+    assert.equal(st.running, 1);
+    assert.deepEqual(Object.keys(st.sessions[0]).sort(), ["id", "kind", "project", "status", "step", "title"], "mesajlar gönderilmez");
+    const s = (await call("GET", "/api/state")).sessions.find((x: any) => x.id === session);
+    assert.ok(s.worktree && fs.existsSync(path.join(s.worktree, "src/fiyat.js")), "dosya bağlantıları süren işte çalışma kopyasından açılır");
+  } finally {
+    release();
+    for (const t0 = Date.now(); Date.now() - t0 < 15_000; await new Promise((r) => setTimeout(r, 50))) {
+      const s = (await call("GET", "/api/status")) as any;
+      if (!s.sessions.length) break;
+      if (s.sessions[0].status === "waiting") {
+        const full = (await call("GET", "/api/state")).sessions[0];
+        await call("POST", `/api/sessions/${full.id}/answer`, { prompt: full.prompt.id, value: { action: "cancel" } });
+      }
+    }
+    await ui.close();
+  }
+});
