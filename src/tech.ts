@@ -310,7 +310,7 @@ tech: |
 ${d.tech.map((t) => `  - ${t}`).join("\n") || "  - (doldur)"}
 
 mutation: { enabled: true, testTimeoutSec: 300 }
-budgets: { analist: 1.0, gelistir: 4.0, commit: 0.5, total: 6.0 }   # USD
+budgets: { analist: 2.0, gelistir: 6.0, commit: 1.0, total: 15.0 }   # USD
 maxIterations: 3
 model: ""                        # boş = Claude Code varsayılanı
 roles: {}                        # ör. reviewer: { model: opus }

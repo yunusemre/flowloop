@@ -15,6 +15,9 @@ Sürümler [Semantic Versioning](https://semver.org/lang/tr/) kuralına göre nu
 - **VS Code / Cursor eklentisi** (`vscode/`). Sohbet arayüzü editörün yanında bir panelde; arka planda aynı `flowloop ui` sunucusu (çalışmıyorsa eklenti başlatır). Açık çalışma alanı proje olarak eklenir; sohbetteki dosya adlarına tıklayınca dosya editörde o satırda açılır (süren işte çalışma kopyasından); panel VS Code temasını kullanır; durum çubuğunda süren iş ve adımı, cevabın beklendiğinde bildirim. `.vsix` olarak kurulur.
   - Sunucu: `?embed=vscode` ile açılan sayfa sadece VS Code panelinde çerçevelenebilir; durum çubuğu için hafif `/api/status` ucu.
 
+### Değişiklik
+- **Varsayılan bütçeler arttı:** analist $1 → $2, geliştirme $4 → $6, commit $0.5 → $1, toplam $6 → $15. Sadece `budgets` yazmayan projelerde ve yeni `flowloop init`'te geçerli; `flowloop.yaml`'ında `budgets` satırı olan projeler kendi değerini kullanır.
+
 ## 1.16.0 — 2026-11-17
 
 ### Yeni

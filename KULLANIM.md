@@ -699,7 +699,7 @@ En çok değiştirilenler:
 | `paths.edit` | Developer'ın değiştirebileceği yollar. Varsayılan `**` (bütün repo); gizli dosyalara (`readDeny`), `.git`'e ve `.flowloop`'a yine yazılamaz. Daraltmak için ör. `src/**` |
 | `paths.readDeny` | Hiçbir rolün okuyamayacağı dosyalar (`.env` gibi) |
 | `redact.personal` | `true`: ajana dönen çıktılarda ve Jira yorumlarında e-posta ve cep telefonları da maskelenir. Gizli bilgiler (parola, token, anahtar) her zaman maskelenir. Varsayılan `false`: geliştirme işlerinde bunlar çoğunlukla test verisidir |
-| `budgets` | Rol başına (`analist`, `gelistir`, `commit`) ve toplam (`total`) dolar limiti; tutarlar SDK'nın tahminidir. Dolunca etkileşimli terminalde ek bütçe sorulur |
+| `budgets` | Rol başına (`analist`, `gelistir`, `commit`) ve toplam (`total`) dolar limiti; varsayılan analist $2, geliştirme $6, commit $1, toplam $15. Tutarlar SDK'nın tahminidir. Dolunca etkileşimli terminalde ek bütçe sorulur |
 | `maxIterations` | Developer ⇄ reviewer tur sayısı (varsayılan 3) |
 | `agent` | `auto` / `claude` / `cursor` |
 | `cursor.model` / `cursor.timeoutMin` | Cursor modeli / rol başına süre sınırı |
@@ -764,7 +764,7 @@ Gerisi kendiliğinden olur:
 | `zsh: permission denied: flowloop` | `flowloop update` (yeniden derler) ya da kurulum klasöründe `npm run build` |
 | npm yetki hatası (`EACCES`) | `FLOWLOOP_FORCE_NVM=1` ile kur (sudo'suz Node kurulumu) |
 | `Jira yetki hatası (401)` / `Jira kimlik bilgisi yok` | `flowloop setup --force` ile token'ı yenile; kayda erişimin olmalı |
-| `... için ayrılan bütçe doldu` / `reached maximum budget` | Etkileşimli terminalde flowloop ek bütçe sorar; `[e]` ile ajan kaldığı yerden devam eder. Kalıcı olarak artırmak için `.flowloop/flowloop.yaml` → `budgets` (ör. `analist: 2`, `total: 10`). Büyük projelerde ve `related` ile birden fazla repo okunurken analist daha çok harcar |
+| `... için ayrılan bütçe doldu` / `reached maximum budget` | Etkileşimli terminalde flowloop ek bütçe sorar; `[e]` ile ajan kaldığı yerden devam eder. Kalıcı olarak artırmak için `.flowloop/flowloop.yaml` → `budgets` (ör. `analist: 3`, `total: 25`). Büyük projelerde ve `related` ile birden fazla repo okunurken analist daha çok harcar |
 | `N turda onay alınamadı` | Son geri bildirim `flowloop runs` ile bulunan klasördeki `run.json` dosyasında. `flowloop resume <id> -v` bu geri bildirimle developer'dan devam eder (yeni bir tur hakkıyla) |
 | `testler ortam yüzünden çalışmadı: Docker çalışmıyor` | Entegrasyon testleri Docker (Testcontainers) istiyor. Docker'ı başlat (`open -a Docker`), sonra `flowloop resume <id> -v` |
 | `YENİ lint hatası` sürekli çıkıyor | Projede Prettier ile ESLint kuralları çakışıyor olabilir. `.eslintrc`'de `extends` listesinin sonuna `'prettier'` ekle |

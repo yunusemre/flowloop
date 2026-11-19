@@ -214,13 +214,13 @@ export const configSchema = z
     redact: z.object({ personal: z.boolean().default(false) }).strict().default({ personal: false }),
     budgets: z
       .object({
-        analist: z.number().positive().default(1),
-        gelistir: z.number().positive().default(4),
-        commit: z.number().positive().default(0.5),
-        total: z.number().positive().default(6),
+        analist: z.number().positive().default(2),
+        gelistir: z.number().positive().default(6),
+        commit: z.number().positive().default(1),
+        total: z.number().positive().default(15),
       })
       .strict()
-      .default({ analist: 1, gelistir: 4, commit: 0.5, total: 6 }),
+      .default({ analist: 2, gelistir: 6, commit: 1, total: 15 }),
     maxIterations: z.number().int().min(1).max(10).default(3),
     model: z.string().default(""),
     roles: z
