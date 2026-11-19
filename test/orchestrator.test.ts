@@ -1523,3 +1523,41 @@ test("kalite: plan yorumu, kontrol hatası ve reviewer FAIL rework olarak sayıl
   const hist = fs.readFileSync(path.join(root, ".flowloop", "history.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
   assert.equal(hist.at(-1).quality.rework, 3);
 });
+
+test("bütçe: plan yorumundaki analist çağrısı, ilk plan bütçeyi neredeyse bitirse de en az yarısını alır", async () => {
+  const root = makeRepo();
+  const budgets: number[] = [];
+  const agent = new FakeAgent({ ...good, analist: (req) => { budgets.push(req.budgetUsd); fs.writeFileSync(planFile(req), "# Plan\nAK-1\n"); } }, 0.9);
+  let round = 0;
+  await runTask({
+    root, taskFile: ".flowloop/tasks/ekspres.md", agent, log: silentLogger(), noFetch: true, home: fs.mkdtempSync(path.join(os.tmpdir(), "flowloop-emptyhome-")),
+    planApproval: true,
+    reviewPlan: async () => (++round === 1 ? { action: "revise", comment: "sınırı yaz" } : { action: "cancel" }),
+  }).catch(() => undefined);
+  assert.equal(budgets[0], 1, "makeRepo: analist bütçesi $1");
+  assert.equal(budgets[1], 0.5, "ilk çağrı $0.90 harcadı; yorum çağrısı $0.10 değil $0.50 alır");
+});
+
+test("bütçe: SDK bütçe dolunca hata fırlatırsa da ek bütçe sorulur ve aynı oturumdan devam edilir", async () => {
+  const { runWithBudget, isBudgetError } = await import("../src/agent.js");
+  assert.ok(isBudgetError("Claude Code returned an error result: Reached maximum budget ($0.1171624)"));
+  assert.ok(!isBudgetError("rate limit"));
+  let n = 0;
+  const seen: (string | undefined)[] = [];
+  const agent: AgentRunner = {
+    async run(req) {
+      seen.push(req.resumeSessionId);
+      if (++n === 1) return { ok: false, text: "", costUsd: 0.12, denials: [], sessionId: "oturum-9", error: "Claude Code returned an error result: Reached maximum budget ($0.12)", budgetExceeded: true };
+      return { ok: true, text: "plan yazıldı", costUsd: 0.4, denials: [], sessionId: "oturum-9" };
+    },
+  };
+  let asked = 0;
+  const r = await runWithBudget(agent, { role: "analist", budgetUsd: 0.12, log: silentLogger() } as unknown as AgentRequest, { totalSpentBefore: 0, extendBudget: async () => (++asked, 1) });
+  assert.equal(asked, 1);
+  assert.deepEqual(seen, [undefined, "oturum-9"]);
+  assert.equal(r.ok, true);
+  // fırlatılan hata (oturum kimliği bilinmeden) da bütçe dolması sayılır
+  const thrower: AgentRunner = { async run() { throw new Error("Claude Code returned an error result: Reached maximum budget ($0.05)"); } };
+  const t = await runWithBudget(thrower, { role: "analist", budgetUsd: 0.05, log: silentLogger() } as unknown as AgentRequest, { totalSpentBefore: 0 });
+  assert.equal(t.budgetExceeded, true);
+});

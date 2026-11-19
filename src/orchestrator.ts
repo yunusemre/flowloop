@@ -1015,10 +1015,13 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
   log.step("1/3 ANALİST  (okur, plan yazar — kod değiştiremez)");
   summary.planFeedback = [];
   let analistBudget = cfg.budgets.analist;
+  // her analist çağrısı (plan yorumu, açık sorular, kırılım düzeltmesi) en az bütçenin yarısını alır:
+  // ilk plan bütçenin çoğunu harcadıysa sonraki çağrı birkaç sentle başlayıp yarıda kalmasın (toplam bütçe yine sınırdır)
+  const analistCallBudget = () => Math.max(analistBudget, cfg.budgets.analist / 2);
   const runAnalist = async (feedback = "") => {
     const h0 = workingTreeHash(wt, X);
     const before = fs.existsSync(files.plan) ? readText(files.plan) : "";
-    const res = await call(roles.analist, "analist", analistBudget, { planFeedback: feedback });
+    const res = await call(roles.analist, "analist", analistCallBudget(), { planFeedback: feedback });
     analistBudget = Math.max(0.05, analistBudget - res.costUsd);
     if (workingTreeHash(wt, X) !== h0) fail("Analist kod değiştirdi! Rol ihlali.");
     if (!fs.existsSync(files.plan) || !readText(files.plan).trim()) fail("Analist plan yazmadı.");
@@ -1028,7 +1031,7 @@ export async function runTask(opts: RunOptions): Promise<RunSummary> {
       const errs = breakdownErrors();
       if (!errs.length) break;
       log.warn(`İş kırılımı kurallara uymuyor, analist düzeltiyor:\n${errs.map((e) => `  - ${e}`).join("\n")}`);
-      const fix = await call(roles.analist, "analist", Math.max(0.05, analistBudget), {
+      const fix = await call(roles.analist, "analist", analistCallBudget(), {
         planFeedback: `Plandaki "## İş kırılımı" bölümü kurallara uymuyor. SADECE o bölümü düzelt, planın geri kalanına dokunma:\n${errs.map((e) => `- ${e}`).join("\n")}`,
       });
       analistBudget = Math.max(0.05, analistBudget - fix.costUsd);

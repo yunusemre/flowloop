@@ -64,6 +64,9 @@ export function limitMessage(text: string | undefined): string | undefined {
 }
 
 /** agent.run fırlatırsa (ör. SDK limit hatası) sonucu hataya çevirir; yarım iş çalışma kopyasında kalır */
+/** Bütçe dolması: sonuç tipi (error_max_budget_usd) ya da SDK'nın hata metni */
+export const isBudgetError = (msg = "") => /maximum budget|max_budget|error_max_budget_usd/i.test(msg);
+
 async function safeRun(agent: AgentRunner, req: AgentRequest): Promise<AgentResult> {
   try {
     const r = await agent.run(req);
@@ -71,7 +74,7 @@ async function safeRun(agent: AgentRunner, req: AgentRequest): Promise<AgentResu
     return lim ? { ...r, limitReached: lim } : r;
   } catch (e) {
     const msg = (e as Error)?.message ?? String(e);
-    return { ok: false, text: "", costUsd: 0, denials: [], error: msg.split("\n")[0].slice(0, 300), limitReached: limitMessage(msg) };
+    return { ok: false, text: "", costUsd: 0, denials: [], error: msg.split("\n")[0].slice(0, 300), limitReached: limitMessage(msg), budgetExceeded: isBudgetError(msg) };
   }
 }
 
@@ -177,7 +180,10 @@ export class SdkAgentRunner implements AgentRunner {
     let ok = false;
     let budgetExceeded = false;
     const models = new Set<string>();
+    try {
     for await (const msg of q) {
+      // oturum kimliği ilk mesajdan alınır: ajan yarıda kesilse de aynı oturumdan devam edilebilsin
+      if ("session_id" in msg && typeof msg.session_id === "string" && msg.session_id) sessionId = msg.session_id;
       if (msg.type === "assistant") {
         if (msg.message.model && !msg.parent_tool_use_id) models.add(msg.message.model);
         for (const block of msg.message.content as Array<{ type: string; text?: string; name?: string; input?: Record<string, unknown> }>) {
@@ -196,6 +202,13 @@ export class SdkAgentRunner implements AgentRunner {
           error = `${msg.subtype}${msg.errors?.length ? ": " + msg.errors.join("; ") : ""}`;
         }
       }
+    }
+    } catch (e) {
+      // SDK'nın yeni sürümleri bütçe dolunca sonuç yerine hata fırlatır ("Reached maximum budget"):
+      // bütçe dolması olarak işaretle ki ek bütçe sorulsun ve ajan aynı oturumdan devam etsin
+      const m = (e as Error)?.message ?? String(e);
+      if (!isBudgetError(m)) throw e;
+      return { ok: false, text, costUsd: cost || req.budgetUsd, sessionId, error: m.split("\n")[0].slice(0, 300), denials, models: [...models], budgetExceeded: true };
     }
     return { ok, text, costUsd: cost, sessionId, error, denials, models: [...models], budgetExceeded };
   }
